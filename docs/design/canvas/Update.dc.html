@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Tell us where you’re up to</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+.card{background:#ffffff;border:1px solid #e2ded9;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.q{margin:0;font-size:21px;font-weight:700}
+.num{color:#59315f}
+.help{margin:0;font-size:15px;color:#4a4650;line-height:1.45}
+.lbl{display:block;font-size:14px;font-weight:600;color:#3e3b39;margin-bottom:6px}
+.inp{box-sizing:border-box;width:100%;height:44px;padding:0 12px;border:1px solid #8f8996;border-radius:6px;background:#ffffff;font:inherit;font-size:16px;color:#2b2a2e}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:16px;border:1px solid #c9c4cf;border-radius:8px;cursor:pointer}
+.opt-on{border:2px solid #59315f;background:#faf7fb}
+.chip{height:40px;padding:0 16px;border:1px solid #8f8996;border-radius:20px;background:#ffffff;font:inherit;font-size:15px;color:#3e3b39;cursor:pointer}
+.chip-on{background:#59315f;border-color:#59315f;color:#ffffff;font-weight:600}
+.cta{display:inline-flex;align-items:center;justify-content:center;height:52px;padding:0 28px;border-radius:6px;background:#ffb500;color:#2b2a2e;font-size:17px;font-weight:700;text-decoration:none}
+.cta:hover{color:#2b2a2e;background:#f0a800}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1640px; box-sizing: border-box; display: flex; flex-direction: column; background: #f4f2ef">
+
+<header style="height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 1200px; display: flex; align-items: center; justify-content: space-between">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+<span style="font-size: 15px; color: #4a4650">Questions? Call [AM name] on [AM phone]</span>
+</div>
+</header>
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; gap: 24px; padding: 28px 0 40px 0; box-sizing: border-box; width: 100%; max-width: 1200px; align-self: center">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a href="Main.dc.html" style="font-size: 15px; text-decoration: none">← Your projects</a>
+<h1 style="margin: 0; font-size: 32px; font-weight: 700">Tell us where you’re up to</h1>
+<div style="font-size: 17px; color: #4a4650">New build – Plot 4 · [Site address] · <a href="#">View quote</a></div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start">
+
+<div style="display: flex; flex-direction: column; gap: 20px">
+
+<section class="card">
+<h2 class="q"><span class="num">1</span>  Are you still planning to go ahead?</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<label class="opt opt-on"><input type="radio" name="plan" checked style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #59315f"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700">Yes</span><span style="font-size: 14px; color: #4a4650">We plan to order</span></span></label>
+<label class="opt"><input type="radio" name="plan" style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #59315f"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700">Still deciding</span><span style="font-size: 14px; color: #4a4650">Comparing options or waiting on something</span></span></label>
+<label class="opt"><input type="radio" name="plan" style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #59315f"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 700">No</span><span style="font-size: 14px; color: #4a4650">We’re not going ahead</span></span></label>
+</div>
+<p class="help">If you choose No, we’ll ask briefly why, so we can improve.</p>
+</section>
+
+<section class="card">
+<h2 class="q"><span class="num">2</span>  Where is your build up to?</h2>
+<p class="help">This tells us when your heating system will be needed.</p>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div><label class="lbl" for="bs">Build stage</label><select id="bs" class="inp"><option>Choose… [build stages from NetSuite]</option></select></div>
+<div><label class="lbl" for="dd">When will you need delivery?</label><input id="dd" class="inp" placeholder="dd/mm/yyyy"><div style="font-size: 14px; color: #5f5b66; margin-top: 6px">Your best guess is fine</div></div>
+</div>
+</section>
+
+<section class="card">
+<h2 class="q"><span class="num">3</span>  How do you feel about your quote?</h2>
+<p class="help">Pick anything that’s on your mind. It helps [AM first name] help you.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button class="chip">Happy with it</button>
+<button class="chip chip-on" aria-pressed="true">Price</button>
+<button class="chip">What’s included</button>
+<button class="chip">Choice of heat source</button>
+<button class="chip">Timing</button>
+<button class="chip">Waiting on my builder or architect</button>
+<button class="chip">Something else</button>
+</div>
+<div style="font-size: 14px; color: #5f5b66">[Topics come from the objection types set up in NetSuite]</div>
+<div><label class="lbl" for="fb">Tell us more (optional)</label><textarea id="fb" class="inp" style="height: 96px; padding: 10px 12px; resize: vertical" placeholder="For example: we’re waiting for a second quote, or we’d like to compare a smaller heat pump"></textarea></div>
+</section>
+
+<section class="card">
+<h2 class="q"><span class="num">4</span>  Would you like a call?</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button class="chip chip-on" aria-pressed="true">No, thanks</button>
+<button class="chip">Yes, in the morning</button>
+<button class="chip">Yes, in the afternoon</button>
+</div>
+</section>
+
+<div style="display: flex; align-items: center; gap: 20px">
+<a href="Main.dc.html" class="cta">Send update</a>
+<a href="Main.dc.html" style="font-size: 16px">Cancel</a>
+</div>
+
+</div>
+
+<aside class="card" style="gap: 12px">
+<div style="display: flex; gap: 14px; align-items: center">
+<div class="ph" style="width: 64px; height: 64px; border-radius: 32px; flex-shrink: 0; font-size: 11px">[photo]</div>
+<div style="display: flex; flex-direction: column">
+<span style="font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #5f5b66; font-weight: 600">Goes to</span>
+<span style="font-size: 18px; font-weight: 700">[AM name]</span>
+</div>
+</div>
+<p style="margin: 0; font-size: 15px; color: #3e3b39; line-height: 1.45">A quick update means we can have your system designed and ready when your build needs it, and saves you chasing calls.</p>
+<p style="margin: 0; font-size: 15px; color: #3e3b39; line-height: 1.45">It takes about a minute. Only question 1 is required.</p>
+</aside>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1640}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

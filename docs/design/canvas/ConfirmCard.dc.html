@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Delivery requested — card</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+</style>
+</helmet>
+<div style="width: 720px; height: 880px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; background: #f4f2ef">
+
+<header style="width: 100%; height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; align-items: center; padding: 0 40px; box-sizing: border-box">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+</header>
+
+<main style="width: 600px; padding: 36px 0; display: flex; flex-direction: column; gap: 20px">
+
+<div style="background: #ffffff; border: 1px solid #e2ded9; border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 14px; align-items: center; text-align: center">
+<div style="width: 64px; height: 64px; border-radius: 32px; background: #e6f2ec; display: flex; align-items: center; justify-content: center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1f5c3f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 700">Delivery requested</h1>
+<p style="margin: 0; font-size: 17px; color: #3e3b39; line-height: 1.5">Thanks. We’ve noted Tue 13 Oct 2026, morning, for your underfloor heating system. Your account manager will call you to take card payment, then we’ll book your delivery.</p>
+</div>
+
+<div style="background: #ffffff; border: 1px solid #e2ded9; border-radius: 10px; padding: 24px; display: flex; gap: 20px; align-items: center">
+<div class="ph" style="width: 88px; height: 88px; border-radius: 44px; flex-shrink: 0">[photo]</div>
+<div style="display: flex; flex-direction: column; gap: 4px; flex-grow: 1">
+<span style="font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #5f5b66; font-weight: 600">Your account manager</span>
+<span style="font-size: 22px; font-weight: 700">[AM name]</span>
+<span style="font-size: 16px; color: #4a4650">[AM phone] · [AM email]</span>
+</div>
+</div>
+
+<div style="background: #ffffff; border: 1px solid #e2ded9; border-radius: 10px; padding: 24px 28px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 700">What happens next</h2>
+<ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; color: #3e3b39; line-height: 1.4">
+<li>[AM first name] calls you to take payment. We never ask for card details online.</li>
+<li>Once payment is taken, we book the delivery.</li>
+<li>We email you to confirm the date.</li>
+</ol>
+</div>
+
+<a href="Main.dc.html" style="align-self: center; font-size: 16px">Back to your projects</a>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":880}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
