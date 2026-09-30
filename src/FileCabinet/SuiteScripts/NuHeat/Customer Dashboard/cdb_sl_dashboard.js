@@ -16,7 +16,10 @@
  * anywhere in this repo.
  *
  * WHAT THIS SCRIPT WRITES — and nothing else:
- *   - the sales order fields in brief B5 (setOrderFields below);
+ *   - the sales order fields in brief B5 (setOrderFields below), plus, from 1.1, two OPTIONAL
+ *     fields written only when so.getField() finds them on the loaded record:
+ *     custbody_cdb_awaiting_payment := true (never cleared by anything in this repo) and
+ *     custbody_edd_certainty := custscript_cdb_edd_definite_value (skipped when that is empty);
  *   - one Task per request (lib/cdb_lib_task.js).
  * It NEVER writes custbody_del_date (the confirmed date: a workflow runs from it),
  * custbody_finance_status, any opportunity field or any customer field.
@@ -32,7 +35,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.1.0
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -40,7 +43,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.1.0';
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -107,6 +110,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             { salesRep: ctx.customer.salesRep, pe: '', valueProposition: '' }, ctx.cfg);
         return render.dashboard({
             customerName: ctx.customer.name,
+            greetingName: ctx.customer.greetingName,
             logoUrl: ctx.cfg.LOGO_URL,
             am: am,
             groups: groups,
@@ -150,6 +154,13 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var vehicle = data.getListOptions(config.RECORD_TYPES.LIST_VEHICLE, ctx.cfg.VEHICLE_VALUES);
         var unload = data.getListOptions(config.RECORD_TYPES.LIST_UNLOAD, ctx.cfg.UNLOAD_VALUES);
         var address = data.getAddressBook(ctx.customer.id);
+        var hints = config.parseOptionHints(ctx.cfg.OPTION_HINTS);
+
+        // Once per request (formContext runs once per GET or POST). Never fails the page.
+        if (hints.status === 'invalid') {
+            log.audit({ title: title('OPTION_HINTS_INVALID'), details: 'custscript_cdb_option_hints ignored: ' +
+                hints.detail });
+        }
 
         if (time.missing.length || vehicle.missing.length || unload.missing.length) {
             log.audit({
@@ -166,6 +177,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             months: dates.calendarMonths(todayKey, lastKey),
             options: { time: time.options, vehicle: vehicle.options, unload: unload.options,
                 address: address },
+            hints: hints.hints,
             am: accountManager(guard.opportunity, ctx.cfg)
         };
     }
@@ -211,7 +223,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             errors: errors || {},
             hasErrors: hasErrors,
             options: fc.options,
-            limits: config.TEXT_LIMITS
+            limits: config.TEXT_LIMITS,
+            hints: fc.hints,
+            guidance: config.DELIVERY_GUIDANCE,
+            noticeDays: ctx.cfg.NOTICE_DAYS
         });
     }
 
@@ -250,14 +265,20 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     }
 
     /**
-     * Sets the B5 fields on the loaded order and returns old -> new for each.
+     * Sets the B5 fields on the loaded order, then the two optional 1.1 fields, and returns
+     * old -> new for each field written.
      * THE ONLY SALES ORDER WRITE IN THIS REPO. custbody_del_date and custbody_finance_status are
-     * not in this list and must never be added.
+     * not in this list and must never be added. custbody_cdb_awaiting_payment is only ever set
+     * TRUE here: staff release and bill the order and it stays ticked.
      */
-    function setOrderFields(so, v, fc, now) {
+    function setOrderFields(so, v, fc, now, cfg, orderId) {
         var dateText = function (value) {
             return value instanceof Date ? dates.formatLong(dates.keyFromLocalDate(value)) : String(value || '');
         };
+        var optional = [
+            { label: 'Awaiting customer payment', fieldId: SO.AWAITING_PAYMENT, value: true, newText: 'Yes',
+                checkbox: true }
+        ];
         var specs = [
             { label: 'Delivery date', fieldId: SO.SHIP_DATE, value: dates.localDateForWrite(v.date),
                 newText: dates.formatLong(v.date), date: true },
@@ -286,15 +307,40 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var oldValue;
         var oldText;
 
+        if (cfg.EDD_DEFINITE) {
+            optional.push({ label: 'EDD certainty', fieldId: SO.EDD_CERTAINTY, value: cfg.EDD_DEFINITE,
+                newText: '', selectText: true });
+        } else {
+            log.audit({ title: title('EDD_SKIPPED'), details: 'Sales order ' + orderId +
+                ': custscript_cdb_edd_definite_value is empty, so custbody_edd_certainty was not written' });
+        }
+        // An optional field the loaded record does not carry is skipped, never fatal.
+        for (i = 0; i < optional.length; i++) {
+            if (so.getField({ fieldId: optional[i].fieldId })) {
+                specs.push(optional[i]);
+            } else {
+                log.audit({ title: title('FIELD_MISSING'), details: 'Sales order ' + orderId + ': ' +
+                    optional[i].fieldId + ' is not on the record, so it was not written; the booking went ahead' });
+            }
+        }
+
         for (i = 0; i < specs.length; i++) {
             spec = specs[i];
             oldValue = so.getValue({ fieldId: spec.fieldId });
             try {
-                oldText = spec.date ? dateText(oldValue) : (so.getText({ fieldId: spec.fieldId }) || '');
+                oldText = spec.date ? dateText(oldValue) : spec.checkbox ? (oldValue === true || oldValue === 'T' ?
+                    'Yes' : 'No') : (so.getText({ fieldId: spec.fieldId }) || '');
             } catch (e) {
                 oldText = String(oldValue === null || oldValue === undefined ? '' : oldValue);
             }
             so.setValue({ fieldId: spec.fieldId, value: spec.value });
+            if (spec.selectText) {
+                try {
+                    spec.newText = so.getText({ fieldId: spec.fieldId }) || ('ID ' + spec.value);
+                } catch (e2) {
+                    spec.newText = 'ID ' + spec.value;
+                }
+            }
             changes.push({
                 label: spec.label,
                 fieldId: spec.fieldId,
@@ -355,7 +401,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 ' changed between guard and load: confirmed date or payment intent now set' });
             return renderDashboard(ctx, NOTICES.ALREADY.replace('{tranid}', guard.order.tranId));
         }
-        changes = setOrderFields(so, check.values, fc, now);
+        changes = setOrderFields(so, check.values, fc, now, ctx.cfg, guard.order.id);
         so.save({ ignoreMandatoryFields: true });
         log.audit({
             title: title('SO_UPDATED'),
@@ -401,6 +447,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             payment: check.values.payment,
             bank: bankOf(ctx.cfg),
             tranId: guard.order.tranId,
+            orderTitle: render.orderTitle(guard.order),
             dateKey: check.values.date,
             timeText: textOf(fc.options.time, check.values.time),
             backUrl: ctx.baseUrl

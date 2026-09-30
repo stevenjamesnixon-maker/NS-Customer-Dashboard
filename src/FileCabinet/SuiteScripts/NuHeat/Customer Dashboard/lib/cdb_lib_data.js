@@ -18,6 +18,11 @@
  *   4. its quote type is not an excluded one (Parts, FOC). A blank quote type is not excluded.
  * 1 and 2 are in the search; 3 and 4 are in isOpenOrder(), which is pure and node-tested.
  *
+ * THE QUOTE DESCRIPTION (1.1) is read from the sales order's ORIGINATING QUOTE through the
+ * createdFrom join: { name: 'custbody_quote_description', join: 'createdFrom' }. The field is
+ * confirmed on the Estimate only; an unjoined sales order column could make the search throw.
+ * cleanDescription() turns the stored HTML-ish value into plain text; render escapes it once.
+ *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
  * validateDelivery — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
@@ -26,14 +31,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.1
+ * @version 1.1.0
  */
 define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.0.1';
+    var VERSION = '1.1.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -64,6 +69,61 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
     };
 
     // ---------------------------------------------------------------- pure
+
+    /** Named entities the quote description is known to carry, plus the common ones. */
+    var NAMED_ENTITIES = {
+        amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: ' ', pound: '\u00a3',
+        euro: '\u20ac', ndash: '\u2013', mdash: '\u2014', hellip: '\u2026', lsquo: '\u2018',
+        rsquo: '\u2019', ldquo: '\u201c', rdquo: '\u201d', bull: '\u2022', middot: '\u00b7',
+        deg: '\u00b0', times: '\u00d7', copy: '\u00a9', reg: '\u00ae', trade: '\u2122',
+        frac12: '\u00bd', frac14: '\u00bc', frac34: '\u00be', sup2: '\u00b2', sup3: '\u00b3'
+    };
+
+    /** A code point as a string, surrogate pairs included (ES5 has no fromCodePoint). */
+    function fromCodePoint(code) {
+        if (!(code > 0 && code <= 0x10FFFF) || (code >= 0xD800 && code <= 0xDFFF)) {
+            return '';
+        }
+        if (code <= 0xFFFF) {
+            return String.fromCharCode(code);
+        }
+        code -= 0x10000;
+        return String.fromCharCode(0xD800 + (code >> 10), 0xDC00 + (code & 0x3FF));
+    }
+
+    /**
+     * Pure: decodes HTML entities ONCE — named, &#nnn; and &#xhh;. An unknown named entity is
+     * left as it is.
+     */
+    function decodeEntities(text) {
+        return String(text).replace(/&(#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]*);/g,
+            function (whole, body) {
+                if (body.charAt(0) === '#') {
+                    return fromCodePoint(body.charAt(1) === 'x' || body.charAt(1) === 'X' ?
+                        parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10));
+                }
+                return NAMED_ENTITIES.hasOwnProperty(body) ? NAMED_ENTITIES[body] : whole;
+            });
+    }
+
+    /**
+     * Pure: the quote description as plain text, as Send Quote cleans it:
+     * decode entities -> strip tags -> collapse whitespace. DECODE BEFORE STRIPPING, never after:
+     * "&lt;b&gt;" must become "<b>" and then be stripped, not survive as text. The result is NOT
+     * escaped; the renderer escapes it exactly once.
+     *
+     * @param {*} raw
+     * @returns {string}
+     */
+    function cleanDescription(raw) {
+        if (raw === null || raw === undefined) {
+            return '';
+        }
+        return decodeEntities(String(raw))
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/[\s\u00a0]+/g, ' ')
+            .replace(/^ +| +$/g, '');
+    }
 
     function trim(value) {
         return String(value === null || value === undefined ? '' : value).replace(/^\s+|\s+$/g, '');
@@ -385,6 +445,7 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
         return {
             id: String(customerId),
             name: name || trim(r.entityid),
+            greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
             email: trim(r.email),
             salesRep: lookupSelect(r.salesrep).value,
             dashboardContact: lookupSelect(r[CUST.DASHBOARD_CONTACT]).value,
@@ -484,10 +545,16 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
         });
     }
 
+    /** The description column: joined through the originating quote, never unjoined. */
+    function descriptionColumn() {
+        return search.createColumn({ name: config.FIELDS.QUOTE.DESCRIPTION, join: config.FIELDS.QUOTE.JOIN });
+    }
+
     /** The order columns every order read uses. */
     function orderColumns() {
         return ['tranid', 'entity', SO.OPPORTUNITY, SO.RECORD_STATUS, SO.QUOTE_TYPE,
-            SO.CONFIRMED_DATE, SO.PAY_INTENT, SO.READY, SO.HOLD_REASON, SO.SHIP_DATE, SO.TIME];
+            SO.CONFIRMED_DATE, SO.PAY_INTENT, SO.READY, SO.HOLD_REASON, SO.SHIP_DATE, SO.TIME,
+            descriptionColumn()];
     }
 
     /** Shapes one sales order search result. */
@@ -505,7 +572,9 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             ready: isTicked(r.getValue(SO.READY)),
             holdReason: trim(r.getValue(SO.HOLD_REASON)),
             shipDateKey: dateKey(r.getValue(SO.SHIP_DATE)),
-            timeText: trim(r.getText(SO.TIME))
+            timeText: trim(r.getText(SO.TIME)),
+            description: cleanDescription(r.getValue({ name: config.FIELDS.QUOTE.DESCRIPTION,
+                join: config.FIELDS.QUOTE.JOIN }))
         };
     }
 
@@ -720,6 +789,9 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
         resolveRecipient: resolveRecipient,
         headerOpportunity: headerOpportunity,
         looksLikeEmail: looksLikeEmail,
+        decodeEntities: decodeEntities,
+        cleanDescription: cleanDescription,
+        orderColumns: orderColumns,
         validateDelivery: validateDelivery,
         openOrderFilters: openOrderFilters,
         dateKey: dateKey,

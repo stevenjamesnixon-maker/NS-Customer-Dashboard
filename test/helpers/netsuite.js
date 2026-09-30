@@ -10,7 +10,7 @@ function keyOf(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
 
 function world() {
     var w = {
-        logs: [], tasks: [], saves: [], emails: [], submits: [], contacts: {},
+        logs: [], tasks: [], saves: [], emails: [], submits: [], contacts: {}, missingFields: [],
         customers: {
             42: { isinactive: false, custentity_cdb_link_version: '', entityid: 'C42', companyname: 'Acme Ltd',
                 isperson: false, email: 'acme@example.com', salesrep: [{ value: '88', text: 'Rep' }],
@@ -97,6 +97,13 @@ function stubs(w) {
                     }
                 });
             } else if (def.type === 'salesorder') {
+                // The quote description is confirmed on the Estimate only: model the risk that an
+                // unjoined sales order column makes the search throw.
+                (def.columns || []).forEach(function (c) {
+                    if (c === 'custbody_quote_description' || (c && c.name === 'custbody_quote_description' && !c.join)) {
+                        throw new Error('An nlobjSearchColumn contains an invalid column: custbody_quote_description.');
+                    }
+                });
                 var st = findClause(def.filters, 'status');
                 var byId = findClause(def.filters, 'internalid');
                 var byOpp = null;
@@ -107,7 +114,15 @@ function stubs(w) {
                     if (byId && asList(byId[2]).indexOf(id) < 0) { return; }
                     if (byOpp && asList(byOpp[2]).indexOf(o.opportunity) < 0) { return; }
                     rows.push({ id: id,
-                        getValue: function (n) { return o[n] === undefined ? '' : o[n]; },
+                        getValue: function (n) {
+                            if (n && typeof n === 'object') {
+                                if (n.join === 'createdFrom' && n.name === 'custbody_quote_description') {
+                                    return o.quoteDescription || '';
+                                }
+                                n = n.name;
+                            }
+                            return o[n] === undefined ? '' : o[n];
+                        },
                         getText: function (n) {
                             if (n === 'custbody_quote_type') { return 'Underfloor heating system'; }
                             if (n === 'custbody_del_time_per') { return w.lists.customlist_del_time_per[o[n]] || ''; }
@@ -138,7 +153,11 @@ function stubs(w) {
             var pending = {};
             return {
                 getValue: function (f) { var v = pending.hasOwnProperty(f.fieldId) ? pending[f.fieldId] : src[f.fieldId]; return v === undefined ? '' : v; },
-                getText: function (f) { return String(this.getValue(f)); },
+                getText: function (f) {
+                    if (f.fieldId === 'custbody_edd_certainty') { return { 3: 'Customer Definite' }[this.getValue(f)] || ''; }
+                    return String(this.getValue(f));
+                },
+                getField: function (f) { return w.missingFields.indexOf(f.fieldId) >= 0 ? null : { id: f.fieldId }; },
                 setValue: function (f) { pending[f.fieldId] = f.value; },
                 save: function (opts) {
                     w.saves.push({ id: o.id, values: pending, opts: opts });
@@ -170,7 +189,9 @@ function stubs(w) {
                 custscript_cdb_fallback_employee: '500', custscript_cdb_logo_url: '',
                 custscript_cdb_time_values: '2,5,3', custscript_cdb_vehicle_values: '1,2',
                 custscript_cdb_unload_values: '1,2,3', custscript_cdb_pe_valueprops: '2,3', custscript_cdb_notice_days: '3',
-                custscript_cdb_bank_name: 'Test Bank', custscript_cdb_bank_sort: '11-22-33', custscript_cdb_bank_account: '87654321' };
+                custscript_cdb_bank_name: 'Test Bank', custscript_cdb_bank_sort: '11-22-33', custscript_cdb_bank_account: '87654321',
+                custscript_cdb_edd_definite_value: '3',
+                custscript_cdb_option_hints: '{"vehicle":{"1":"Up to 16 m long"},"unload":{"3":"Bring helpers"}}' };
             return { id: w.scriptId || 'customscript_cdb_sl_dashboard', getParameter: function (o) { return p[o.name]; },
                 getRemainingUsage: function () { return 900; } };
         } },

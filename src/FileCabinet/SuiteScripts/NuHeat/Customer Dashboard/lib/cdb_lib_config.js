@@ -26,13 +26,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.1.0
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.1.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -90,7 +90,19 @@ define(['N/runtime'], function (runtime) {
             SPECIAL_REQUESTS: 'custbody_special_requests',
             PAY_INTENT: 'custbody_cust_pay_intent',
             BOOKING_REQUESTED: 'custbody_cust_booking_req',
-            SHIP_ADDRESS: 'shipaddresslist'
+            SHIP_ADDRESS: 'shipaddresslist',
+            // 1.1. Optional on the loaded record: written only when so.getField() finds them.
+            AWAITING_PAYMENT: 'custbody_cdb_awaiting_payment',
+            EDD_CERTAINTY: 'custbody_edd_certainty'
+        },
+        /**
+         * Read from the sales order's ORIGINATING QUOTE through the createdFrom join. Confirmed
+         * on the Estimate only: never add it as an unjoined sales order column, which can make
+         * the whole search throw if the field does not apply to sales orders.
+         */
+        QUOTE: {
+            JOIN: 'createdFrom',
+            DESCRIPTION: 'custbody_quote_description'
         },
         NON_DELIVERY: {
             DATE: 'custrecord_cdb_nd_date'
@@ -126,6 +138,21 @@ define(['N/runtime'], function (runtime) {
     var BOOKING_HORIZON_MONTHS = 6;
 
     var DIGEST_MODES = { TEST: 'TEST', LIVE: 'LIVE' };
+
+    /**
+     * The guidance above the vehicle and unloading options (release 1.1). Customer-facing wording,
+     * so it lives here rather than in the render code. Each paragraph is [bold lead, rest]; both
+     * parts are escaped when rendered.
+     */
+    var DELIVERY_GUIDANCE = [
+        ['Most deliveries come on an articulated lorry, up to 16 m long and 4 m tall.',
+            ' If there are narrow lanes, low branches, tight turns or narrow gates on the way, ' +
+            'choose a smaller vehicle and we\u2019ll arrange it.'],
+        ['Unloading:',
+            ' the driver unloads at the nearest flat, level, hard surface, such as the kerbside ' +
+            'or a driveway, and can\u2019t move it further. Please have people on site to help ' +
+            'carry everything into dry storage. Pallets can weigh up to 1,250 kg.']
+    ];
 
     /**
      * Parameter kinds:
@@ -177,6 +204,11 @@ define(['N/runtime'], function (runtime) {
         BANK_NAME: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_name' } },
         BANK_SORT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_sort' } },
         BANK_ACCOUNT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_account' } },
+        // 1.1. JSON hints for the vehicle and unloading option cards. Parsed by parseOptionHints();
+        // a bad value never fails the page.
+        OPTION_HINTS: { kind: 'text', empty: 'none', ids: { SL: 'custscript_cdb_option_hints' } },
+        // 1.1. The customlist955 ID for "Customer Definite". Empty writes nothing (fails closed).
+        EDD_DEFINITE: { kind: 'id', empty: 'none', ids: { SL: 'custscript_cdb_edd_definite_value' } },
 
         DIGEST_MODE: { kind: 'mode', empty: 'throw', ids: { MR: 'custscript_cdb_digest_mode' } },
         DIGEST_TEST_CUSTOMERS: { kind: 'idlist', empty: 'throw', onlyInTestMode: true,
@@ -332,6 +364,64 @@ define(['N/runtime'], function (runtime) {
     }
 
     /**
+     * Pure: parses custscript_cdb_option_hints. Never throws.
+     *
+     *   {"vehicle": {"<id>": "<hint>", ...}, "unload": {"<id>": "<hint>", ...}}
+     *
+     * Either key may be missing, and any ID may be missing: that option shows its title only.
+     * Entries whose key is not a whole number or whose value is not a non-empty string are
+     * ignored. Anything that is not a JSON object with object-or-absent vehicle/unload is invalid.
+     *
+     * @param {string} raw
+     * @returns {{status: string, hints: {vehicle: Object, unload: Object}, detail: string}}
+     *   status 'empty' | 'ok' | 'invalid'
+     */
+    function parseOptionHints(raw) {
+        var result = { status: 'empty', hints: { vehicle: {}, unload: {} }, detail: '' };
+        var parsed;
+        var groups = ['vehicle', 'unload'];
+        var i;
+        var group;
+        var key;
+
+        if (isBlank(raw)) {
+            return result;
+        }
+        try {
+            parsed = JSON.parse(String(raw));
+        } catch (e) {
+            result.status = 'invalid';
+            result.detail = 'not JSON: ' + (e && e.message ? e.message : String(e));
+            return result;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            result.status = 'invalid';
+            result.detail = 'not a JSON object';
+            return result;
+        }
+        for (i = 0; i < groups.length; i++) {
+            group = parsed[groups[i]];
+            if (group === undefined || group === null) {
+                continue;
+            }
+            if (typeof group !== 'object' || Array.isArray(group)) {
+                result.status = 'invalid';
+                result.detail = '"' + groups[i] + '" is not an object';
+                result.hints = { vehicle: {}, unload: {} };
+                return result;
+            }
+            for (key in group) {
+                if (group.hasOwnProperty(key) && /^\d+$/.test(key) && typeof group[key] === 'string' &&
+                        !isBlank(group[key])) {
+                    result.hints[groups[i]][key] = group[key].replace(/^\s+|\s+$/g, '');
+                }
+            }
+        }
+        result.status = 'ok';
+        return result;
+    }
+
+    /**
      * Pure: the error load() throws.
      * @param {string[]} missing
      * @returns {Error}
@@ -396,6 +486,8 @@ define(['N/runtime'], function (runtime) {
         TEXT_LIMITS: TEXT_LIMITS,
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
+        DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
+        parseOptionHints: parseOptionHints,
         PARAMETERS: PARAMETERS,
         isBlank: isBlank,
         parseIdList: parseIdList,

@@ -6,7 +6,11 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 30 Sep 2026 (release 1, PR #1). **Status:** not deployed.
+**Last updated:** 30 Sep 2026 (release 1.1, `feat/dashboard-r1-1`). **Status:** release 1 passed its Production
+test on 30 Sep 2026; release 1.1 not deployed.
+
+**Design source:** `docs/design/canvas/` (read its README). Release 1.1 builds `Main`, `Mobile`,
+`Delivery`, `ConfirmBacs`, `ConfirmCard` and `Email`. `Order` and `Update` are release 2.
 
 ---
 
@@ -39,6 +43,17 @@ on. It does not describe the wider NetSuite account.
    returns one row per opportunity. Sales order searches accept it and keep it. Found in
    Production on the first TEST digest run, fixed in 1.0.1.
 
+8. **The quote description is read via the `createdFrom` join.** `custbody_quote_description` is
+   confirmed on the **Estimate** only. The sales order searches read it as
+   `{ name: 'custbody_quote_description', join: 'createdFrom' }` — the order's originating quote.
+   **Never add it as an unjoined sales order column**: if the field does not apply to sales
+   orders, an unjoined column can make the whole search throw.
+
+9. **`getField` before writing optional fields.** `custbody_cdb_awaiting_payment` and
+   `custbody_edd_certainty` are written only when `so.getField({ fieldId })` finds them on the
+   loaded record; otherwise `CDB FIELD_MISSING` and the booking goes ahead. A missing optional
+   field must never cost the customer their booking.
+
 ---
 
 ## 1. What this solves
@@ -62,13 +77,13 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.0.1 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
-| Config library | 1.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
+| Dashboard Suitelet | 1.1.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 1.1.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Config library | 1.1.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
 | Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.0.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.0.0 | `lib/cdb_lib_render.js` | Pure HTML: page, sections, form, confirmations, email | Not deployed |
+| Data library | 1.1.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Render library | 1.1.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
 | Task library | 1.0.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -154,7 +169,13 @@ are hidden.
 4. Otherwise → **Needs information**, `custbody_delivery_hold_reason`, *Your account manager will
    be in touch*.
 
-The row is named after the quote type's text, with the SO number.
+The row's main line is the **quote description** (`custbody_quote_description` on the originating
+quote, through the `createdFrom` join — §0, 8), clamped to two lines with the full text in `title`,
+and under it, muted, *Order SO… · <quote type>*. An empty description falls back to the quote type,
+and both empty to *Your order* (`render.orderTitle()`, the one definition). The description is
+cleaned as Send Quote does — decode entities (named, `&#nnn;`, `&#xhh;`) → strip tags → collapse
+whitespace — in `data.cleanDescription()`, and escaped once when rendered. Decode before stripping,
+never after.
 
 ### The account manager (brief C6)
 
@@ -201,7 +222,10 @@ inclusive.
    `custbody_defaultshipdate`, `custbody_del_time_per`, `shipaddresslist`, `custbody_delivery_veh`,
    `custbody_unload_req`, `custbody_del_contact`, `custbody_delivery_con_num`,
    `custbody_delivery_con_email`, `custbody_special_requests`, `custbody_cust_pay_intent`,
-   `custbody_cust_booking_req` (now). Save with `ignoreMandatoryFields`. `CDB SO_UPDATED` logs every
+   `custbody_cust_booking_req` (now), and from 1.1, each only if `getField` finds it (§0, 9):
+   `custbody_cdb_awaiting_payment` = true (*Awaiting customer payment*) and `custbody_edd_certainty`
+   = `custscript_cdb_edd_definite_value` (*EDD certainty*; not written, `CDB EDD_SKIPPED`, when the
+   parameter is empty). Save with `ignoreMandatoryFields`. `CDB SO_UPDATED` logs every
    field old → new.
 3. **After** the save, the Task: title `Delivery requested: <tranid> – <customer>`, `assigned` per
    C6, `company` = customer, `transaction` = the **opportunity**, `message` = the changed fields old
@@ -256,6 +280,8 @@ and names every missing parameter.
 | `custscript_cdb_pe_valueprops` | — | Text (`2,3`) | none: always the sales rep; audit |
 | `custscript_cdb_notice_days` | — | Integer | 3; audit |
 | `custscript_cdb_bank_name`, `_bank_sort`, `_bank_account` | — | Text | throw |
+| `custscript_cdb_option_hints` (1.1) | — | Long Text: JSON `{"vehicle": {"<id>": "<hint>"}, "unload": {"<id>": "<hint>"}}` | no hints; invalid JSON also logs `CDB OPTION_HINTS_INVALID` once per request. Never fails the page |
+| `custscript_cdb_edd_definite_value` (1.1) | — | Integer: the `customlist955` ID for *Customer Definite* | EDD certainty not written; `CDB EDD_SKIPPED` per booking |
 | — | `custscript_cdb_digest_mode` | `TEST` \| `LIVE` | throw |
 | — | `custscript_cdb_digest_test_customers` | Text, comma list of customer IDs | throw when the mode is TEST |
 | — | `custscript_cdb_digest_days` | Integer | 14; audit |
@@ -280,8 +306,10 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **One generic invalid page.** Tampered, revoked, inactive, missing: the customer sees the same
   sentence, the log sees the reason.
 - **Output is escaped.** Every value from a record or a request goes through `esc()`.
-- **Nothing loads from a third-party host.** Inline CSS, no script, no Google Fonts. The only
-  external resource is the logo from `custscript_cdb_logo_url`.
+- **Almost nothing loads from a third-party host.** Inline CSS. From 1.1 the **pages** load Source
+  Sans 3 from Google Fonts (the email does not); otherwise the only external resource is the logo
+  from `custscript_cdb_logo_url`. The delivery form carries a small inline script (month switching,
+  the live summary); the form works and submits without it.
 - Responses carry `Cache-Control: no-store`, `X-Frame-Options: DENY`, `robots noindex` and
   `referrer no-referrer` so the token is not cached, framed, indexed or leaked in a Referer.
 
@@ -294,8 +322,15 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **Release 1 has no actions outside delivery.** Quotes and designs are shown, not actionable.
 - **The earliest date follows the brief's example** (skip N working days, then the next working day),
   not its prose. See section 10.
-- **The calendar is server-rendered** radio buttons, not a native date input. It works without
-  script; the server validates regardless.
+- **The calendar is server-rendered** radio buttons, not a native date input. Without script every
+  month renders stacked; with it, one month at a time. The server validates regardless.
+- **`custbody_cdb_awaiting_payment` is only ever set true.** Staff release and bill the order and it
+  stays ticked. Nothing in this repo may untick it; a node test scans the source for it.
+- **EDD certainty is set to Customer Definite on every booking, whatever it was**: the customer has
+  chosen a date. An empty parameter writes nothing (fails closed).
+- **Canvas actions release 1.1 does not have are left out**: *Start a new project*, *Place order*,
+  *Tell us where you're up to*, *Add design information*, *Provide information*, *Request design
+  changes*, and *View quote* / *View design* (no URL is read). No button goes nowhere.
 
 ---
 
@@ -307,8 +342,9 @@ account's lists before setting them**; they are not guaranteed to match between 
   *ready* can offer *Arrange delivery*.
 - **Two POSTs at the same instant** could both pass the guard and create two Tasks. The window is
   the few hundred milliseconds between the guard's search and the save.
-- **The selected calendar day is highlighted with CSS `:has()`.** Browsers without it still select
-  and submit correctly; they just don't colour the chosen day.
+- **The option and payment cards highlight the chosen card with CSS `:has()`.** Browsers without it
+  still show the checked radio and submit correctly. (The calendar and time segments use a sibling
+  selector and need no `:has()`.)
 - **A dashboard contact without an email** counts towards the LIVE cap and is then skipped, when
   the customer has no email either. The input search cannot read the contact's email.
 
@@ -330,6 +366,9 @@ Every title starts `CDB `.
 | `CDB TASK_FAILED` | error | The order was written but the Task was not | Create the Task by hand |
 | `CDB LIST_VALUE_MISSING` | audit | A parameter ID is not in its list, so is not offered | Fix the parameter |
 | `CDB REQUEST_FAILED` | error | Something of ours threw; the customer saw the error page | Read the stack |
+| `CDB OPTION_HINTS_INVALID` | audit | `custscript_cdb_option_hints` is not valid JSON of the right shape; options show titles only | Fix the JSON |
+| `CDB EDD_SKIPPED` | audit | `custscript_cdb_edd_definite_value` is empty, so EDD certainty was not written | Set the parameter |
+| `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
 | `CDB DIGEST_INPUT` | audit | Mode, and in LIVE how many are due, sent and left over | — |
 | `CDB DIGEST_SENT` / `DIGEST_SKIPPED` | audit | Per customer | — |
@@ -351,6 +390,8 @@ Steve deploys. Manual File Cabinet upload to
      (Checkbox), `custentity_cdb_last_digest` (Date).
    - Sales order (Steve has created these): `custbody_cust_pay_intent` → `customlist_cust_pay_intent`
      (BACS / Card, account manager to call), `custbody_cust_booking_req` (Date/Time).
+   - Sales order, 1.1 (Steve has created it): `custbody_cdb_awaiting_payment` (Check Box). Also
+     read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
 2. **The custom record** `customrecord_cdb_nondelivery` (*Non-delivery date*), field
    `custrecord_cdb_nd_date` (Date) plus its name. Add bank holidays and shutdowns for the next year.
 3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters,
@@ -415,6 +456,9 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | `shipaddresslist` set on a record loaded in standard mode | Selects the address book line; the ship address re-sources from it | Not verified. It may also re-source shipping and tax on the order |
 | Address book sublist fields `id`, `label`, `addressbookaddress_text` | As named | Not verified; `internalid` is read as a fallback for `id` |
 | POST to an Available Without Login Suitelet's external URL | Body fields arrive in `request.parameters` | Standard, not verified here |
+| 1.1: `{ name: 'custbody_quote_description', join: 'createdFrom' }` on a sales order search | Returns the originating estimate's description; blank when the order was not created from an estimate (or was created from an opportunity) | Not verified. The node stub models it; the brief says the field is confirmed on the Estimate |
+| 1.1: `record.getField({ fieldId })` on a record loaded in standard mode | Returns `null` for a field the record does not carry | Documented behaviour; not verified here |
+| 1.1: `getText` on `custbody_edd_certainty` after `setValue` in standard mode | Returns the new option's text, for the change log | Falls back to `ID <n>` if not |
 | Search type = a custom list's script ID (`customlist_del_time_per`), column `name` | Returns the options | Not verified |
 
 ### Contradictions in the brief — for Steve
@@ -445,6 +489,46 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 1.1 — contradictions and decisions for Steve
+
+1. **§3 asks for the description in the Task title and body, but the Task logic and
+   `cdb_lib_task.js` are out of scope.** Not done: the Task is unchanged (`Delivery requested:
+   <tranid> – <customer>`). Adding it is a one-line change in the Suitelet plus a title format change
+   in `cdb_lib_task.js`, once the scope allows it.
+2. **`custbody_cdb_awaiting_payment` is never cleared, so it can't tell paid from unpaid.** Once a
+   booking is made it stays ticked through payment, release and billing, so *waiting for payment*
+   (feedback 5) is true of every booked order forever. Staff need another signal (payment received,
+   or `custbody_del_date` set) to read it, or something outside this repo must untick it.
+3. **ConfirmBacs shows *Amount to pay*.** Release 1 decided no amount; left out.
+4. **ConfirmBacs labels the first row *Account name*;** the parameter is `custscript_cdb_bank_name`
+   (a bank name in release 1). Labelled *Bank name*. If the payee name is wanted, change the parameter
+   value and the label together.
+5. **The canvas's *Projects to order* sub-line** ("Not ready to order yet? A quick update helps us
+   plan.") invites the release 2 *Update* action. Replaced with "Quotes we've sent you".
+6. **Header:** the brief describes the Main header. The canvas gives Delivery a *Questions? Call …*
+   header and the confirmations a logo-only header; each page follows its artboard. The canvas's
+   AM **photo** (Main, ConfirmCard, Email) has no source, so it is left out everywhere.
+7. **Email footer wording is fixed at "every 2 weeks" in the brief**, but the interval is
+   `custscript_cdb_digest_days`. Rendered from the parameter: "every 2 weeks" at 14.
+8. **Email button:** a bulletproof padded table cell, not a VML roundrect, so the CTA URL appears
+   once (brief test 13). Outlook desktop shows it with square corners.
+9. **Email rows:** "one row per project", but a delivery project's orders each have their own
+   state, so there is one row per order there (as release 1). The email's badge wording follows
+   its artboard (*Action needed*, *In design*, *Quote stage*), not the dashboard's.
+10. **Email callout:** also shown when the only thing to do is a bank transfer. An order awaiting a
+    card payment is not counted: the customer has nothing to do.
+11. **Release 1's "nothing from third-party hosts" rule is relaxed** by this brief for Google Fonts
+    on the pages. Recorded in section 5.
+
+### Needs Steve (1.1)
+
+- **Workflows that write `custbody_edd_certainty`.** Nothing in this repo or NS-Opportunity-SO-Sync
+  writes it (searched on every branch). A workflow on the sales order could overwrite *Customer
+  Definite* after the booking saves; check the workflows on the sales order record.
+- **Workflows or scripts that read `custbody_cdb_awaiting_payment`**, given point 2 above.
+- Set `custscript_cdb_edd_definite_value` and `custscript_cdb_option_hints` (section 4), and add
+  `custbody_cdb_awaiting_payment` to the sales order forms staff use.
 
 ### NetSuite configuration tasks for Steve
 
