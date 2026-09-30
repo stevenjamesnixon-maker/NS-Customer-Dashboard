@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Your projects — phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center}
+.sec{background:#ffffff;border:1px solid #e2ded9;border-radius:10px;overflow:hidden}
+.sechead{display:flex;align-items:center;gap:10px;padding:14px 16px;background:#59315f;color:#ffffff}
+.sechead h2{margin:0;font-size:18px;font-weight:700}
+.count{font-size:13px;font-weight:700;background:#ffffff;color:#59315f;border-radius:10px;padding:0 8px}
+.row{display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-bottom:1px solid #ece8e3}
+.so{display:flex;flex-direction:column;gap:8px;padding:12px 16px 12px 28px;background:#faf9f7;border-top:1px solid #efece8}
+.name{font-size:17px;font-weight:700}
+.meta{font-size:14px;color:#5f5b66}
+.badge{display:inline-flex;align-self:flex-start;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:600}
+.cta{display:flex;align-items:center;justify-content:center;height:48px;border-radius:6px;background:#ffb500;color:#2b2a2e;font-size:16px;font-weight:700;text-decoration:none}
+.out{display:flex;align-items:center;justify-content:center;height:48px;border-radius:6px;border:1px solid #59315f;color:#59315f;font-size:16px;font-weight:600;text-decoration:none;box-sizing:border-box}
+</style>
+</helmet>
+<div style="width: 390px; height: 1900px; box-sizing: border-box; display: flex; flex-direction: column; background: #f4f2ef">
+
+<header style="height: 64px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; align-items: center; justify-content: space-between; padding: 0 16px">
+<div class="ph" style="width: 120px; height: 40px; border-radius: 4px">[Nu-Heat logo]</div>
+<a href="#" aria-label="Call your account manager" style="width: 44px; height: 44px; border: 1px solid #59315f; border-radius: 22px; display: flex; align-items: center; justify-content: center; box-sizing: border-box"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#59315f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"></path></svg></a>
+</header>
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; gap: 18px; padding: 20px 16px 28px 16px">
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 26px; font-weight: 700">Your projects</h1>
+<p style="margin: 0; font-size: 16px; color: #4a4650">Hello [Customer name]</p>
+</div>
+<a href="#" class="out">+ Start a new project</a>
+
+<section class="sec">
+<div class="sechead"><h2>Projects to order</h2><span class="count">2</span></div>
+<div style="padding: 10px 16px; background: #f7f5f3; font-size: 14px; color: #4a4650; border-bottom: 1px solid #ece8e3">Not ready to order yet? A quick update helps us plan.</div>
+<div class="row">
+<span class="name">New build – Plot 4</span>
+<span class="badge" style="background: #ecebe9; color: #4a4650">Quote sent [date]</span>
+<a href="Order.dc.html" class="cta">Place order</a>
+<a href="Update.dc.html" class="out">Tell us where you’re up to</a>
+<a href="#" style="font-size: 15px; font-weight: 600">View quote</a>
+</div>
+<div class="row" style="border-bottom: 0">
+<span class="name">Workshop</span>
+<span class="badge" style="background: #ecebe9; color: #4a4650">Quote sent [date]</span>
+<a href="Order.dc.html" class="cta">Place order</a>
+<a href="Update.dc.html" class="out">Tell us where you’re up to</a>
+<a href="#" style="font-size: 15px; font-weight: 600">View quote</a>
+</div>
+</section>
+
+<section class="sec">
+<div class="sechead"><h2>Projects in design</h2><span class="count">2</span></div>
+<div class="row">
+<span class="name">Loft extension</span>
+<span class="badge" style="background: #fdf0d8; color: #6e4400">We need information</span>
+<a href="#" class="cta">Add design information</a>
+<a href="#" style="font-size: 15px; font-weight: 600">View quote</a>
+</div>
+<div class="row" style="border-bottom: 0">
+<span class="name">Kitchen extension</span>
+<span class="badge" style="background: #efe9f1; color: #3d1f42">Designing your system</span>
+<span class="meta">Nothing needed from you</span>
+<a href="#" style="font-size: 15px; font-weight: 600">View quote</a>
+</div>
+</section>
+
+<section class="sec">
+<div class="sechead"><h2>Projects for delivery</h2><span class="count">2</span></div>
+<div class="row" style="border-bottom: 0; padding-bottom: 10px">
+<span class="name">Barn conversion</span>
+<span class="meta">[Site address] · 2 orders</span>
+<span style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 15px; font-weight: 600"><a href="#">View quote</a><a href="#">View design</a><a href="#">Request design changes</a></span>
+</div>
+<div class="so">
+<span style="font-size: 16px; font-weight: 600">Underfloor heating system</span>
+<span class="badge" style="background: #e6f2ec; color: #1f5c3f">Ready to deliver</span>
+<a href="Delivery.dc.html" class="cta">Arrange delivery</a>
+</div>
+<div class="so" style="border-bottom: 1px solid #ece8e3">
+<span style="font-size: 16px; font-weight: 600">Heat pump system</span>
+<span class="badge" style="background: #fdf0d8; color: #6e4400">Needs information · DNO approval</span>
+<a href="#" class="out">Provide information</a>
+</div>
+<div class="row" style="border-bottom: 0; padding-bottom: 10px">
+<span class="name">Garden room</span>
+<span class="meta">[Site address] · 2 orders</span>
+<span style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 15px; font-weight: 600"><a href="#">View quote</a><a href="#">View design</a><a href="#">Request design changes</a></span>
+</div>
+<div class="so">
+<span style="font-size: 16px; font-weight: 600">Underfloor heating system</span>
+<span class="badge" style="background: #e3edf7; color: #1d4f7a">Awaiting payment</span>
+<span class="meta">Requested Tue 13 Oct, morning</span>
+<a href="ConfirmBacs.dc.html" class="out">Payment details</a>
+</div>
+<div class="so">
+<span style="font-size: 16px; font-weight: 600">Manifold and controls</span>
+<span class="badge" style="background: #e6f2ec; color: #1f5c3f">Delivery booked · Thu 8 Oct</span>
+</div>
+</section>
+
+<p style="margin: 4px 0 0 0; font-size: 14px; color: #5f5b66; text-align: center">This link is personal to you. Please don’t share it.</p>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

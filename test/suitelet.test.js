@@ -84,12 +84,14 @@ test('valid BACS POST: SO fields, no del_date/finance status, Task to the PE, co
     var s = setup();
     var html = run(s.sl, 'POST', form({ t: s.tok }));
     var save = s.w.saves[0];
-    assert.ok(html.indexOf('<span class="ref">SO100</span>') > 0, html);
+    assert.ok(html.indexOf('<div class="srow ref"><span>Reference</span><span>SO100</span></div>') > 0, html);
     assert.strictEqual(s.w.saves.length, 1);
     assert.deepStrictEqual(Object.keys(save.values).sort(), [
         'custbody_cust_booking_req', 'custbody_cust_pay_intent', 'custbody_defaultshipdate', 'custbody_del_contact',
         'custbody_del_time_per', 'custbody_delivery_con_email', 'custbody_delivery_con_num', 'custbody_delivery_veh',
-        'custbody_special_requests', 'custbody_unload_req', 'shipaddresslist'].sort());
+        'custbody_special_requests', 'custbody_unload_req', 'shipaddresslist',
+        // 1.1: the two optional fields, present on this stub record.
+        'custbody_cdb_awaiting_payment', 'custbody_edd_certainty'].sort());
     assert.strictEqual(save.opts.ignoreMandatoryFields, true);
     assert.strictEqual(keyOf(save.values.custbody_defaultshipdate), validDate().first);
     assert.strictEqual(save.values.custbody_cust_pay_intent, '1');
@@ -128,6 +130,6 @@ test('a Task failure keeps the SO change and still confirms', function () {
     var sl = amd.load('cdb_sl_dashboard', st);
     var html = run(sl, 'POST', form({ t: s.tok }));
     assert.strictEqual(s.w.saves.length, 1);
-    assert.ok(html.indexOf('Thank you') > 0);
+    assert.ok(html.indexOf('Delivery requested') > 0);
     assert.ok(s.w.logs.some(function (l) { return l[0] === 'error' && l[1] === 'CDB TASK_FAILED'; }));
 });

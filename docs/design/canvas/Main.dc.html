@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Your projects</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+.sec{background:#ffffff;border:1px solid #e2ded9;border-radius:10px;overflow:hidden}
+.sechead{display:flex;align-items:baseline;gap:12px;padding:18px 24px;background:#59315f;color:#ffffff}
+.sechead h2{margin:0;font-size:20px;font-weight:700}
+.count{font-size:14px;font-weight:700;background:#ffffff;color:#59315f;border-radius:11px;padding:1px 9px}
+.secsub{font-size:15px;color:#e7d9ea}
+.colhead{display:grid;grid-template-columns:minmax(0,1fr) 280px 400px;gap:20px;padding:10px 24px;background:#f7f5f3;border-bottom:1px solid #e2ded9;font-size:13px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#5f5b66}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 280px 400px;gap:20px;align-items:center;padding:16px 24px;border-bottom:1px solid #ece8e3}
+.oprow{display:grid;grid-template-columns:minmax(0,1fr) 280px 400px;gap:20px;align-items:center;padding:16px 24px 10px 24px}
+.sorow{display:grid;grid-template-columns:minmax(0,1fr) 280px 400px;gap:20px;align-items:center;padding:12px 24px 12px 56px;background:#faf9f7;border-top:1px solid #efece8}
+.name{font-size:17px;font-weight:700}
+.meta{font-size:14px;color:#5f5b66}
+.badge{display:inline-flex;align-self:flex-start;align-items:center;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:600;white-space:nowrap}
+.b-ready{background:#e6f2ec;color:#1f5c3f}
+.b-need{background:#fdf0d8;color:#6e4400}
+.b-pay{background:#e3edf7;color:#1d4f7a}
+.b-work{background:#efe9f1;color:#3d1f42}
+.b-quote{background:#ecebe9;color:#4a4650}
+.acts{display:flex;justify-content:flex-end;align-items:center;gap:10px}
+.cta{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 20px;border-radius:6px;background:#ffb500;color:#2b2a2e;font-size:15px;font-weight:700;text-decoration:none;white-space:nowrap}
+.cta:hover{color:#2b2a2e;background:#f0a800}
+.out{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 16px;border-radius:6px;border:1px solid #59315f;color:#59315f;font-size:15px;font-weight:600;text-decoration:none;box-sizing:border-box;white-space:nowrap;background:#ffffff}
+.links{display:flex;gap:16px;font-size:14px;font-weight:600;margin-top:4px}
+.txt{font-size:15px;font-weight:600;white-space:nowrap}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1500px; box-sizing: border-box; display: flex; flex-direction: column; background: #f4f2ef">
+
+<header style="height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 1200px; display: flex; align-items: center; justify-content: space-between">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<div class="ph" style="width: 44px; height: 44px; border-radius: 22px; font-size: 10px">[photo]</div>
+<div style="display: flex; flex-direction: column">
+<span style="font-size: 13px; color: #5f5b66">Your account manager</span>
+<span style="font-size: 15px; font-weight: 600">[AM name] · [AM phone]</span>
+</div>
+</div>
+</div>
+</header>
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; gap: 28px; padding: 32px 0 40px 0; box-sizing: border-box; width: 100%; max-width: 1200px; align-self: center">
+
+<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 32px; font-weight: 700">Your projects</h1>
+<p style="margin: 0; font-size: 17px; color: #4a4650">Hello [Customer name]. Each project shows where it’s up to and what you can do next.</p>
+</div>
+<a href="#" class="out">+ Start a new project</a>
+</div>
+
+<section class="sec">
+<div class="sechead"><h2>Projects to order</h2><span class="count">2</span><span class="secsub">Not ready to order yet? A quick update helps us plan.</span></div>
+<div class="colhead"><span>Project</span><span>Where it’s up to</span><span style="text-align: right">What you can do</span></div>
+<div class="row">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">New build – Plot 4</span><span class="meta">[Site address] · 2 quotes</span><span class="links"><a href="#">View quote</a></span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-quote">Quote sent</span><span class="meta">Sent [date]</span></div>
+<div class="acts"><a href="Update.dc.html" class="out">Tell us where you’re up to</a><a href="Order.dc.html" class="cta">Place order</a></div>
+</div>
+<div class="row" style="border-bottom: 0">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">Workshop</span><span class="meta">[Site address] · 1 quote</span><span class="links"><a href="#">View quote</a></span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-quote">Quote sent</span><span class="meta">Sent [date]</span></div>
+<div class="acts"><a href="Update.dc.html" class="out">Tell us where you’re up to</a><a href="Order.dc.html" class="cta">Place order</a></div>
+</div>
+</section>
+
+<section class="sec">
+<div class="sechead"><h2>Projects in design</h2><span class="count">2</span><span class="secsub">Ordered, and being designed by our team</span></div>
+<div class="colhead"><span>Project</span><span>Where it’s up to</span><span style="text-align: right">What you can do</span></div>
+<div class="row">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">Loft extension</span><span class="meta">[Site address]</span><span class="links"><a href="#">View quote</a></span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-need">We need information</span><span class="meta">Your design information</span></div>
+<div class="acts"><a href="#" class="cta">Add design information</a></div>
+</div>
+<div class="row" style="border-bottom: 0">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">Kitchen extension</span><span class="meta">[Site address]</span><span class="links"><a href="#">View quote</a></span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-work">Designing your system</span><span class="meta">Nothing needed from you</span></div>
+<div class="acts"><span class="meta">Nothing needed from you</span></div>
+</div>
+</section>
+
+<section class="sec">
+<div class="sechead"><h2>Projects for delivery</h2><span class="count">2</span><span class="secsub">Designed, with orders to deliver</span></div>
+<div class="colhead"><span>Project and orders</span><span>Where it’s up to</span><span style="text-align: right">What you can do</span></div>
+
+<div class="oprow">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">Barn conversion</span><span class="meta">[Site address] · 2 orders</span><span class="links"><a href="#">View quote</a><a href="#">View design</a></span></div>
+<div></div><div class="acts"><a href="#" class="txt">Request design changes</a></div>
+</div>
+<div class="sorow">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Underfloor heating system</span><span class="meta">Order [SO number]</span></div>
+<div><span class="badge b-ready">Ready to deliver</span></div>
+<div class="acts"><a href="Delivery.dc.html" class="cta">Arrange delivery</a></div>
+</div>
+<div class="sorow" style="border-bottom: 1px solid #ece8e3">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Heat pump system</span><span class="meta">Order [SO number]</span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-need">Needs information</span><span class="meta">DNO approval</span></div>
+<div class="acts"><a href="#" class="out">Provide information</a></div>
+</div>
+
+<div class="oprow">
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="name">Garden room</span><span class="meta">[Site address] · 2 orders</span><span class="links"><a href="#">View quote</a><a href="#">View design</a></span></div>
+<div></div><div class="acts"><a href="#" class="txt">Request design changes</a></div>
+</div>
+<div class="sorow">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Underfloor heating system</span><span class="meta">Order [SO number]</span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-pay">Awaiting payment</span><span class="meta">Requested Tue 13 Oct, morning</span></div>
+<div class="acts"><a href="ConfirmBacs.dc.html" class="out">Payment details</a></div>
+</div>
+<div class="sorow">
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Manifold and controls</span><span class="meta">Order [SO number]</span></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span class="badge b-ready">Delivery booked</span><span class="meta">Thu 8 Oct, all day</span></div>
+<div class="acts"><span class="meta">Nothing needed from you</span></div>
+</div>
+</section>
+
+<footer style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #5f5b66; padding-top: 4px">
+<span>Questions? Call [AM name] on [AM phone].</span>
+<span>This link is personal to you. Please don’t share it.</span>
+</footer>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

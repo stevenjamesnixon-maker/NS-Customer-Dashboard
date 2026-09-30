@@ -20,10 +20,13 @@ function groups() {
 }
 
 function externalUrls(html) {
-    return (html.match(/(?:src|href)="(https?:[^"]+)"/g) || []);
+    return (html.match(/(?:src|href)="(https?:[^"]+)"/g) || []).filter(function (u) {
+        // 1.1: the pages load Source Sans 3 from Google Fonts (the email does not).
+        return u.indexOf('href="https://fonts.googleapis.com') !== 0 && u.indexOf('href="https://fonts.gstatic.com') !== 0;
+    });
 }
 
-test('dashboard escapes values and loads nothing but the logo', function () {
+test('dashboard escapes values and loads nothing but the logo and the font', function () {
     var html = render.dashboard({ customerName: 'A & B', logoUrl: LOGO, am: { name: 'Pat', phone: '01234 5' },
         groups: groups(), bank: { name: 'Bank', sort: '00', account: '1' }, payBacs: '1',
         deliveryUrl: function (id) { return 'https://acct.extforms.netsuite.com/x?t=a&a=delivery&so=' + id; } });
@@ -31,7 +34,7 @@ test('dashboard escapes values and loads nothing but the logo', function () {
     assert.ok(html.indexOf('A &amp; B') > 0);
     assert.ok(html.indexOf('Arrange delivery') > 0);
     assert.ok(html.indexOf('Projects in design') === -1, 'empty section hidden');
-    assert.ok(html.indexOf('fonts.googleapis') === -1);
+    assert.ok(html.indexOf('fonts.googleapis.com/css2?family=Source+Sans+3') > 0, '1.1: font on pages');
     externalUrls(html).forEach(function (u) {
         assert.ok(u.indexOf('src="' + LOGO) === 0 || u.indexOf('href="https://acct.extforms.netsuite.com') === 0, u);
     });
@@ -43,15 +46,15 @@ test('invalid page says only the generic text', function () {
 });
 
 test('digest email: tables, inline styles, no display:none, the button and the footer', function () {
-    var html = render.digestEmail({ customerName: 'Sam', logoUrl: LOGO, rows: render.digestRows(groups(), '1'),
-        anyReady: true, link: 'https://acct.extforms.netsuite.com/x?t=a', am: { name: 'Pat', phone: '1', email: 'p@x.com' },
+    var html = render.digestEmail({ customerName: 'Sam', logoUrl: LOGO, groups: groups(), payBacs: '1',
+        link: 'https://acct.extforms.netsuite.com/x?t=a', am: { name: 'Pat', phone: '1', email: 'p@x.com' },
         digestDays: 14 });
     assert.ok(html.indexOf('display:none') === -1);
     assert.ok(html.indexOf('<style') === -1);
     assert.ok(html.indexOf('VIEW YOUR PROJECTS') > 0);
-    assert.ok(html.indexOf('every 14 days') > 0);
+    assert.ok(html.indexOf('every 2 weeks') > 0);
     assert.ok(html.indexOf('reply to this email') > 0);
-    assert.ok(html.indexOf('ready to deliver') > 0, 'banner');
+    assert.ok(html.indexOf('ready to arrange delivery') > 0, 'callout');
     externalUrls(html).forEach(function (u) {
         assert.ok(u.indexOf('src="' + LOGO) === 0 || u.indexOf('href="https://acct.extforms.netsuite.com') === 0, u);
     });
@@ -61,7 +64,7 @@ test('BACS confirmation shows the reference and no amount', function () {
     var html = render.confirmation({ logoUrl: '', am: { name: 'Pat' }, payment: 'BACS',
         bank: { name: 'Bank', sort: '00-00-00', account: '12345678' }, tranId: 'SO1234', backUrl: 'u',
         dateKey: '2026-10-05', timeText: 'AM delivery' });
-    assert.ok(html.indexOf('<span class="ref">SO1234</span>') > 0);
+    assert.ok(html.indexOf('<div class="srow ref"><span>Reference</span><span>SO1234</span></div>') > 0);
     assert.ok(html.indexOf('once payment reaches us') > 0);
     assert.ok(html.indexOf('£') === -1 && html.indexOf('&pound;') === -1);
     assert.ok(html.indexOf('Back to your projects') > 0);

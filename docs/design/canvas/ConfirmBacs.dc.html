@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Delivery requested — bank transfer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+.row{display:flex;justify-content:space-between;gap:16px;font-size:16px;padding:10px 0;border-bottom:1px solid #ece8e3}
+</style>
+</helmet>
+<div style="width: 720px; height: 1000px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; background: #f4f2ef">
+
+<header style="width: 100%; height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; align-items: center; padding: 0 40px; box-sizing: border-box">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+</header>
+
+<main style="width: 600px; padding: 36px 0; display: flex; flex-direction: column; gap: 20px">
+
+<div style="background: #ffffff; border: 1px solid #e2ded9; border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 14px; align-items: center; text-align: center">
+<div style="width: 64px; height: 64px; border-radius: 32px; background: #e6f2ec; display: flex; align-items: center; justify-content: center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1f5c3f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 700">Delivery requested</h1>
+<p style="margin: 0; font-size: 17px; color: #3e3b39; line-height: 1.5">Thanks. We’ve noted Tue 13 Oct 2026, morning, for your underfloor heating system. We’ll book it as soon as your payment reaches us.</p>
+</div>
+
+<div style="background: #ffffff; border: 2px solid #59315f; border-radius: 10px; padding: 24px 28px; display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 700">Pay by bank transfer</h2>
+<div class="row"><span style="color: #5f5b66">Account name</span><span style="font-weight: 600">[Account name]</span></div>
+<div class="row"><span style="color: #5f5b66">Sort code</span><span style="font-weight: 600">[Sort code]</span></div>
+<div class="row"><span style="color: #5f5b66">Account number</span><span style="font-weight: 600">[Account number]</span></div>
+<div class="row" style="background: #fffaf0; margin: 0 -12px; padding: 12px; border-bottom: 0; border-radius: 6px"><span style="color: #3e3b39; font-weight: 600">Reference</span><span style="font-weight: 700; font-size: 18px">[SO number]</span></div>
+<div class="row" style="border-bottom: 0"><span style="color: #5f5b66">Amount to pay</span><span style="font-weight: 700">[Amount due]</span></div>
+<p style="margin: 8px 0 0 0; font-size: 15px; color: #4a4650">Please use the reference exactly as shown so we can match your payment.</p>
+</div>
+
+<div style="background: #ffffff; border: 1px solid #e2ded9; border-radius: 10px; padding: 24px 28px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 700">What happens next</h2>
+<ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; color: #3e3b39; line-height: 1.4">
+<li>Your account manager has your request.</li>
+<li>When your payment arrives, we book the delivery.</li>
+<li>We email you to confirm the date.</li>
+</ol>
+</div>
+
+<a href="Main.dc.html" style="align-self: center; font-size: 16px">Back to your projects</a>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

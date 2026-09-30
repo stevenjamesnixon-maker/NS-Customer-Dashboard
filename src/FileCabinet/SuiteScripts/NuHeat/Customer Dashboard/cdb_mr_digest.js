@@ -20,6 +20,7 @@
  *   author     the customer's sales rep if active, otherwise the fallback employee. Never the
  *              current user.
  *   skip       no recipient, or nothing to show — logged at audit with the reason
+ *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1)
  *   send       email.send with relatedRecords.entityId = customer, so it lands on the customer's
  *              Communication tab
  *   stamp      custentity_cdb_last_digest = today (London). THE ONLY CUSTOMER FIELD THIS REPO
@@ -30,7 +31,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.0.1
+ * @version 1.1.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -38,7 +39,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.0.1';
+    var VERSION = '1.1.0';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -232,9 +233,10 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
             body = render.digestEmail({
                 customerName: customer.name,
+                greetingName: customer.greetingName,
                 logoUrl: cfg.LOGO_URL,
-                rows: render.digestRows(groups, cfg.PAY_BACS),
-                anyReady: groups.anyReady,
+                groups: groups,
+                payBacs: cfg.PAY_BACS,
                 link: token.buildLink(customerId),
                 am: from,
                 digestDays: cfg.DIGEST_DAYS

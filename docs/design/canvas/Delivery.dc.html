@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Arrange delivery</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+.card{background:#ffffff;border:1px solid #e2ded9;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px}
+.lbl{display:block;font-size:14px;font-weight:600;color:#3e3b39;margin-bottom:6px}
+.hint{font-size:14px;color:#5f5b66;margin-top:6px}
+.inp{box-sizing:border-box;width:100%;height:44px;padding:0 12px;border:1px solid #8f8996;border-radius:6px;background:#ffffff;font:inherit;font-size:16px;color:#2b2a2e}
+.seg{height:44px;padding:0 18px;border:1px solid #8f8996;background:#ffffff;font:inherit;font-size:15px;color:#3e3b39;cursor:pointer}
+.seg-on{background:#59315f;border-color:#59315f;color:#ffffff;font-weight:600}
+.num{color:#59315f}
+.wd{font-size:13px;font-weight:600;color:#5f5b66;text-align:center;padding:6px 0}
+.day{height:48px;border-radius:6px;border:1px solid #d9d4ce;background:#ffffff;font:inherit;font-size:16px;color:#2b2a2e;cursor:pointer}
+.day-off{background:#f1efec;border-color:#f1efec;color:#a8a2ad;cursor:not-allowed}
+.day-sel{background:#59315f;border-color:#59315f;color:#ffffff;font-weight:700}
+.pay{display:flex;gap:14px;align-items:flex-start;padding:18px;border:1px solid #c9c4cf;border-radius:8px;cursor:pointer}
+.pay-on{border:2px solid #59315f;background:#faf7fb}
+.cta{display:inline-flex;align-items:center;justify-content:center;height:52px;padding:0 28px;border-radius:6px;background:#ffb500;color:#2b2a2e;font-size:17px;font-weight:700;text-decoration:none}
+.cta:hover{color:#2b2a2e;background:#f0a800}
+.row{display:flex;justify-content:space-between;gap:16px;font-size:15px;padding:8px 0;border-bottom:1px solid #ece8e3}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1820px; box-sizing: border-box; display: flex; flex-direction: column; background: #f4f2ef">
+
+<header style="height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 1120px; display: flex; align-items: center; justify-content: space-between">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+<span style="font-size: 15px; color: #4a4650">Questions? Call [AM name] on [AM phone]</span>
+</div>
+</header>
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; gap: 24px; padding: 28px 0 40px 0; box-sizing: border-box; width: 100%; max-width: 1120px; align-self: center">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a href="Main.dc.html" style="font-size: 15px; text-decoration: none">← Your projects</a>
+<h1 style="margin: 0; font-size: 32px; font-weight: 700">Arrange delivery</h1>
+<div style="font-size: 17px; color: #4a4650">Barn conversion · Underfloor heating system · Order [SO number]</div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start">
+
+<div style="display: flex; flex-direction: column; gap: 20px">
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">1</span>  When would you like it?</h2>
+<div style="display: flex; align-items: center; justify-content: space-between">
+<button aria-label="Previous month" style="width: 44px; height: 44px; border: 1px solid #c9c4cf; border-radius: 6px; background: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2b2a2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+<div style="font-size: 18px; font-weight: 700">October 2026</div>
+<button aria-label="Next month" style="width: 44px; height: 44px; border: 1px solid #c9c4cf; border-radius: 6px; background: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2b2a2e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+</div>
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px">
+<div class="wd">Mon</div><div class="wd">Tue</div><div class="wd">Wed</div><div class="wd">Thu</div><div class="wd">Fri</div><div class="wd">Sat</div><div class="wd">Sun</div>
+<button class="day day-off" disabled>28</button><button class="day day-off" disabled>29</button><button class="day day-off" disabled>30</button><button class="day day-off" disabled>1</button><button class="day day-off" disabled>2</button><button class="day day-off" disabled>3</button><button class="day day-off" disabled>4</button>
+<button class="day">5</button><button class="day">6</button><button class="day">7</button><button class="day">8</button><button class="day">9</button><button class="day day-off" disabled>10</button><button class="day day-off" disabled>11</button>
+<button class="day">12</button><button class="day day-sel" aria-pressed="true">13</button><button class="day">14</button><button class="day">15</button><button class="day">16</button><button class="day day-off" disabled>17</button><button class="day day-off" disabled>18</button>
+<button class="day">19</button><button class="day">20</button><button class="day">21</button><button class="day">22</button><button class="day">23</button><button class="day day-off" disabled>24</button><button class="day day-off" disabled>25</button>
+<button class="day">26</button><button class="day">27</button><button class="day">28</button><button class="day">29</button><button class="day">30</button><button class="day day-off" disabled>31</button><button class="day day-off" disabled>1</button>
+</div>
+<div class="hint" style="margin-top: 0">We need at least 3 working days’ notice. Weekends, bank holidays and our closure days can’t be chosen.</div>
+<div>
+<span class="lbl">Time of day</span>
+<div style="display: flex">
+<button class="seg seg-on" style="border-radius: 6px 0 0 6px" aria-pressed="true">Morning</button>
+<button class="seg" style="border-left: 0">Afternoon</button>
+<button class="seg" style="border-left: 0; border-radius: 0 6px 6px 0">Any time</button>
+</div>
+</div>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">2</span>  Where should we deliver?</h2>
+<div>
+<label class="lbl" for="addr">Delivery address</label>
+<select id="addr" class="inp"><option>[Site address, from your account]</option><option>[Another saved address]</option></select>
+<div class="hint">Need it somewhere else? Tell us under “Anything else” and we’ll call you to confirm.</div>
+</div>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">3</span>  Access and unloading</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div>
+<label class="lbl" for="veh">Largest vehicle that can reach the property</label>
+<select id="veh" class="inp"><option>Choose… [vehicle sizes from NetSuite]</option></select>
+</div>
+<div>
+<label class="lbl" for="unl">Unloading</label>
+<select id="unl" class="inp"><option>Choose… [unloading options from NetSuite]</option></select>
+</div>
+</div>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">4</span>  Who should the driver contact on site?</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+<div><label class="lbl" for="cn">Name</label><input id="cn" class="inp" value="[Contact name]"></div>
+<div><label class="lbl" for="cp">Phone</label><input id="cp" class="inp" type="tel" value="[Mobile number]"></div>
+<div><label class="lbl" for="ce">Email</label><input id="ce" class="inp" type="email" value="[Email address]"></div>
+</div>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">5</span>  Anything else we should know?</h2>
+<div>
+<label class="lbl" for="sr">Special requests</label>
+<textarea id="sr" class="inp" style="height: 104px; padding: 10px 12px; resize: vertical" placeholder="For example: narrow lane, gate code, where to leave the pallet"></textarea>
+</div>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span class="num">6</span>  How would you like to pay?</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<label class="pay pay-on">
+<input type="radio" name="pay" checked style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #59315f">
+<span style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 16px; font-weight: 700">Bank transfer (BACS)</span>
+<span style="font-size: 14px; color: #4a4650; line-height: 1.4">We’ll show you our bank details next. Use your order number as the reference.</span>
+</span>
+</label>
+<label class="pay">
+<input type="radio" name="pay" style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #59315f">
+<span style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 16px; font-weight: 700">Card</span>
+<span style="font-size: 14px; color: #4a4650; line-height: 1.4">Your account manager will call you to take payment.</span>
+</span>
+</label>
+</div>
+<div style="font-size: 15px; color: #3e3b39; background: #f4f1f4; border-radius: 8px; padding: 12px 14px">Your delivery is booked once we’ve received payment. We’ll email you to confirm the date.</div>
+</section>
+
+<div style="display: flex; align-items: center; gap: 20px">
+<a href="ConfirmBacs.dc.html" class="cta">Request delivery</a>
+<a href="Main.dc.html" style="font-size: 16px">Cancel</a>
+</div>
+
+</div>
+
+<aside class="card" style="gap: 12px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 700">Your delivery</h2>
+<div style="display: flex; flex-direction: column">
+<div class="row"><span style="color: #5f5b66">Order</span><span style="font-weight: 600">[SO number]</span></div>
+<div class="row"><span style="color: #5f5b66">System</span><span style="font-weight: 600">Underfloor heating</span></div>
+<div class="row"><span style="color: #5f5b66">Date</span><span style="font-weight: 600">Tue 13 Oct 2026</span></div>
+<div class="row"><span style="color: #5f5b66">Time</span><span style="font-weight: 600">Morning</span></div>
+<div class="row"><span style="color: #5f5b66">Payment</span><span style="font-weight: 600">Bank transfer</span></div>
+</div>
+<h3 style="margin: 8px 0 0 0; font-size: 16px; font-weight: 700">What happens next</h3>
+<ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; color: #3e3b39; line-height: 1.4">
+<li>We receive your request straight away.</li>
+<li>You pay by bank transfer, or we call you to take card payment.</li>
+<li>Once payment arrives we book your delivery and confirm the date by email.</li>
+</ol>
+</aside>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1820}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

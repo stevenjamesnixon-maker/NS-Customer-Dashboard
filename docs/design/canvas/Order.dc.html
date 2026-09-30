@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Place your order</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Source Sans 3',Calibri,sans-serif;background:#f4f2ef;color:#2b2a2e}
+a{color:#59315f}a:hover{color:#3d1f42}
+.ph{background:#d9d4ce;color:#4a4650;font-size:13px;display:flex;align-items:center;justify-content:center;text-align:center}
+.card{background:#ffffff;border:1px solid #e2ded9;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.eyebrow{font-size:13px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#5f5b66}
+.q{display:grid;grid-template-columns:28px minmax(0,1fr) 160px 70px;gap:16px;align-items:center;padding:16px;border:1px solid #c9c4cf;border-radius:8px;cursor:pointer}
+.q-on{border:2px solid #59315f;background:#faf7fb}
+.lbl{display:block;font-size:14px;font-weight:600;color:#3e3b39;margin-bottom:6px}
+.inp{box-sizing:border-box;width:100%;height:44px;padding:0 12px;border:1px solid #8f8996;border-radius:6px;background:#ffffff;font:inherit;font-size:16px;color:#2b2a2e}
+.cta{display:inline-flex;align-items:center;justify-content:center;height:52px;padding:0 28px;border-radius:6px;background:#ffb500;color:#2b2a2e;font-size:17px;font-weight:700;text-decoration:none}
+.cta:hover{color:#2b2a2e;background:#f0a800}
+.line{display:flex;justify-content:space-between;gap:16px;font-size:15px;padding:8px 0;border-bottom:1px solid #ece8e3}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1300px; box-sizing: border-box; display: flex; flex-direction: column; background: #f4f2ef">
+
+<header style="height: 76px; flex-shrink: 0; background: #ffffff; border-bottom: 1px solid #e2ded9; display: flex; justify-content: center">
+<div style="width: 100%; max-width: 1200px; display: flex; align-items: center; justify-content: space-between">
+<div class="ph" style="width: 150px; height: 48px; border-radius: 4px">[Nu-Heat logo]</div>
+<span style="font-size: 15px; color: #4a4650">Questions? Call [AM name] on [AM phone]</span>
+</div>
+</header>
+
+<main style="flex-grow: 1; display: flex; flex-direction: column; gap: 24px; padding: 28px 0 40px 0; box-sizing: border-box; width: 100%; max-width: 1200px; align-self: center">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a href="Main.dc.html" style="font-size: 15px; text-decoration: none">← Your projects</a>
+<h1 style="margin: 0; font-size: 32px; font-weight: 700">Place your order</h1>
+<div style="font-size: 17px; color: #4a4650">New build – Plot 4 · [Site address]</div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 24px; align-items: start">
+
+<div style="display: flex; flex-direction: column; gap: 20px">
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span style="color: #59315f">1</span>  Choose what you’d like to order</h2>
+<p style="margin: 0; font-size: 15px; color: #4a4650">Tick each quote you want to go ahead with. Underfloor heating and heat pumps are ordered separately.</p>
+
+<div class="eyebrow" style="margin-top: 4px">Underfloor heating</div>
+<label class="q q-on">
+<input type="checkbox" checked style="width: 22px; height: 22px; margin: 0; accent-color: #59315f">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 16px; font-weight: 700">[Quote number] · Underfloor heating, ground and first floor</span><span style="font-size: 14px; color: #5f5b66">[Floor construction summary] · Quoted [date]</span></span>
+<span style="text-align: right; display: flex; flex-direction: column"><span style="font-size: 17px; font-weight: 700">[£ inc VAT]</span><span style="font-size: 13px; color: #5f5b66">[£ ex VAT]</span></span>
+<a href="#" style="font-size: 15px; text-align: right">View</a>
+</label>
+<label class="q">
+<input type="checkbox" style="width: 22px; height: 22px; margin: 0; accent-color: #59315f">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 16px; font-weight: 700">[Quote number] · Underfloor heating, ground floor only</span><span style="font-size: 14px; color: #5f5b66">[Floor construction summary] · Quoted [date]</span></span>
+<span style="text-align: right; display: flex; flex-direction: column"><span style="font-size: 17px; font-weight: 700">[£ inc VAT]</span><span style="font-size: 13px; color: #5f5b66">[£ ex VAT]</span></span>
+<a href="#" style="font-size: 15px; text-align: right">View</a>
+</label>
+
+<div class="eyebrow" style="margin-top: 4px">Heat pump</div>
+<label class="q q-on">
+<input type="checkbox" checked style="width: 22px; height: 22px; margin: 0; accent-color: #59315f">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 16px; font-weight: 700">[Quote number] · Air source heat pump</span><span style="font-size: 14px; color: #5f5b66">BUS grant applied · Quoted [date]</span></span>
+<span style="text-align: right; display: flex; flex-direction: column"><span style="font-size: 17px; font-weight: 700">[£ inc VAT]</span><span style="font-size: 13px; color: #5f5b66">[£ ex VAT]</span></span>
+<a href="#" style="font-size: 15px; text-align: right">View</a>
+</label>
+</section>
+
+<section class="card">
+<h2 style="margin: 0; font-size: 21px; font-weight: 700"><span style="color: #59315f">2</span>  Your details</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div><label class="lbl" for="po">Your order reference (optional)</label><input id="po" class="inp" placeholder="Purchase order number"></div>
+<div><label class="lbl" for="when">When do you expect to need delivery?</label><input id="when" class="inp" placeholder="dd/mm/yyyy"></div>
+</div>
+<div><label class="lbl" for="nt">Anything we should know?</label><textarea id="nt" class="inp" style="height: 88px; padding: 10px 12px; resize: vertical"></textarea></div>
+</section>
+
+</div>
+
+<aside class="card" style="gap: 10px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 700">Your order</h2>
+<div style="display: flex; flex-direction: column">
+<div class="line"><span>Underfloor heating, ground and first floor</span><span style="font-weight: 600; white-space: nowrap">[£]</span></div>
+<div class="line"><span>Air source heat pump</span><span style="font-weight: 600; white-space: nowrap">[£]</span></div>
+<div class="line" style="border-bottom: 0; font-size: 17px"><span style="font-weight: 700">Total inc VAT</span><span style="font-weight: 700">[£ total]</span></div>
+</div>
+<div style="font-size: 15px; color: #3e3b39; background: #f4f1f4; border-radius: 8px; padding: 12px 14px; line-height: 1.4">Your account manager will confirm your order and any deposit, then our design team starts work.</div>
+<a href="#" class="cta" style="margin-top: 6px">Send my order</a>
+<a href="Main.dc.html" style="align-self: center; font-size: 15px">Cancel</a>
+</aside>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
