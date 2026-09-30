@@ -114,8 +114,8 @@ test('valid BACS POST: SO fields, no del_date/finance status, Task to the PE, co
 test('card booking: card confirmation', function () {
     var s = setup();
     var html = run(s.sl, 'POST', form({ t: s.tok, payment: 'CARD' }));
-    // 1.2 (§4): the confirmation names the header person, the customer's rep; the Task still goes to the PE.
-    assert.ok(html.indexOf('Ray Rep, will call you to take payment') > 0);
+    // PR #3 amendment 1: neutral wording, with the amount when known (none in this fixture).
+    assert.ok(html.indexOf('We’ll call you to take payment.') > 0);
 });
 
 test('another customer\'s SO in the URL is refused', function () {

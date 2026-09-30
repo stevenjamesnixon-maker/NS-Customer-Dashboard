@@ -171,10 +171,6 @@ define(['./cdb_lib_dates'], function (dates) {
         return 'tel:' + String(phone || '').replace(/[^0-9+]/g, '');
     }
 
-    function firstName(name) {
-        return String(name || '').split(' ')[0];
-    }
-
     /** Short date for rows: "Tue 13 Oct". */
     function shortDate(key) {
         var long = dates.formatLong(key);
@@ -466,16 +462,18 @@ define(['./cdb_lib_dates'], function (dates) {
     }
 
     /**
-     * "Your account manager, <name>, will call you to take £x. We never ask for card details
-     * online." The amount only when there is one to show; at 0, "Nothing left to pay".
+     * Neutral card wording (amendment 1): it names nobody, because whoever gets the Task makes the
+     * call. "We'll call you to take £x. We never ask for card details online."; with no amount,
+     * "We'll call you to take payment."; at 0, "Nothing left to pay on this order."
      */
-    function cardPaymentText(am, amountShown) {
-        var who = 'Your account manager' + (am && am.name ? ', ' + esc(am.name) + ',' : '');
+    function cardPaymentText(amountShown) {
         if (amountShown === NOTHING_TO_PAY) {
-            return esc(NOTHING_TO_PAY) + '. ' + who + ' will be in touch to confirm your delivery.';
+            return esc(NOTHING_TO_PAY) + '. We\u2019ll be in touch to confirm your delivery.';
         }
-        return who + ' will call you to take ' + (amountShown ? '<strong>' + esc(amountShown) + '</strong>' : 'payment') +
-            '. We never ask for card details online.';
+        if (amountShown) {
+            return 'We\u2019ll call you to take <strong>' + esc(amountShown) + '</strong>. We never ask for card details online.';
+        }
+        return 'We\u2019ll call you to take payment.';
     }
 
     function sectionHead(title, count, sub) {
@@ -519,11 +517,11 @@ define(['./cdb_lib_dates'], function (dates) {
         } else if (row.state === 'awaiting_payment') {
             state = stateCell(badge('pay', 'Awaiting payment'), 'Requested ' +
                 (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
-            // 1.2: the amount only for pay-up-front orders (o.amount is null otherwise).
+            // The amount whenever it is known, whatever the terms (PR #3 amendment 1).
             acts = '<details class="paydet"><summary class="out">Payment details</summary><div class="panel">' +
-                (o.payIntent === String(m.payBacs) ? bankRows(m.bank, o.tranId, o.prepay ? amountText(o.amount) : '') +
+                (o.payIntent === String(m.payBacs) ? bankRows(m.bank, o.tranId, amountText(o.amount)) +
                     '<p style="margin:8px 0 0">We’ll book your delivery once payment reaches us.</p>' :
-                    cardPaymentText(m.am, o.prepay ? amountText(o.amount) : '')) + '</div></details>';
+                    cardPaymentText(amountText(o.amount))) + '</div></details>';
         } else if (row.state === 'requested') {
             state = stateCell(badge('work', 'Delivery requested'), 'Requested ' +
                 (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
@@ -802,7 +800,9 @@ define(['./cdb_lib_dates'], function (dates) {
         var o = m.order;
         var title = orderTitle(o);
         var prepay = o.prepay !== false;
-        var amountShown = prepay ? amountText(o.amount) : '';
+        // Amendment 1: shown to every customer when known. Account customers are told it only
+        // applies to a bank transfer.
+        var amountShown = amountText(o.amount);
         var i;
         var addressOptions = '';
         var notice = '';
@@ -867,7 +867,9 @@ define(['./cdb_lib_dates'], function (dates) {
 
             '<section class="card"><h2><span class="num">6</span>How would you like to pay?</h2>' +
             (amountShown ? '<p class="amt" style="margin:0">' + (amountShown === NOTHING_TO_PAY ? esc(amountShown) + '.' :
-                'Amount to pay: <strong>' + esc(amountShown) + '</strong> including VAT') + '</p>' : '') +
+                'Amount to pay: <strong>' + esc(amountShown) + '</strong> including VAT') + '</p>' +
+                (prepay ? '' : '<p class="hint" style="margin:0">Only if you\u2019re paying by bank transfer. Choose ' +
+                    '\u2018Add to my account\u2019 and nothing is due now.</p>') : '') +
             '<fieldset><legend class="sr" style="position:absolute">Payment</legend>' + fieldError(e, 'payment') +
             paymentCards(m.paymentOptions || ['BACS', 'CARD'], v.payment) + '</fieldset>' +
             '<div class="tip">' + (prepay ? 'Your delivery is booked once we’ve received payment. We’ll email you to ' +
@@ -909,7 +911,7 @@ define(['./cdb_lib_dates'], function (dates) {
                 'email you to confirm the date.') :
                 esc('Thanks. We’ve noted ' + noted + ', for ' + what + '. ') +
                 (m.payment === 'BACS' ? 'We’ll book it as soon as your payment reaches us.' :
-                    cardPaymentText(m.am, amountShown) + ' Once payment is taken, we’ll book your delivery.')) +
+                    cardPaymentText(amountShown) + ' Once payment is taken, we’ll book your delivery.')) +
             '</p></div>';
 
         if (m.payment === 'BACS') {
@@ -921,7 +923,8 @@ define(['./cdb_lib_dates'], function (dates) {
                 '<li>When your payment arrives, we book the delivery.</li>' +
                 '<li>We email you to confirm the date.</li></ol></div>';
         } else {
-            if (m.am && m.am.name) {
+            // The account page names the customer's rep; the card page names nobody (amendment 1).
+            if (m.payment === 'ACCOUNT' && m.am && m.am.name) {
                 body += '<div class="card amcard"><div class="cell"><span class="cap">Your account manager</span>' +
                     '<span class="amn">' + esc(m.am.name) + '</span><span style="font-size:16px;color:#4a4650">' +
                     [m.am.phone ? '<a href="' + esc(telHref(m.am.phone)) + '">' + esc(m.am.phone) + '</a>' : '',
@@ -933,8 +936,7 @@ define(['./cdb_lib_dates'], function (dates) {
                     '<li>Your account manager has your request.</li>' +
                     '<li>We add the order to your account and book the delivery.</li>' +
                     '<li>We email you to confirm the date.</li>' :
-                    '<li>' + (m.am && m.am.name ? esc(firstName(m.am.name)) + ' calls' : 'Your account manager calls') +
-                    ' you to take payment. We never ask for card details online.</li>' +
+                    '<li>We call you to take payment. We never ask for card details online.</li>' +
                     '<li>Once payment is taken, we book the delivery.</li>' +
                     '<li>We email you to confirm the date.</li>') + '</ol></div>';
         }

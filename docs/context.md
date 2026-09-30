@@ -184,9 +184,22 @@ front**.
 `amountToPay(extras)` (pure): `balance` when set (0 is real) → basis `balance`; else `total −
 (deposit || 0)` → basis `total_less_deposit`; else `null`. A negative result is `null` and logs
 `CDB AMOUNT_ODD`. Shown as `£1,234.50` (`render.formatMoney`), or *Nothing left to pay on this order*
-at 0, and left out entirely when `null`. **Only pay-up-front orders ever show an amount**: section 6
-and the aside of the form, the bank panel of the BACS confirmation, the card confirmation, and the
-*Payment details* panel of an order awaiting payment. **The digest shows no amounts.**
+at 0, and left out entirely when `null`. **Steve's rule: the amount is always shown when a delivery is
+being arranged** (PR #3 amendment 1). It is shown to **every** customer, whatever the terms, in:
+
+- section 6 and the aside of the form (an account customer also gets the hint *"Only if you're
+  paying by bank transfer. Choose 'Add to my account' and nothing is due now."*);
+- the bank panel of the BACS confirmation;
+- the card confirmation;
+- the *Payment details* panel of an order awaiting payment;
+- the Task, whenever the choice is BACS or Card.
+
+**An Add-to-account booking shows no amount anywhere** and does not tick *Awaiting customer
+payment*; a BACS or Card booking ticks it, whatever the terms. **The digest shows no amounts.**
+
+**The card wording names nobody**: *"We'll call you to take £x. We never ask for card details
+online."* (or *"We'll call you to take payment."* with no amount). Whoever gets the Task makes the
+call, and on a PE-case opportunity that is not the rep in the header.
 
 ### Pay up front or add to account (1.2)
 
@@ -333,7 +346,7 @@ and names every missing parameter.
 | `custscript_cdb_notice_days` | — | Integer | 3; audit |
 | `custscript_cdb_bank_name`, `_bank_sort`, `_bank_account` | — | Text | throw |
 | `custscript_cdb_option_hints` (1.1) | — | Long Text: JSON `{"vehicle": {"<id>": "<hint>"}, "unload": {"<id>": "<hint>"}}` | no hints; invalid JSON also logs `CDB OPTION_HINTS_INVALID` once per request. Never fails the page |
-| `custscript_cdb_prepay_terms` (1.2) | `custscript_cdbmr_prepay_terms` | Free-Form Text: comma list of `terms` IDs that pay up front | everyone pays up front |
+| `custscript_cdb_prepay_terms` (1.2) | — (nothing in the digest reads it) | Free-Form Text: comma list of `terms` IDs that pay up front | everyone pays up front |
 | `custscript_cdb_pay_account` (1.2) | `custscript_cdbmr_pay_account` | Integer: the `customlist_cust_pay_intent` ID of *Add to account* | the account option is never offered; everyone pays up front |
 | `custscript_cdb_quote_type_labels` (1.2) | `custscript_cdbmr_quote_type_labels` | Long Text: JSON `{"<quote type id>": "UFH"}` | each quote type's own text; invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the page |
 | `custscript_cdb_edd_definite_value` (1.1) | — | Integer: the `customlist955` ID for *Customer Definite* | EDD certainty not written; `CDB EDD_SKIPPED` per booking |
@@ -550,31 +563,27 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 
 ### Release 1.2 — contradictions and decisions for Steve
 
-1. **The card confirmation names the customer's rep, but the Task goes to the PE.** §4 puts the
-   customer's rep on every page (including *"Your account manager, <rep>, will call you to take
-   £x"*), while §4 also keeps Task routing on the opportunity's rep or PE. On a PE-case opportunity
-   the person named is not the person who gets the Task.
-2. **An account customer who chooses BACS sees bank details with no amount.** §3 offers account
-   orders BACS as well, and §2 says account customers never see an amount. As built: the BACS
-   confirmation for an account order shows the bank details and reference, no amount, and ticks
-   *Awaiting customer payment*.
-3. **`custscript_cdbmr_prepay_terms` is added as briefed but not used.** The email shows no amounts
-   and no payment options; the *requested* state depends only on `custscript_cdbmr_pay_account`.
+1. ~~The card confirmation names the customer's rep, but the Task goes to the PE.~~ **Decided
+   (amendment 1):** the card wording is neutral and names nobody; the card confirmation no longer
+   shows the account manager block.
+2. ~~An account customer who chooses BACS sees bank details with no amount.~~ **Decided
+   (amendment 1):** the amount is shown to everyone arranging a delivery; see *Amount to pay*.
+3. ~~`custscript_cdbmr_prepay_terms` is added but not used.~~ **Decided (amendment 1):** removed.
 4. **Line 3 is "Order SO… · UFH" except when line 1 already fell back to the label**, so the label is
    not shown twice.
-5. **At an amount of 0 the card confirmation reads "Nothing left to pay on this order. Your account
-   manager will be in touch…"** rather than "will call to take £0.00". Wording to confirm.
+5. **At an amount of 0 the card wording reads "Nothing left to pay on this order. We'll be in touch
+   to confirm your delivery."** rather than "take £0.00". Wording to confirm.
 6. **The account order's tip in section 6** reads "If you pay by bank transfer, we book your delivery
    once payment reaches us. Either way, we'll email you to confirm the date." New wording, to confirm.
 
 ### Needs Steve (1.2)
 
-- Add *Add to account* to `customlist_cust_pay_intent` and set its ID on both scripts.
+- Add *Add to account* to `customlist_cust_pay_intent` and set its ID on both scripts
+  (`custscript_cdb_pay_account`, `custscript_cdbmr_pay_account`).
 - Replace `custscript_cdb_logo_url` / `custscript_cdbmr_logo_url` with the **coloured** logo.
 - Confirm in Sandbox that `terms`, `total`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat`
   and `custbody_deposit_total` are valid **sales order** search columns (a failure only logs
   `CDB EXTRAS_FAILED`, but then nobody is offered the account option).
-- Decide points 1 and 2 above.
 
 ### Release 1.1 — contradictions and decisions for Steve
 

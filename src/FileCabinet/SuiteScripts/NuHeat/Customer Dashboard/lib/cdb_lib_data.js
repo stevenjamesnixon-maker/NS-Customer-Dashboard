@@ -474,7 +474,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      *              quote type's own text
      *   uniqueRef  custbody_unique_so_ref, cleaned like the description ('' when unknown)
      *   prepay     isPrepay()
-     *   amount     amountToPay() for pay-up-front orders; null for account orders or when unknown
+     *   amount     amountToPay() for EVERY order when known (amendment 1: account customers paying
+     *              by BACS see it too); null when unknown. An Add-to-account booking never shows it:
+     *              render and the Task leave it out for that choice.
      *
      * @param {Object} order
      * @param {Object} extrasById - from getOrderExtras(); {} when it failed
@@ -489,9 +491,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             order.quoteTypeText || '';
         order.uniqueRef = extras ? cleanDescription(extras.uniqueRef) : '';
         order.prepay = isPrepay(extras, cfg);
-        order.amount = order.prepay ? amountToPay(extras, onOdd ? function (why) {
+        order.amount = amountToPay(extras, onOdd ? function (why) {
             onOdd('Sales order ' + order.id + ': ' + why);
-        } : null) : null;
+        } : null);
         return order;
     }
 

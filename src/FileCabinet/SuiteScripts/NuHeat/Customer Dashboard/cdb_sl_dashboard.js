@@ -499,8 +499,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                         uniqueRef: guard.order.uniqueRef,
                         paymentChoice: PAYMENT_CHOICE[check.values.payment],
                         account: check.values.payment === data.PAYMENT.ACCOUNT,
-                        // Pay-up-front only; account orders never carry an amount.
-                        amountText: guard.order.prepay && render.amountText(guard.order.amount) ?
+                        // Amendment 1: whenever the choice is BACS or Card; never for Add to account.
+                        amountText: check.values.payment !== data.PAYMENT.ACCOUNT && render.amountText(guard.order.amount) ?
                             render.amountText(guard.order.amount) + ' (' + render.amountBasisText(guard.order.amount) + ')' : ''
                     }),
                 todayKey: fc.todayKey
@@ -521,7 +521,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return render.confirmation({
             logoUrl: ctx.cfg.LOGO_URL,
             am: fc.am,
-            amount: guard.order.prepay ? guard.order.amount : null,
+            // render.confirmation leaves it out for Add to account.
+            amount: guard.order.amount,
             uniqueRef: guard.order.uniqueRef,
             payment: check.values.payment,
             bank: bankOf(ctx.cfg),

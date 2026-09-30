@@ -130,14 +130,15 @@ test('4. terms: in the list / other / blank / parameter empty', function () {
     assert.strictEqual(data.isPrepay(undefined, cfg), true, 'no extras: pay up front');
 });
 
-test('5. an account customer\'s form: BACS and Add to my account, no Card, no amount', function () {
+test('5. an account customer\'s form: BACS and Add to my account, no Card; the amount with the BACS-only hint', function () {
     var s = setup({ terms: '10' });
     var html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
     assert.deepStrictEqual(paymentValues(html), ['BACS', 'ACCOUNT']);
     assert.ok(html.indexOf('>Add to my account<') > 0);
     assert.ok(html.indexOf('We’ll add this order to your account. No payment is needed now.') > 0);
-    assert.strictEqual(html.indexOf('Amount to pay'), -1);
-    assert.strictEqual(html.indexOf('£'), -1);
+    // Amendment 1: the amount is always shown when a delivery is being arranged, with a hint.
+    assert.ok(html.indexOf('Amount to pay: <strong>£1,234.50</strong> including VAT') > 0);
+    assert.ok(html.indexOf('Only if you’re paying by bank transfer. Choose ‘Add to my account’ and nothing is due now.') > 0);
     assert.strictEqual(html.indexOf('You pay by bank transfer, or we call you'), -1, 'no payment step');
     // And the pay-up-front form shows the amount in section 6 and the aside.
     s = setup();
@@ -326,7 +327,7 @@ test('16. digest: split reference and short label in the email, no amounts; labe
         custscript_cdbmr_excluded_quote_types: '7,8', custscript_cdbmr_pay_bacs: '1', custscript_cdbmr_pay_card: '2',
         custscript_cdbmr_fallback_employee: '500', custscript_cdb_digest_mode: 'TEST',
         custscript_cdb_digest_test_customers: '42', custscript_cdbmr_quote_type_labels: '{"1":"UFH"}',
-        custscript_cdbmr_prepay_terms: '9', custscript_cdbmr_pay_account: ACCOUNT_ID };
+        custscript_cdbmr_pay_account: ACCOUNT_ID };
     w.orders[100].custbody_unique_so_ref = 'Manifolds only';
     w.orders[100].custbodycustbody_sys_bal_incvat = '1234.5';
     var mr = amd.load('cdb_mr_digest', ns.stubs(w));
@@ -338,4 +339,46 @@ test('16. digest: split reference and short label in the email, no amounts; labe
     assert.ok(body.indexOf('color:#2b2a2e;">UFH</p>') > 0, 'short label as line 1');
     assert.ok(body.indexOf('>Order SO100 · ready to arrange delivery</p>') > 0);
     assert.strictEqual(body.indexOf('£'), -1, 'no amounts in the email');
+});
+
+// ---------------------------------------------------------------- PR #3 amendment 1
+
+test('A1. account customer choosing BACS: the amount on the form and confirmation, and the box ticked', function () {
+    var s = setup({ terms: '10' });
+    var html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
+    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50</span>') > 0, 'the aside');
+    html = run(s.sl, 'POST', form(s.tok, { payment: 'BACS' }));
+    assert.ok(html.indexOf('<div class="srow"><span>Amount to pay</span><span>£1,234.50</span></div>') > 0, 'the bank panel');
+    assert.strictEqual(s.w.saves[0].values.custbody_cdb_awaiting_payment, true);
+    assert.ok(s.w.tasks[0].values.message.indexOf('Amount to pay: £1,234.50 (balance inc VAT)') >= 0, 'the Task');
+    // And the awaiting-payment panel on the dashboard.
+    html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('Payment details') > 0);
+    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50</span>') > 0);
+});
+
+test('A2. account customer choosing Add to account: no amount anywhere, the box not ticked', function () {
+    var s = setup({ terms: '10' });
+    var html = run(s.sl, 'POST', form(s.tok, { payment: 'ACCOUNT' }));
+    assert.strictEqual(html.indexOf('£'), -1, 'confirmation');
+    assert.strictEqual(html.indexOf('Amount to pay'), -1);
+    assert.strictEqual(s.w.saves[0].values.hasOwnProperty('custbody_cdb_awaiting_payment'), false);
+    assert.strictEqual(s.w.tasks[0].values.message.indexOf('£'), -1, 'Task');
+    html = run(s.sl, 'GET', { t: s.tok });
+    assert.strictEqual(html.indexOf('£'), -1, 'dashboard');
+});
+
+test('A3. the card confirmation names no employee', function () {
+    var s = setup();
+    var html = run(s.sl, 'POST', form(s.tok, { payment: 'CARD' }));
+    assert.ok(html.indexOf('We’ll call you to take <strong>£1,234.50</strong>. We never ask for card details online.') > 0);
+    Object.keys(s.w.employees).forEach(function (id) {
+        var e = s.w.employees[id];
+        [e.firstname + ' ' + e.lastname, e.firstname, e.email, e.phone].forEach(function (t) {
+            assert.strictEqual(html.indexOf(t), -1, t);
+        });
+    });
+    assert.ok(s.w.tasks[0].values.message.indexOf('Amount to pay: £1,234.50') >= 0, 'the Task has the amount for Card');
+    assert.strictEqual(render.confirmation({ payment: 'CARD', bank: {}, tranId: 'SO1', backUrl: 'u', am: { name: 'Pat Lee' } })
+        .indexOf('We’ll call you to take payment.') > 0, true, 'no amount: "take payment"');
 });

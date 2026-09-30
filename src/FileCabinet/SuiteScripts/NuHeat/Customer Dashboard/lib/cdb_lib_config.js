@@ -203,8 +203,8 @@ define(['N/runtime'], function (runtime) {
             ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee' } },
         // 1.2. Pay up front vs account. Empty prepay terms -> everyone pays up front; empty account
         // value -> the account option is never offered. Both fail closed: they offer less.
-        PREPAY_TERMS: { kind: 'idlist', empty: 'none',
-            ids: { SL: 'custscript_cdb_prepay_terms', MR: 'custscript_cdbmr_prepay_terms' } },
+        // Suitelet only: nothing in the digest reads it (amendment 1).
+        PREPAY_TERMS: { kind: 'idlist', empty: 'none', ids: { SL: 'custscript_cdb_prepay_terms' } },
         PAY_ACCOUNT: { kind: 'id', empty: 'none',
             ids: { SL: 'custscript_cdb_pay_account', MR: 'custscript_cdbmr_pay_account' } },
         // 1.2. JSON {"<quote type id>": "UFH", ...}. Parsed by parseTypeLabels(); never fails the page.

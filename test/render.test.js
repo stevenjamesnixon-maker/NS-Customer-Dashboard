@@ -69,5 +69,7 @@ test('BACS confirmation shows the reference and no amount', function () {
     assert.ok(html.indexOf('£') === -1 && html.indexOf('&pound;') === -1);
     assert.ok(html.indexOf('Back to your projects') > 0);
     html = render.confirmation({ logoUrl: '', am: { name: 'Pat' }, payment: 'CARD', bank: {}, tranId: 'SO1', backUrl: 'u' });
-    assert.ok(html.indexOf('Your account manager, Pat, will call you to take payment. We never ask for card details online') > 0);
+    // PR #3 amendment 1: neutral card wording that names nobody.
+    assert.ok(html.indexOf('We’ll call you to take payment.') > 0);
+    assert.strictEqual(html.indexOf('Pat'), -1);
 });
