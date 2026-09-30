@@ -40,11 +40,13 @@ between scripts only resolve if the tree is preserved.
 ## Tests
 
 ```
-node --test test/
+npm test            # or: node --test test/*.test.js
 ```
 
-Node 18 or later. The tests cover the pure parts only — dates, the token payload, the stage
-grouping. Everything that touches NetSuite is tested in Sandbox, per `docs/context.md` §9.
+Node 18 or later, no dependencies. The tests cover the pure parts — dates, the token payload,
+the stage grouping, validation, configuration — plus the Suitelet and the digest run against an
+in-memory NetSuite stub (`test/helpers/netsuite.js`). The stub catches wiring mistakes, not API
+behaviour: everything that touches NetSuite is still tested in Sandbox, per `docs/context.md` §9.
 
 ## Three rules for contributors
 
