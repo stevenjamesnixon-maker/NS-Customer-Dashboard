@@ -1,0 +1,12 @@
+{
+  "name": "ns-customer-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node tests for the pure parts of the NetSuite customer dashboard. No dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
