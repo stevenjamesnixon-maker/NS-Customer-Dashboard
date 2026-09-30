@@ -26,13 +26,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * @version 1.2.0
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -93,7 +93,16 @@ define(['N/runtime'], function (runtime) {
             SHIP_ADDRESS: 'shipaddresslist',
             // 1.1. Optional on the loaded record: written only when so.getField() finds them.
             AWAITING_PAYMENT: 'custbody_cdb_awaiting_payment',
-            EDD_CERTAINTY: 'custbody_edd_certainty'
+            EDD_CERTAINTY: 'custbody_edd_certainty',
+            // 1.2. Read ONLY by cdb_lib_data.getOrderExtras(), a separate fail-safe search. Never add
+            // these to the main order searches: a field that does not apply to sales orders makes
+            // the whole search throw. custbodycustbody_sys_bal_incvat has a DOUBLED PREFIX in the
+            // account. It is the real ID: do not "fix" it.
+            TERMS: 'terms',
+            UNIQUE_REF: 'custbody_unique_so_ref',
+            BALANCE: 'custbodycustbody_sys_bal_incvat',
+            TOTAL: 'total',
+            DEPOSIT: 'custbody_deposit_total'
         },
         /**
          * Read from the sales order's ORIGINATING QUOTE through the createdFrom join. Confirmed
@@ -192,6 +201,15 @@ define(['N/runtime'], function (runtime) {
             ids: { SL: 'custscript_cdb_pay_card', MR: 'custscript_cdbmr_pay_card' } },
         FALLBACK_EMPLOYEE: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee' } },
+        // 1.2. Pay up front vs account. Empty prepay terms -> everyone pays up front; empty account
+        // value -> the account option is never offered. Both fail closed: they offer less.
+        PREPAY_TERMS: { kind: 'idlist', empty: 'none',
+            ids: { SL: 'custscript_cdb_prepay_terms', MR: 'custscript_cdbmr_prepay_terms' } },
+        PAY_ACCOUNT: { kind: 'id', empty: 'none',
+            ids: { SL: 'custscript_cdb_pay_account', MR: 'custscript_cdbmr_pay_account' } },
+        // 1.2. JSON {"<quote type id>": "UFH", ...}. Parsed by parseTypeLabels(); never fails the page.
+        QUOTE_TYPE_LABELS: { kind: 'text', empty: 'none',
+            ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels' } },
         LOGO_URL: { kind: 'https', empty: 'none',
             ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url' } },
 
@@ -364,6 +382,45 @@ define(['N/runtime'], function (runtime) {
     }
 
     /**
+     * Pure: parses a JSON object parameter. Never throws.
+     * @returns {{status: string, value: Object|null, detail: string}} status 'empty' | 'ok' | 'invalid'
+     */
+    function parseJsonObject(raw) {
+        var parsed;
+        if (isBlank(raw)) {
+            return { status: 'empty', value: null, detail: '' };
+        }
+        try {
+            parsed = JSON.parse(String(raw));
+        } catch (e) {
+            return { status: 'invalid', value: null, detail: 'not JSON: ' + (e && e.message ? e.message : String(e)) };
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { status: 'invalid', value: null, detail: 'not a JSON object' };
+        }
+        return { status: 'ok', value: parsed, detail: '' };
+    }
+
+    /**
+     * Pure: the usable entries of an {"<id>": "<text>"} object — whole-number keys with non-empty
+     * string values. Anything else is ignored, not an error.
+     * @returns {Object|null} null when obj is not an object
+     */
+    function idTextMap(obj) {
+        var map = {};
+        var key;
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+            return null;
+        }
+        for (key in obj) {
+            if (obj.hasOwnProperty(key) && /^\d+$/.test(key) && typeof obj[key] === 'string' && !isBlank(obj[key])) {
+                map[key] = obj[key].replace(/^\s+|\s+$/g, '');
+            }
+        }
+        return map;
+    }
+
+    /**
      * Pure: parses custscript_cdb_option_hints. Never throws.
      *
      *   {"vehicle": {"<id>": "<hint>", ...}, "unload": {"<id>": "<hint>", ...}}
@@ -377,48 +434,38 @@ define(['N/runtime'], function (runtime) {
      *   status 'empty' | 'ok' | 'invalid'
      */
     function parseOptionHints(raw) {
-        var result = { status: 'empty', hints: { vehicle: {}, unload: {} }, detail: '' };
-        var parsed;
+        var json = parseJsonObject(raw);
+        var result = { status: json.status, hints: { vehicle: {}, unload: {} }, detail: json.detail };
         var groups = ['vehicle', 'unload'];
         var i;
-        var group;
-        var key;
+        var map;
 
-        if (isBlank(raw)) {
-            return result;
-        }
-        try {
-            parsed = JSON.parse(String(raw));
-        } catch (e) {
-            result.status = 'invalid';
-            result.detail = 'not JSON: ' + (e && e.message ? e.message : String(e));
-            return result;
-        }
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            result.status = 'invalid';
-            result.detail = 'not a JSON object';
+        if (json.status !== 'ok') {
             return result;
         }
         for (i = 0; i < groups.length; i++) {
-            group = parsed[groups[i]];
-            if (group === undefined || group === null) {
+            if (json.value[groups[i]] === undefined || json.value[groups[i]] === null) {
                 continue;
             }
-            if (typeof group !== 'object' || Array.isArray(group)) {
-                result.status = 'invalid';
-                result.detail = '"' + groups[i] + '" is not an object';
-                result.hints = { vehicle: {}, unload: {} };
-                return result;
+            map = idTextMap(json.value[groups[i]]);
+            if (!map) {
+                return { status: 'invalid', hints: { vehicle: {}, unload: {} },
+                    detail: '"' + groups[i] + '" is not an object' };
             }
-            for (key in group) {
-                if (group.hasOwnProperty(key) && /^\d+$/.test(key) && typeof group[key] === 'string' &&
-                        !isBlank(group[key])) {
-                    result.hints[groups[i]][key] = group[key].replace(/^\s+|\s+$/g, '');
-                }
-            }
+            result.hints[groups[i]] = map;
         }
-        result.status = 'ok';
         return result;
+    }
+
+    /**
+     * Pure: parses custscript_cdb_quote_type_labels, {"<quote type id>": "UFH", ...}, with the same
+     * rules as the option hints. Never throws. An unmapped type falls back to its own text.
+     * @returns {{status: string, labels: Object, detail: string}}
+     */
+    function parseTypeLabels(raw) {
+        var json = parseJsonObject(raw);
+        return { status: json.status, labels: json.status === 'ok' ? idTextMap(json.value) : {},
+            detail: json.detail };
     }
 
     /**
@@ -488,6 +535,7 @@ define(['N/runtime'], function (runtime) {
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
         parseOptionHints: parseOptionHints,
+        parseTypeLabels: parseTypeLabels,
         PARAMETERS: PARAMETERS,
         isBlank: isBlank,
         parseIdList: parseIdList,

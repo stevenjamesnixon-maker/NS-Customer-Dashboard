@@ -97,6 +97,11 @@ function stubs(w) {
                     }
                 });
             } else if (def.type === 'salesorder') {
+                // 1.2: the separate extras search (it is the one that reads terms) can be made to
+                // throw, to model a field that does not apply to sales orders.
+                if ((def.columns || []).indexOf('terms') >= 0 && w.extrasThrow) {
+                    throw new Error('An nlobjSearchColumn contains an invalid column: custbodycustbody_sys_bal_incvat.');
+                }
                 // The quote description is confirmed on the Estimate only: model the risk that an
                 // unjoined sales order column makes the search throw.
                 (def.columns || []).forEach(function (c) {
@@ -110,7 +115,7 @@ function stubs(w) {
                 (function walk(e) { if (!Array.isArray(e)) { return; } if (e[0] === 'opportunity' && e[1] === 'anyof') { byOpp = e; } e.forEach(walk); }(def.filters));
                 Object.keys(w.orders).forEach(function (id) {
                     var o = w.orders[id];
-                    if (st[2].indexOf(o.status) < 0) { return; }
+                    if (st && st[2].indexOf(o.status) < 0) { return; }
                     if (byId && asList(byId[2]).indexOf(id) < 0) { return; }
                     if (byOpp && asList(byOpp[2]).indexOf(o.opportunity) < 0) { return; }
                     rows.push({ id: id,
@@ -192,6 +197,8 @@ function stubs(w) {
                 custscript_cdb_bank_name: 'Test Bank', custscript_cdb_bank_sort: '11-22-33', custscript_cdb_bank_account: '87654321',
                 custscript_cdb_edd_definite_value: '3',
                 custscript_cdb_option_hints: '{"vehicle":{"1":"Up to 16 m long"},"unload":{"3":"Bring helpers"}}' };
+            // Per-test overrides on top of the defaults (1.2).
+            Object.keys(w.paramOverrides || {}).forEach(function (k) { p[k] = w.paramOverrides[k]; });
             return { id: w.scriptId || 'customscript_cdb_sl_dashboard', getParameter: function (o) { return p[o.name]; },
                 getRemainingUsage: function () { return 900; } };
         } },

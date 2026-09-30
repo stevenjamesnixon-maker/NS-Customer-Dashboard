@@ -104,7 +104,8 @@ test('1. entities decoded before tags are stripped; no tags; no double encoding'
     assert.strictEqual(data.cleanDescription('A &amp; B &#163;5 &#x2013; <i>x</i>\n  y'), 'A & B £5 – x y');
     var html = dashboardHtml(deliveryGroups({ ready: true, description: data.cleanDescription('Underfloor heating &lt;b&gt;Ground&lt;/b&gt;') }));
     assert.ok(html.indexOf('>Underfloor heating Ground<') > 0);
-    assert.ok(html.indexOf('title="Underfloor heating Ground"') > 0, 'full text in title');
+    // 1.2 (§6): shown in full, so the title tooltip that went with the clamp is gone.
+    assert.strictEqual(html.indexOf('title="Underfloor heating Ground"'), -1, 'no title attribute');
     assert.strictEqual(html.indexOf('&lt;b&gt;'), -1);
     assert.strictEqual(html.indexOf('&amp;lt;'), -1, 'not double encoded');
     assert.strictEqual(/<b>Ground/.test(html), false);
@@ -135,7 +136,8 @@ test('4. the sales order searches read the description through createdFrom only'
     var s = setup();
     run(s.sl, 'GET', { t: s.tok });
     run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
-    var so = s.w.searches.filter(function (d) { return d.type === 'salesorder'; });
+    // 1.2: the separate extras search (it reads terms) is not a main order search.
+    var so = s.w.searches.filter(function (d) { return d.type === 'salesorder' && d.columns.indexOf('terms') < 0; });
     assert.ok(so.length >= 2, 'dashboard and guard searches');
     so.forEach(function (d) {
         var joined = d.columns.filter(function (c) { return c && c.name === 'custbody_quote_description'; });
@@ -321,7 +323,9 @@ test('13. email: tables, Outlook-safe, the link once, the AM block, the footer; 
     assert.ok(html.indexOf('This link is personal to you. Please don’t forward this email.') > 0);
     assert.ok(html.indexOf('You get this update every 2 weeks while you have an open project or order with us. ' +
         'To stop these updates, reply to this email or call Pat Lee.') > 0);
-    assert.ok(html.indexOf('Underfloor heating Ground floor · ready to arrange delivery') > 0, 'description in the subtitle');
+    // 1.2 (§6): the order's own lines — description in full, then the muted "Order SO… · type · state".
+    assert.ok(html.indexOf('>Underfloor heating Ground floor</p>') > 0, 'description line');
+    assert.ok(html.indexOf('Order SO100 · Underfloor heating system · ready to arrange delivery') > 0, 'order line');
     assert.strictEqual(html.indexOf('<img src="https://www.nu-heat.co.uk/logo.png"'), html.indexOf('<img'), 'only the logo');
     assert.strictEqual((html.match(/<img/g) || []).length, 1, 'no photo');
     if (process.env.UPDATE_SNAPSHOTS || !fs.existsSync(snap)) {

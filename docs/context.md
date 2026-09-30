@@ -6,8 +6,8 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 30 Sep 2026 (release 1.1, `feat/dashboard-r1-1`). **Status:** release 1 passed its Production
-test on 30 Sep 2026; release 1.1 not deployed.
+**Last updated:** 30 Sep 2026 (release 1.2, `feat/dashboard-r1-2`). **Status:** releases 1 and 1.1 passed their Production
+tests on 30 Sep 2026; release 1.2 not deployed.
 
 **Design source:** `docs/design/canvas/` (read its README). Release 1.1 builds `Main`, `Mobile`,
 `Delivery`, `ConfirmBacs`, `ConfirmCard` and `Email`. `Order` and `Update` are release 2.
@@ -54,6 +54,15 @@ test on 30 Sep 2026; release 1.1 not deployed.
    loaded record; otherwise `CDB FIELD_MISSING` and the booking goes ahead. A missing optional
    field must never cost the customer their booking.
 
+10. **`custbodycustbody_sys_bal_incvat` has a doubled prefix on purpose.** It is the real field ID
+    in the account (the balance including VAT). Do not "fix" it: the corrected ID does not exist
+    and the amount would silently disappear.
+
+11. **New sales order columns go in the extras search, never in the main searches.**
+    `getOrderExtras()` is a separate, fail-safe search (section 4). A custom field that does not
+    apply to sales orders makes a search throw; in the extras search that costs amounts and split
+    references, in a main search it would cost the whole page.
+
 ---
 
 ## 1. What this solves
@@ -77,14 +86,14 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.1.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.1.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
-| Config library | 1.1.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
+| Dashboard Suitelet | 1.2.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 1.2.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Config library | 1.2.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
 | Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.1.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.1.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
-| Task library | 1.0.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
+| Data library | 1.2.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Render library | 1.2.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
+| Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
 
@@ -160,14 +169,52 @@ are hidden.
 
 1 and 2 are in the search (`openOrderFilters()`); 3 and 4 are in `isOpenOrder()`.
 
+### The fail-safe extras search (1.2)
+
+`getOrderExtras(orderIds)` is **one** sales order search, run **once per request** for every order
+already on the page (`mainline T`, `internalid anyof`), reading `terms`, `custbody_unique_so_ref`,
+`custbodycustbody_sys_bal_incvat`, `total` and `custbody_deposit_total`. **The main order searches
+never gain these columns.** It exists because a custom field that does not apply to sales orders
+makes a search throw: here that is caught, logged once as `CDB EXTRAS_FAILED`, and `{}` comes back —
+the page renders as in 1.1, with no amount, no split reference and **every order treated as pay up
+front**.
+
+### Amount to pay (1.2)
+
+`amountToPay(extras)` (pure): `balance` when set (0 is real) → basis `balance`; else `total −
+(deposit || 0)` → basis `total_less_deposit`; else `null`. A negative result is `null` and logs
+`CDB AMOUNT_ODD`. Shown as `£1,234.50` (`render.formatMoney`), or *Nothing left to pay on this order*
+at 0, and left out entirely when `null`. **Only pay-up-front orders ever show an amount**: section 6
+and the aside of the form, the bank panel of the BACS confirmation, the card confirmation, and the
+*Payment details* panel of an order awaiting payment. **The digest shows no amounts.**
+
+### Pay up front or add to account (1.2)
+
+`isPrepay()`: an order pays up front when its `terms` are blank or in `custscript_cdb_prepay_terms`
+— or when that parameter, or `custscript_cdb_pay_account`, is empty, or the extras search failed.
+Every doubt means pay up front, which offers less. Pay up front is offered **BACS or Card**; an
+account order **BACS or Add to my account**. The server checks the choice against the order: a
+tampered `CARD` from an account order or `ACCOUNT` from a pay-up-front one is a field error and
+nothing is written. An account booking writes the account intent, **does not tick** *Awaiting
+customer payment*, and writes EDD certainty as usual. Its state is **`requested`** (badge *Delivery
+requested*, `b-work`), on the dashboard and in the email.
+
 ### Order row states, first match wins
 
 1. `custbody_del_date` set → **Delivery booked**, with that date.
-2. `custbody_cust_pay_intent` set → **Awaiting payment**, *Requested <ship date>, <time>*, and a
+2. (1.2) `custbody_cust_pay_intent` = `custscript_cdb_pay_account` → **Delivery requested**,
+   *Requested <ship date>, <time>*, no payment panel.
+3. `custbody_cust_pay_intent` set (otherwise) → **Awaiting payment**, *Requested <ship date>, <time>*, and a
    *Payment details* disclosure: the bank panel for BACS, *your account manager will call* for Card.
-3. `custbody_ready_for_delivery` ticked → **Ready to deliver**, yellow **Arrange delivery**.
-4. Otherwise → **Needs information**, `custbody_delivery_hold_reason`, *Your account manager will
+4. `custbody_ready_for_delivery` ticked → **Ready to deliver**, yellow **Arrange delivery**.
+5. Otherwise → **Needs information**, `custbody_delivery_hold_reason`, *Your account manager will
    be in touch*.
+
+**1.2:** the description is shown **in full** (no clamp, no tooltip). Under it, when set,
+`custbody_unique_so_ref` (cleaned like the description, medium weight, text colour: it says what this
+part of a split order contains), then the muted *Order SO… · UFH*. The short label comes from
+`custscript_cdb_quote_type_labels`, else the quote type's own text; it is not repeated when the
+main line already fell back to it. The paragraph below describes 1.1.
 
 The row's main line is the **quote description** (`custbody_quote_description` on the originating
 quote, through the `createdFrom` join — §0, 8), clamped to two lines with the full text in `title`,
@@ -181,9 +228,14 @@ never after.
 
 `resolveRecipient(opp)`: `custbody_pe` when `custbody_value_proposition` is in
 `custscript_cdb_pe_valueprops` **and** the PE is set; otherwise `salesrep`; otherwise the fallback
-employee. The Task goes to that employee. The page header shows the same rule applied to the
-first opportunity in delivery, else design, else to-order order; with no opportunity at all, the
-customer's sales rep, else the fallback.
+employee. **The Task goes to that employee** — per opportunity, unchanged in 1.2.
+
+**The person the customer sees is a different rule (1.2).** The page header and footer, the
+delivery form and the confirmations show the **customer's own sales rep** (`customer.salesrep`), or
+the fallback employee when the rep is empty or inactive (`customerManager()` in the Suitelet). That
+is the same person the digest sends from, so the email and the page agree. `headerOpportunity()`
+is no longer used for the header. So a customer whose rep is A, with a PE-case opportunity whose PE
+is B, sees A on every page, and the Task still goes to B.
 
 ### The delivery form and the guard
 
@@ -281,6 +333,9 @@ and names every missing parameter.
 | `custscript_cdb_notice_days` | — | Integer | 3; audit |
 | `custscript_cdb_bank_name`, `_bank_sort`, `_bank_account` | — | Text | throw |
 | `custscript_cdb_option_hints` (1.1) | — | Long Text: JSON `{"vehicle": {"<id>": "<hint>"}, "unload": {"<id>": "<hint>"}}` | no hints; invalid JSON also logs `CDB OPTION_HINTS_INVALID` once per request. Never fails the page |
+| `custscript_cdb_prepay_terms` (1.2) | `custscript_cdbmr_prepay_terms` | Free-Form Text: comma list of `terms` IDs that pay up front | everyone pays up front |
+| `custscript_cdb_pay_account` (1.2) | `custscript_cdbmr_pay_account` | Integer: the `customlist_cust_pay_intent` ID of *Add to account* | the account option is never offered; everyone pays up front |
+| `custscript_cdb_quote_type_labels` (1.2) | `custscript_cdbmr_quote_type_labels` | Long Text: JSON `{"<quote type id>": "UFH"}` | each quote type's own text; invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the page |
 | `custscript_cdb_edd_definite_value` (1.1) | — | Integer: the `customlist955` ID for *Customer Definite* | EDD certainty not written; `CDB EDD_SKIPPED` per booking |
 | — | `custscript_cdb_digest_mode` | `TEST` \| `LIVE` | throw |
 | — | `custscript_cdb_digest_test_customers` | Text, comma list of customer IDs | throw when the mode is TEST |
@@ -368,6 +423,9 @@ Every title starts `CDB `.
 | `CDB REQUEST_FAILED` | error | Something of ours threw; the customer saw the error page | Read the stack |
 | `CDB OPTION_HINTS_INVALID` | audit | `custscript_cdb_option_hints` is not valid JSON of the right shape; options show titles only | Fix the JSON |
 | `CDB EDD_SKIPPED` | audit | `custscript_cdb_edd_definite_value` is empty, so EDD certainty was not written | Set the parameter |
+| `CDB EXTRAS_FAILED` | audit | The 1.2 extras search threw; the page shows no amounts or split references and treats every order as pay up front | Check the field IDs in `getOrderExtras()` against the account |
+| `CDB AMOUNT_ODD` | audit | An amount to pay came out negative, so it is not shown | Check the order's balance, total and deposit |
+| `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR twin) is not a JSON object; each type shows its own text | Fix the JSON |
 | `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
 | `CDB DIGEST_INPUT` | audit | Mode, and in LIVE how many are due, sent and left over | — |
@@ -489,6 +547,34 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 1.2 — contradictions and decisions for Steve
+
+1. **The card confirmation names the customer's rep, but the Task goes to the PE.** §4 puts the
+   customer's rep on every page (including *"Your account manager, <rep>, will call you to take
+   £x"*), while §4 also keeps Task routing on the opportunity's rep or PE. On a PE-case opportunity
+   the person named is not the person who gets the Task.
+2. **An account customer who chooses BACS sees bank details with no amount.** §3 offers account
+   orders BACS as well, and §2 says account customers never see an amount. As built: the BACS
+   confirmation for an account order shows the bank details and reference, no amount, and ticks
+   *Awaiting customer payment*.
+3. **`custscript_cdbmr_prepay_terms` is added as briefed but not used.** The email shows no amounts
+   and no payment options; the *requested* state depends only on `custscript_cdbmr_pay_account`.
+4. **Line 3 is "Order SO… · UFH" except when line 1 already fell back to the label**, so the label is
+   not shown twice.
+5. **At an amount of 0 the card confirmation reads "Nothing left to pay on this order. Your account
+   manager will be in touch…"** rather than "will call to take £0.00". Wording to confirm.
+6. **The account order's tip in section 6** reads "If you pay by bank transfer, we book your delivery
+   once payment reaches us. Either way, we'll email you to confirm the date." New wording, to confirm.
+
+### Needs Steve (1.2)
+
+- Add *Add to account* to `customlist_cust_pay_intent` and set its ID on both scripts.
+- Replace `custscript_cdb_logo_url` / `custscript_cdbmr_logo_url` with the **coloured** logo.
+- Confirm in Sandbox that `terms`, `total`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat`
+  and `custbody_deposit_total` are valid **sales order** search columns (a failure only logs
+  `CDB EXTRAS_FAILED`, but then nobody is offered the account option).
+- Decide points 1 and 2 above.
 
 ### Release 1.1 — contradictions and decisions for Steve
 

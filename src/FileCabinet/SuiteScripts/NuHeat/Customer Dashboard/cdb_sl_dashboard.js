@@ -35,7 +35,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * @version 1.2.0
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -43,9 +43,13 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     var SO = config.FIELDS.SALES_ORDER;
+
+    /** How each payment choice reads to staff: the change log and the Task. */
+    var PAYMENT_TEXT = { BACS: 'BACS', CARD: 'Card, account manager to call', ACCOUNT: 'Add to account' };
+    var PAYMENT_CHOICE = { BACS: 'BACS', CARD: 'Card', ACCOUNT: 'Add to account' };
 
     var NOTICES = {
         GENERIC: 'That order can\'t be booked online at the moment. Your account manager will be in touch.',
@@ -74,10 +78,33 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     }
 
     /**
-     * The account manager for an opportunity (brief C6), as { name, phone, email }. The fallback
-     * employee when the chosen one cannot be read.
+     * 1.2: THE PERSON THE CUSTOMER SEES — header, footer, form and confirmations: the customer's own
+     * sales rep (customer.salesrep), or the fallback employee when the rep is empty, inactive or
+     * unreadable. The same person the digest sends from. NOT the Task assignee: see taskAssignee().
      */
-    function accountManager(opp, cfg) {
+    function customerManager(ctx) {
+        var rep = ctx.customer.salesRep ? data.getEmployee(ctx.customer.salesRep) : null;
+        var id = ctx.customer.salesRep;
+        var source = 'salesrep';
+        if (!rep || rep.isInactive) {
+            id = String(ctx.cfg.FALLBACK_EMPLOYEE);
+            source = 'fallback';
+            rep = data.getEmployee(id);
+        }
+        return {
+            id: id,
+            source: source,
+            name: rep ? rep.name : '',
+            phone: rep ? rep.phone : '',
+            email: rep ? rep.email : ''
+        };
+    }
+
+    /**
+     * Who gets the Task for an opportunity (brief C6: the PE for PE-case value propositions, else
+     * the rep, else the fallback). Unchanged in 1.2; since 1.2 it is used ONLY for Task routing.
+     */
+    function taskAssignee(opp, cfg) {
         var recipient = opp ? data.resolveRecipient(opp, cfg) :
             { employeeId: String(cfg.FALLBACK_EMPLOYEE), source: 'fallback' };
         var employee = data.getEmployee(recipient.employeeId);
@@ -94,6 +121,33 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         };
     }
 
+    /** CDB AMOUNT_ODD: an amount that came out negative, so is not shown. */
+    function amountOdd(why) {
+        log.audit({ title: title('AMOUNT_ODD'), details: why });
+    }
+
+    /**
+     * The short quote type labels, parsed once per request. Invalid JSON logs CDB TYPE_LABELS_INVALID
+     * once and falls back to each quote type's own text. Never fails the page.
+     */
+    function typeLabels(ctx) {
+        var parsed;
+        if (!ctx.typeLabels) {
+            parsed = config.parseTypeLabels(ctx.cfg.QUOTE_TYPE_LABELS);
+            if (parsed.status === 'invalid') {
+                log.audit({ title: title('TYPE_LABELS_INVALID'), details: 'custscript_cdb_quote_type_labels ignored: ' +
+                    parsed.detail });
+            }
+            ctx.typeLabels = parsed.labels;
+        }
+        return ctx.typeLabels;
+    }
+
+    /** 1.2: the payment options an order is offered. */
+    function paymentOptions(order) {
+        return order.prepay ? [data.PAYMENT.BACS, data.PAYMENT.CARD] : [data.PAYMENT.BACS, data.PAYMENT.ACCOUNT];
+    }
+
     function bankOf(cfg) {
         return { name: cfg.BANK_NAME, sort: cfg.BANK_SORT, account: cfg.BANK_ACCOUNT };
     }
@@ -105,9 +159,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
      */
     function renderDashboard(ctx, notice) {
         var groups = data.getProjects(ctx.customer.id, ctx.cfg);
-        var headerOpp = data.headerOpportunity(groups);
-        var am = accountManager(headerOpp ||
-            { salesRep: ctx.customer.salesRep, pe: '', valueProposition: '' }, ctx.cfg);
+        var am = customerManager(ctx);
+        // 1.2: one extras search for every order on the page; a failure leaves them pay-up-front.
+        data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)), typeLabels(ctx), ctx.cfg,
+            amountOdd);
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,
@@ -156,6 +211,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var address = data.getAddressBook(ctx.customer.id);
         var hints = config.parseOptionHints(ctx.cfg.OPTION_HINTS);
 
+        // 1.2: the extras for this one order, once per request. Sets typeLabel, uniqueRef, prepay
+        // and amount on the guard's order row.
+        data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), typeLabels(ctx), ctx.cfg, amountOdd);
+
         // Once per request (formContext runs once per GET or POST). Never fails the page.
         if (hints.status === 'invalid') {
             log.audit({ title: title('OPTION_HINTS_INVALID'), details: 'custscript_cdb_option_hints ignored: ' +
@@ -178,7 +237,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             options: { time: time.options, vehicle: vehicle.options, unload: unload.options,
                 address: address },
             hints: hints.hints,
-            am: accountManager(guard.opportunity, ctx.cfg)
+            am: customerManager(ctx),
+            assignee: taskAssignee(guard.opportunity, ctx.cfg)
         };
     }
 
@@ -226,7 +286,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             limits: config.TEXT_LIMITS,
             hints: fc.hints,
             guidance: config.DELIVERY_GUIDANCE,
-            noticeDays: ctx.cfg.NOTICE_DAYS
+            noticeDays: ctx.cfg.NOTICE_DAYS,
+            paymentOptions: paymentOptions(guard.order)
         });
     }
 
@@ -279,6 +340,11 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             { label: 'Awaiting customer payment', fieldId: SO.AWAITING_PAYMENT, value: true, newText: 'Yes',
                 checkbox: true }
         ];
+        // 1.2: an Add-to-account booking has nothing to pay, so the box is not ticked. It is still
+        // never unticked by anything in this repo.
+        if (v.payment === data.PAYMENT.ACCOUNT) {
+            optional = [];
+        }
         var specs = [
             { label: 'Delivery date', fieldId: SO.SHIP_DATE, value: dates.localDateForWrite(v.date),
                 newText: dates.formatLong(v.date), date: true },
@@ -297,7 +363,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 newText: v.contactEmail },
             { label: 'Special requests', fieldId: SO.SPECIAL_REQUESTS, value: v.requests, newText: v.requests },
             { label: 'Payment intent', fieldId: SO.PAY_INTENT, value: v.payIntent,
-                newText: v.payment === data.PAYMENT.BACS ? 'BACS' : 'Card, account manager to call' },
+                newText: PAYMENT_TEXT[v.payment] },
             { label: 'Booking requested', fieldId: SO.BOOKING_REQUESTED, value: now,
                 newText: now.toISOString() }
         ];
@@ -383,7 +449,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             unloadIds: ids(fc.options.unload),
             addressIds: ids(fc.options.address),
             payBacs: ctx.cfg.PAY_BACS,
-            payCard: ctx.cfg.PAY_CARD
+            payCard: ctx.cfg.PAY_CARD,
+            payAccount: ctx.cfg.PAY_ACCOUNT,
+            paymentOptions: paymentOptions(guard.order)
         });
         if (!check.ok) {
             log.audit({
@@ -409,7 +477,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 ctx.customer.id + ': ' + JSON.stringify(changes))
         });
 
-        am = fc.am;
+        am = fc.assignee;
         try {
             for (i = 0; i < changes.length; i++) {
                 if (changes[i].changed && changes[i].fieldId !== SO.SPECIAL_REQUESTS) {
@@ -417,15 +485,24 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 }
             }
             taskResult = task.createDeliveryTask({
-                title: task.buildTitle(guard.order.tranId, ctx.customer.name),
+                title: task.buildTitle(guard.order.tranId, render.orderTitle(guard.order)),
                 assigneeId: am.id,
                 customerId: ctx.customer.id,
                 opportunityId: guard.opportunity.id,
                 message: task.buildMessage(taskChanges,
                     check.values.payment === data.PAYMENT.BACS ?
                         'BACS: the customer has been shown the bank details, reference ' + guard.order.tranId :
-                        'Card: call the customer to take payment',
-                    check.values.requests),
+                        check.values.payment === data.PAYMENT.CARD ? 'Card: call the customer to take payment' :
+                            'Add to account: no payment is needed now',
+                    check.values.requests, {
+                        description: render.orderTitle(guard.order),
+                        uniqueRef: guard.order.uniqueRef,
+                        paymentChoice: PAYMENT_CHOICE[check.values.payment],
+                        account: check.values.payment === data.PAYMENT.ACCOUNT,
+                        // Pay-up-front only; account orders never carry an amount.
+                        amountText: guard.order.prepay && render.amountText(guard.order.amount) ?
+                            render.amountText(guard.order.amount) + ' (' + render.amountBasisText(guard.order.amount) + ')' : ''
+                    }),
                 todayKey: fc.todayKey
             });
             log.audit({
@@ -443,7 +520,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
         return render.confirmation({
             logoUrl: ctx.cfg.LOGO_URL,
-            am: am,
+            am: fc.am,
+            amount: guard.order.prepay ? guard.order.amount : null,
+            uniqueRef: guard.order.uniqueRef,
             payment: check.values.payment,
             bank: bankOf(ctx.cfg),
             tranId: guard.order.tranId,
