@@ -8,7 +8,8 @@
  * READ-ONLY. Nothing in this file writes a record.
  *
  * WHAT "OPEN" MEANS FOR A SALES ORDER — every one of these, and the same everywhere:
- *   1. a linked opportunity (the native opportunity field, mainline T);
+ *   1. a linked opportunity: the sales order's native opportunity field is set. (The SALES ORDER
+ *      search filters mainline T. Opportunity searches must never: they reject mainline.)
  *   2. its native status is one that can still ship: config.SHIPPABLE_STATUSES (addendum). This
  *      is a SEARCH FILTER, never a comparison against a column value, because the status column
  *      does not return the SalesOrd:X codes;
@@ -25,14 +26,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.0.1
  */
 define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.0.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -456,8 +457,9 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
     function getOpportunities(customerId, cfg) {
         var s = search.create({
             type: search.Type.OPPORTUNITY,
+            // No mainline: the opportunity search rejects it ("invalid search criteria") and
+            // already returns one row per opportunity.
             filters: [
-                ['mainline', 'is', 'T'], 'AND',
                 ['entity', 'anyof', customerId], 'AND',
                 [OPP.STATUS, 'noneof', cfg.LOST_STATUSES]
             ],

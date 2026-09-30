@@ -20,7 +20,9 @@ FILES.forEach(function (f) {
         assert.ok(!/\.includes\(/.test(code), 'no includes');
         assert.ok(!/log\.warn/.test(code), 'no log.warn');
         assert.ok(!/getCurrentUser/.test(code), 'no current user');
-        assert.ok(/var VERSION = '1\.0\.0';/.test(src) && /@version 1\.0\.0/.test(src), 'versions in step');
+        var constant = /var VERSION = '(\d+\.\d+\.\d+)';/.exec(src);
+        var header = /@version (\d+\.\d+\.\d+)/.exec(src);
+        assert.ok(constant && header && constant[1] === header[1], 'VERSION and @version in step');
         (code.match(/log\.\w+\(\{\s*title:\s*'[^']*'/g) || []).forEach(function (t) {
             assert.fail('literal log title without the CDB prefix helper: ' + t);
         });

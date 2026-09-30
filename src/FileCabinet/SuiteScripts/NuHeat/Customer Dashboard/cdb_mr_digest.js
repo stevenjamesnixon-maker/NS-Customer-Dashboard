@@ -30,7 +30,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.0.1
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -38,7 +38,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.0.1';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -73,8 +73,8 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         var set = {};
         each(search.create({
             type: search.Type.OPPORTUNITY,
+            // No mainline: the opportunity search rejects it. See cdb_lib_data.getOpportunities().
             filters: [
-                ['mainline', 'is', 'T'], 'AND',
                 [OPP.STATUS, 'noneof', cfg.LOST_STATUSES], 'AND',
                 [[OPP.STATUS, 'noneof', cfg.WON_STATUSES], 'OR',
                     [OPP.SUB_STATUS, 'anyof', cfg.DESIGN_SUBSTATUS.concat(cfg.DELIVERY_SUBSTATUS)]]

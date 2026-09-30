@@ -34,6 +34,11 @@ on. It does not describe the wider NetSuite account.
 
 6. **Upload the libraries before the scripts.** Both scripts fail at load time without them.
 
+7. **Opportunity searches reject `mainline`.** The opportunity search type has no `mainline`
+   filter (*"An nlobjSearchFilter contains invalid search criteria: mainline"*) and already
+   returns one row per opportunity. Sales order searches accept it and keep it. Found in
+   Production on the first TEST digest run, fixed in 1.0.1.
+
 ---
 
 ## 1. What this solves
@@ -58,11 +63,11 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
 | Dashboard Suitelet | 1.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.0.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Digest Map/Reduce | 1.0.1 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Config library | 1.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
 | Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.0.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Data library | 1.0.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
 | Render library | 1.0.0 | `lib/cdb_lib_render.js` | Pure HTML: page, sections, form, confirmations, email | Not deployed |
 | Task library | 1.0.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
@@ -125,7 +130,8 @@ are hidden.
 
 ### What "open" means for a sales order — one definition, everywhere
 
-1. A linked opportunity: the native `opportunity` field, `mainline = T`. Not `createdfrom`.
+1. A linked opportunity: the sales order's native `opportunity` field is set. Not `createdfrom`.
+   (The sales order search filters `mainline = T`; the opportunity searches must not — §0, 7.)
 2. **Native status** in `SalesOrd:A` Pending Approval, `SalesOrd:B` Pending Fulfillment,
    `SalesOrd:D` Partially Fulfilled, `SalesOrd:E` Pending Billing/Partially Fulfilled (addendum
    of 30 Sep). Fully fulfilled, billed, closed and cancelled orders (F, G, H, C) are never shown or

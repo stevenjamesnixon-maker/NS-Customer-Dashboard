@@ -65,6 +65,7 @@ function stubs(w) {
     var search = {
         Type: { CUSTOMER: 'customer', EMPLOYEE: 'employee', CONTACT: 'contact', OPPORTUNITY: 'opportunity', SALES_ORDER: 'salesorder' },
         Sort: { ASC: 'ASC', DESC: 'DESC' },
+        Summary: { GROUP: 'GROUP' },
         createColumn: function (c) { return c; },
         lookupFields: function (o) {
             var src = { customer: w.customers, employee: w.employees, opportunity: w.opps, contact: w.contacts }[o.type];
@@ -81,11 +82,17 @@ function stubs(w) {
         create: function (def) {
             var rows = [];
             var clause;
+            w.searches = w.searches || [];
+            w.searches.push(def);
+            // As NetSuite does: the opportunity search type has no mainline filter.
+            if (def.type === 'opportunity' && findClause(def.filters, 'mainline')) {
+                throw new Error('An nlobjSearchFilter contains invalid search criteria: mainline.');
+            }
             if (def.type === 'opportunity') {
                 clause = findClause(def.filters, 'entity');
                 Object.keys(w.opps).forEach(function (id) {
                     var o = w.opps[id];
-                    if (asList(clause[2]).indexOf(o.entity) >= 0) {
+                    if (!clause || asList(clause[2]).indexOf(o.entity) >= 0) {
                         rows.push({ id: id, getValue: function (n) { return o[n] || ''; }, getText: function () { return ''; } });
                     }
                 });
