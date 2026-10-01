@@ -244,3 +244,55 @@ test('16. one extras search per page, with the recent rows joined in; the recent
     assert.strictEqual(recent.length, 1, 'one recent search');
     assert.strictEqual(JSON.stringify(recent[0].filters).indexOf('"noneof",["2","16","90"]'), -1, 'no excluded list');
 });
+
+// ---------------------------------------------------------------- PR #4 amendment 1: through the opportunities
+
+function recentSearches(w) {
+    return (w.searches || []).filter(function (d) { return d.type === 'salesorder' && JSON.stringify(d.filters).indexOf('SalesOrd:G') >= 0; });
+}
+
+test('A1. another customer\'s entity on this customer\'s opportunity: shown', function () {
+    var s = setup({ tweak: withRecent(delivered(300, { entity: '43', opportunity: '4', custbody_del_date: TODAY })) });
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('<h2>Recently delivered</h2>') > 0);
+    assert.ok(html.indexOf('Order SO300') > 0);
+    var f = JSON.stringify(recentSearches(s.w)[0].filters);
+    assert.ok(f.indexOf('["opportunity","anyof",["4"]]') >= 0, f);
+    assert.strictEqual(f.indexOf('"entity"'), -1, 'no entity filter');
+    assert.strictEqual(f.indexOf('"noneof","@NONE@"'), -1, 'no redundant opportunity filter');
+});
+
+test('A2. this customer\'s entity on another customer\'s opportunity: not shown', function () {
+    var s = setup({ tweak: withRecent(delivered(300, { entity: '42', opportunity: '9', custbody_del_date: TODAY })) });
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.strictEqual(html.indexOf('Recently delivered'), -1);
+    assert.strictEqual(html.indexOf('SO300'), -1);
+});
+
+test('A3. no opportunities: the recent search is not run, and there is no section', function () {
+    var s = setup({ tweak: function (w) {
+        Object.keys(w.opps).forEach(function (id) { if (w.opps[id].entity === '42') { delete w.opps[id]; } });
+        w.orders[300] = delivered(300, { custbody_del_date: TODAY });
+    } });
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.strictEqual(recentSearches(s.w).length, 0);
+    assert.strictEqual(html.indexOf('Recently delivered'), -1);
+    assert.ok(html.indexOf('There is nothing to show') > 0);
+    assert.deepStrictEqual(data.getRecentlyDelivered('42', [], CFG, TODAY), [], 'pure guard: no IDs, no search');
+});
+
+test('A4. the digest uses the same rule: through the customer\'s opportunities', function () {
+    var w = ns.world();
+    w.orders[300] = delivered(300, { entity: '43', opportunity: '4', custbody_del_date: TODAY });
+    w.scriptId = 'customscript_cdb_mr_digest';
+    w.params = { custscript_cdbmr_won_statuses: '13', custscript_cdbmr_lost_statuses: '14',
+        custscript_cdbmr_design_substatus: '1,4,5,13', custscript_cdbmr_needinfo_substatus: '1',
+        custscript_cdbmr_delivery_substatus: '8,11', custscript_cdbmr_excluded_statuses: '90',
+        custscript_cdbmr_excluded_quote_types: '7,8', custscript_cdbmr_pay_bacs: '1', custscript_cdbmr_pay_card: '2',
+        custscript_cdbmr_fallback_employee: '500', custscript_cdb_digest_mode: 'TEST', custscript_cdb_digest_test_customers: '42' };
+    amd.load('cdb_mr_digest', ns.stubs(w)).map({ value: JSON.stringify({ customerId: '42' }), write: function () {} });
+    var f = JSON.stringify(recentSearches(w)[0].filters);
+    assert.ok(f.indexOf('["opportunity","anyof",["4"]]') >= 0);
+    assert.strictEqual(f.indexOf('"entity"'), -1);
+    assert.ok(w.emails[0].body.indexOf('Order SO300') > 0, 'the order on this customer\'s opportunity is in the email');
+});

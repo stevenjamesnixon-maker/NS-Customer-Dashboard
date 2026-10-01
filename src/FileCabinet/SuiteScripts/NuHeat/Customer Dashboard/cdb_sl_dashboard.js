@@ -35,7 +35,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 1.3.1
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -43,7 +43,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '1.3.1';
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -170,8 +170,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         // 1.3: one more search per page (recently delivered; fail-safe), and still ONE extras search
         // for every order on the page, recent rows included. A failed extras search leaves them
         // pay-up-front.
-        data.decorateAll(groups, data.getRecentlyDelivered(ctx.customer.id, ctx.cfg, todayKey), typeLabels(ctx),
-            ctx.cfg, ctx.customer.termsId, todayKey, amountOdd);
+        data.decorateAll(groups, data.getRecentlyDelivered(ctx.customer.id, data.oppIdsOf(groups), ctx.cfg, todayKey),
+            typeLabels(ctx), ctx.cfg, ctx.customer.termsId, todayKey, amountOdd);
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,

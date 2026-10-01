@@ -33,7 +33,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 1.3.1
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -41,7 +41,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '1.3.1';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -242,7 +242,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             }
             // 1.2/1.3: the split reference and short type label from the one fail-safe extras search,
             // recent rows included. The email never shows amounts.
-            data.decorateAll(groups, data.getRecentlyDelivered(customerId, cfg, todayKey),
+            data.decorateAll(groups, data.getRecentlyDelivered(customerId, data.oppIdsOf(groups), cfg, todayKey),
                 config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg, customer.termsId, todayKey);
             from = author(customer, cfg);
 

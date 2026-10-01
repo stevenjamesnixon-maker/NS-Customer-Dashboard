@@ -94,12 +94,12 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.3.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.3.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Dashboard Suitelet | 1.3.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 1.3.1 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Config library | 1.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
 | Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.3.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Data library | 1.3.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
 | Render library | 1.3.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
@@ -248,14 +248,16 @@ is the dashboard's only**: the readiness sync's excluded list is unchanged.
 
 ### Recently delivered (1.3)
 
-`getRecentlyDelivered()`, one more search per page: the customer's sales orders (`entity`), native
-**F or G** (fully fulfilled), with an opportunity, quote type not excluded, and a delivery date in the
+`getRecentlyDelivered()`, one more search per page: sales orders on **the customer's opportunities**
+(`opportunity anyof` the IDs `getProjects()` already loaded — the same rule as every other section,
+not the order's own `entity`; 1.3.1), native **F or G** (fully fulfilled), quote type not excluded, and a delivery date in the
 last `custscript_cdb_recent_days` days (default 7) up to today (UK). The **delivery date** is
 `custbody_del_date` if set, otherwise `custbody_defaultshipdate` (`deliveryDateKey()`); the search
-ORs the two and `groupRecent()` decides each row; neither date → not shown. It **does not apply the
+ORs the two and `groupRecent()` decides each row; neither date → not shown. **No opportunities → no
+search and no section.** It **does not apply the
 excluded list** — shipped orders usually carry a completed Record Status — only
 `custscript_cdb_recent_hidden_statuses` (the account's test statuses). Its order IDs join the one
-extras call (`decorateAll()`). The section *Recently delivered* (*Delivered in the last N days*)
+extras call (`decorateAll()`), after grouping, so only rows that will be shown are read. The section *Recently delivered* (*Delivered in the last N days*)
 comes last, grouped by project, badge *Delivered*, *Delivered {date}*, no actions, no amounts, and
 is left out when empty; it counts against "nothing to show" on the page, **but not for the digest**:
 recent deliveries alone send no email. In a digest that is sent it is a group at the end, outside the
@@ -633,8 +635,8 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    Record Status.
 2. **A released order is open, so the guard would have let it be booked by URL** when it is ready
    and has no payment intent. Not in the brief: the guard now refuses released orders.
-3. **Recently delivered uses the order's own `entity`;** the other sections use the opportunity's.
-   An order whose opportunity belongs to another customer would show for the order's customer.
+3. ~~Recently delivered uses the order's own `entity`.~~ **Decided (1.3.1):** it goes through the
+   customer's opportunities, like every other section.
 4. **The released meta uses `custbody_defaultshipdate`** (the customer's requested date) for
    "We're preparing your delivery for …", as briefed.
 
@@ -642,7 +644,7 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 
 - Set `custscript_cdb_released_statuses` and its twin to the **Release to Warehouse** ID, and the
   hidden statuses to the test statuses, in each account.
-- A Sandbox check of the recent search: `entity`, `status anyof SalesOrd:F,SalesOrd:G` and the two
+- A Sandbox check of the recent search: `opportunity anyof`, `status anyof SalesOrd:F,SalesOrd:G` and the two
   `within` date filters on sales orders.
 
 ### Release 1.2 — contradictions and decisions for Steve

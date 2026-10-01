@@ -45,7 +45,9 @@
  * means "don't evaluate readiness". Applied in isOpenOrder() and in recordStatusFilter().
  *
  * RECENTLY DELIVERED (1.3): getRecentlyDelivered() is one more search per page, for shipped orders
- * (native F/G) delivered in the last custscript_cdb_recent_days days. It deliberately does NOT apply
+ * (native F/G) delivered in the last custscript_cdb_recent_days days. Like every other section it
+ * works through the CUSTOMER'S OPPORTUNITIES (1.3.1), not the order's own entity: the opportunity
+ * IDs getProjects() already loaded. No opportunities, no search. It deliberately does NOT apply
  * the excluded list — shipped orders usually carry a completed Record Status — only the optional
  * custscript_cdb_recent_hidden_statuses. A failure logs CDB RECENT_FAILED and returns no rows.
  *
@@ -57,14 +59,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 1.3.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '1.3.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -631,16 +633,27 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         var ids = orderIdsOf(groups);
         var extras;
         var i;
-        for (i = 0; i < recentRows.length; i++) {
-            ids.push(recentRows[i].id);
+        var j;
+        // 1.3.1: group first, so only the recent rows that will be SHOWN join the extras call.
+        groups.recent = groupRecent(recentRows, groups.opps, cfg, todayKey, cfg.RECENT_DAYS);
+        for (i = 0; i < groups.recent.length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                ids.push(groups.recent[i].orders[j].order.id);
+            }
         }
         extras = getOrderExtras(ids);
         decorateGroups(groups, extras, labels, cfg, customerTermsId, onOdd);
-        for (i = 0; i < recentRows.length; i++) {
-            decorateOrder(recentRows[i], extras, labels, cfg, customerTermsId, onOdd);
+        for (i = 0; i < groups.recent.length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                decorateOrder(groups.recent[i].orders[j].order, extras, labels, cfg, customerTermsId, onOdd);
+            }
         }
-        groups.recent = groupRecent(recentRows, groups.opps, cfg, todayKey, cfg.RECENT_DAYS);
         return groups;
+    }
+
+    /** Pure (1.3.1): the IDs of the customer's opportunities that getProjects() loaded. */
+    function oppIdsOf(groups) {
+        return (groups.opps || []).map(function (o) { return o.id; });
     }
 
     /** Pure: the IDs of every order in the delivery section. */
@@ -1035,21 +1048,25 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      */
     /**
      * 1.3: the customer's shipped orders (native F/G) whose confirmed or ship date falls in the last
-     * custscript_cdb_recent_days days. NOT the excluded list; only the hidden statuses. FAIL-SAFE: any
+     * custscript_cdb_recent_days days. 1.3.1: "the customer's" means ON THE CUSTOMER'S OPPORTUNITIES,
+     * as in every other section, not the order's own entity. oppIds are the ones getProjects()
+     * already loaded (oppIdsOf()); with none, no search is run. NOT the excluded list; only the hidden statuses. FAIL-SAFE: any
      * error logs CDB RECENT_FAILED and returns [] so the page and the digest carry on without the
      * section. Rows still need groupRecent(), which decides each one on deliveryDateKey().
      *
      * @returns {Object[]} rows shaped like orderFromResult()
      */
-    function getRecentlyDelivered(customerId, cfg, todayKey) {
+    function getRecentlyDelivered(customerId, oppIds, cfg, todayKey) {
         var fromKey = dates.addDays(todayKey, -Math.max(0, parseInt(cfg.RECENT_DAYS, 10) || 0));
         var filters;
+        if (!oppIds || !oppIds.length) {
+            return [];
+        }
         try {
             filters = [
                 ['mainline', 'is', 'T'], 'AND',
-                ['entity', 'anyof', customerId], 'AND',
+                [SO.OPPORTUNITY, 'anyof', oppIds], 'AND',
                 ['status', 'anyof', config.DELIVERED_STATUSES], 'AND',
-                [SO.OPPORTUNITY, 'noneof', '@NONE@'], 'AND',
                 [[SO.QUOTE_TYPE, 'anyof', '@NONE@'], 'OR', [SO.QUOTE_TYPE, 'noneof', cfg.EXCLUDED_QUOTE_TYPES]], 'AND',
                 [[SO.CONFIRMED_DATE, 'within', dateFilterValue(fromKey), dateFilterValue(todayKey)], 'OR',
                     [SO.SHIP_DATE, 'within', dateFilterValue(fromKey), dateFilterValue(todayKey)]]
@@ -1179,6 +1196,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         deliveryDateKey: deliveryDateKey,
         groupRecent: groupRecent,
         getRecentlyDelivered: getRecentlyDelivered,
+        oppIdsOf: oppIdsOf,
         decorateAll: decorateAll,
         guardOrder: guardOrder,
         getNonDeliveryDates: getNonDeliveryDates,
