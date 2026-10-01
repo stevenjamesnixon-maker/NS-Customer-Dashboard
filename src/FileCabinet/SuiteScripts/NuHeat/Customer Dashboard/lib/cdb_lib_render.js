@@ -78,6 +78,10 @@ define(['./cdb_lib_dates'], function (dates) {
         '2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 ' +
         '6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"></path></svg>';
 
+    var MAIL_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#59315f" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+        '<rect x="3" y="5" width="18" height="14" rx="2"></rect><polyline points="3 7 12 13 21 7"></polyline></svg>';
+
     var TICK_ICON = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1f5c3f" ' +
         'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
         '<polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -376,11 +380,54 @@ define(['./cdb_lib_dates'], function (dates) {
 
     /** The round phone button the phone layout shows; nothing when there is no number. */
     function callButton(am) {
-        if (!am || !am.phone) {
+        var c = contactParts(am);
+        if (c.kind === 'phone') {
+            return '<a class="am-call" href="' + esc(c.href) + '" aria-label="Call your account manager' +
+                (am.name ? ', ' + esc(am.name) : '') + '">' + PHONE_ICON + '</a>';
+        }
+        // Amendment 2: no phone, so the round button on phones emails instead.
+        if (c.kind === 'email') {
+            return '<a class="am-call" href="' + esc(c.href) + '" aria-label="Email your account manager' +
+                (am.name ? ', ' + esc(am.name) : '') + '">' + MAIL_ICON + '</a>';
+        }
+        return '';
+    }
+
+    /**
+     * Pure: how to reach the account manager (amendment 2). Phone first, then email, then nothing.
+     * @param {Object} am - { name, phone, email }
+     * @returns {{kind: string, text: string, href: string}} kind 'phone' | 'email' | 'none'
+     */
+    function contactParts(am) {
+        if (am && am.phone) {
+            return { kind: 'phone', text: am.phone, href: telHref(am.phone) };
+        }
+        if (am && am.email) {
+            return { kind: 'email', text: am.email, href: 'mailto:' + am.email };
+        }
+        return { kind: 'none', text: '', href: '' };
+    }
+
+    /**
+     * Pure: the "Questions?" line (amendment 2), escaped HTML, or '' with no name.
+     *   phone   "Questions? Call {name} on {phone}"   (tel: link)
+     *   email   "Questions? Email {name} at {email}"  (mailto: link)
+     *   neither "Questions? Contact {name}"
+     */
+    function questionsLine(am) {
+        var c = contactParts(am);
+        var link;
+        if (!am || !am.name) {
             return '';
         }
-        return '<a class="am-call" href="' + esc(telHref(am.phone)) + '" aria-label="Call your account manager' +
-            (am.name ? ', ' + esc(am.name) : '') + '">' + PHONE_ICON + '</a>';
+        link = '<a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        if (c.kind === 'phone') {
+            return 'Questions? Call ' + esc(am.name) + ' on ' + link;
+        }
+        if (c.kind === 'email') {
+            return 'Questions? Email ' + esc(am.name) + ' at ' + link;
+        }
+        return 'Questions? Contact ' + esc(am.name);
     }
 
     /**
@@ -390,17 +437,18 @@ define(['./cdb_lib_dates'], function (dates) {
      *   'none'      logo only (the confirmations)
      */
     function headerRight(kind, am) {
-        var phoneLink;
+        var c;
         if (kind === 'none' || !am || !am.name) {
             return '';
         }
-        phoneLink = am.phone ? '<a href="' + esc(telHref(am.phone)) + '">' + esc(am.phone) + '</a>' : '';
         if (kind === 'questions') {
-            return '<span class="hq">Questions? Call ' + esc(am.name) + (phoneLink ? ' on ' + phoneLink : '') +
-                '</span>' + callButton(am);
+            return '<span class="hq">' + questionsLine(am) + '</span>' + callButton(am);
         }
+        // Amendment 2: name · phone, else name · email, else the name alone.
+        c = contactParts(am);
         return '<div class="am"><span class="am-label">Your account manager</span><span class="am-name">' +
-            esc(am.name) + (phoneLink ? ' · ' + phoneLink : '') + '</span></div>' + callButton(am);
+            esc(am.name) + (c.kind !== 'none' ? ' · <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>' : '') +
+            '</span></div>' + callButton(am);
     }
 
     /**
@@ -599,9 +647,8 @@ define(['./cdb_lib_dates'], function (dates) {
                 'that’s wrong, please contact your account manager.</p></div>';
         }
 
-        body += '<footer class="foot">' + (m.am && m.am.name ? '<span>Questions? Call ' + esc(m.am.name) +
-            (m.am.phone ? ' on <a href="' + esc(telHref(m.am.phone)) + '">' + esc(m.am.phone) + '</a>' : '') +
-            '.</span>' : '<span></span>') + '<span>This link is personal to you. Please don’t share it.</span></footer>';
+        body += '<footer class="foot">' + (questionsLine(m.am) ? '<span>' + questionsLine(m.am) + '.</span>' : '<span></span>') +
+            '<span>This link is personal to you. Please don’t share it.</span></footer>';
 
         return page({ title: 'Your projects', logoUrl: m.logoUrl, am: m.am, header: 'am', width: 'w1200', body: body });
     }
@@ -1037,6 +1084,25 @@ define(['./cdb_lib_dates'], function (dates) {
         return parts.join(' ');
     }
 
+    /**
+     * Pure: the end of the email footer's opt-out sentence (amendment 2): " or call {name} on {phone}",
+     * " or email {name} at {email}", " or contact {name}", or '' with no name.
+     */
+    function emailFooterContact(am) {
+        var c = contactParts(am);
+        if (!am || !am.name) {
+            return '';
+        }
+        if (c.kind === 'phone') {
+            return ' or call ' + esc(am.name) + ' on ' + esc(c.text);
+        }
+        if (c.kind === 'email') {
+            return ' or email ' + esc(am.name) + ' at <a href="mailto:' + esc(c.text) + '" style="color:' + COLORS.PURPLE +
+                ';">' + esc(c.text) + '</a>';
+        }
+        return ' or contact ' + esc(am.name);
+    }
+
     /** "every 2 weeks" for 14, "every 7 days" otherwise. */
     function everyText(days) {
         var n = parseInt(days, 10) || 14;
@@ -1140,7 +1206,7 @@ define(['./cdb_lib_dates'], function (dates) {
         html += '<tr><td align="center" style="padding:24px 32px;border-top:1px solid #ece8e3;' + f +
             'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">You get this update ' + everyText(m.digestDays) +
             ' while you have an open project or order with us. To stop these updates, reply to this email' +
-            (m.am && m.am.name ? ' or call ' + esc(m.am.name) : '') + '.</td></tr>';
+            emailFooterContact(m.am) + '.</td></tr>';
 
         return html + '</table></td></tr></table>';
     }
@@ -1152,6 +1218,8 @@ define(['./cdb_lib_dates'], function (dates) {
         INVALID_LINK_TEXT: INVALID_LINK_TEXT,
         esc: esc,
         orderTitle: orderTitle,
+        contactParts: contactParts,
+        questionsLine: questionsLine,
         formatMoney: formatMoney,
         amountText: amountText,
         amountBasisText: amountBasisText,

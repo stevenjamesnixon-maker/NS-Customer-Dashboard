@@ -322,7 +322,8 @@ test('13. email: tables, Outlook-safe, the link once, the AM block, the footer; 
     assert.ok(html.indexOf('Your account manager</p>') > 0 && html.indexOf('>Pat Lee</p>') > 0 && html.indexOf('mailto:pat@example.com') > 0);
     assert.ok(html.indexOf('This link is personal to you. Please don’t forward this email.') > 0);
     assert.ok(html.indexOf('You get this update every 2 weeks while you have an open project or order with us. ' +
-        'To stop these updates, reply to this email or call Pat Lee.') > 0);
+        // PR #3 amendment 2: the contact rule — a phone number, so "call … on …".
+        'To stop these updates, reply to this email or call Pat Lee on 01234 567890.') > 0);
     // 1.2 (§6): the order's own lines — description in full, then the muted "Order SO… · type · state".
     assert.ok(html.indexOf('>Underfloor heating Ground floor</p>') > 0, 'description line');
     assert.ok(html.indexOf('Order SO100 · Underfloor heating system · ready to arrange delivery') > 0, 'order line');

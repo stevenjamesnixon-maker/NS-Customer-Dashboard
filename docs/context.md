@@ -203,9 +203,23 @@ call, and on a PE-case opportunity that is not the rep in the header.
 
 ### Pay up front or add to account (1.2)
 
-`isPrepay()`: an order pays up front when its `terms` are blank or in `custscript_cdb_prepay_terms`
-— or when that parameter, or `custscript_cdb_pay_account`, is empty, or the extras search failed.
-Every doubt means pay up front, which offers less. Pay up front is offered **BACS or Card**; an
+`isPrepay(customerTermsId, extras, cfg)` (amendment 2): **the customer and the order must both say
+account.** A sales order copies the customer's terms when it is created and keeps them, so a
+customer moved off credit terms (customer 215781, 1 Oct 2026) would otherwise still be offered *Add
+to my account* on old orders. The customer's current terms come from `terms` in `getCustomer()`'s
+`lookupFields` (a standard field).
+
+| Customer `terms` | Order `terms` | Result |
+|---|---|---|
+| In `custscript_cdb_prepay_terms` | anything | pay up front |
+| Blank | anything | pay up front (fail closed) |
+| Credit (not in the list) | In the list | pay up front (staff made this order pay up front) |
+| Credit | Credit or blank | **account** |
+
+On top of the table: an empty `custscript_cdb_pay_account` or `custscript_cdb_prepay_terms`, or a
+failed extras search, means pay up front. Every doubt means pay up front, which offers less. The
+server-side check of the posted choice uses the same rule, and `CDB SO_UPDATED` and
+`CDB TASK_CREATED` record both term IDs (*terms: customer X, order Y -> account*). Pay up front is offered **BACS or Card**; an
 account order **BACS or Add to my account**. The server checks the choice against the order: a
 tampered `CARD` from an account order or `ACCOUNT` from a pay-up-front one is a field error and
 nothing is written. An account booking writes the account intent, **does not tick** *Awaiting
@@ -247,7 +261,15 @@ employee. **The Task goes to that employee** — per opportunity, unchanged in 1
 delivery form and the confirmations show the **customer's own sales rep** (`customer.salesrep`), or
 the fallback employee when the rep is empty or inactive (`customerManager()` in the Suitelet). That
 is the same person the digest sends from, so the email and the page agree. `headerOpportunity()`
-is no longer used for the header. So a customer whose rep is A, with a PE-case opportunity whose PE
+is no longer used for the header.
+
+**How to reach them (amendment 2), `render.contactParts()` / `questionsLine()`:** a phone gives
+*"Questions? Call {name} on {phone}"* (`tel:`); no phone but an email gives *"Questions? Email {name}
+at {email}"* (`mailto:`); neither gives *"Questions? Contact {name}"*; no name leaves the line out.
+The page footer, the delivery header and the main header (*name · phone*, else *name · email*) all
+use it, and on phones the round button calls or, with no phone, emails. The email's opt-out
+sentence uses the same rule (*"…or call / email / contact {name}"*); its AM block shows the phone,
+the email, or both when both exist. So a customer whose rep is A, with a PE-case opportunity whose PE
 is B, sees A on every page, and the Task still goes to B.
 
 ### The delivery form and the guard

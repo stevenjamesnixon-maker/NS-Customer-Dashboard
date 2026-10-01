@@ -237,7 +237,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             // 1.2: the split reference and short type label, from the one fail-safe extras search.
             // The email never shows amounts, so no amount is read from it.
             data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)),
-                config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg);
+                config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg, customer.termsId);
             if (groups.isEmpty) {
                 skip(context, customerId, 'nothing to show');
                 return;

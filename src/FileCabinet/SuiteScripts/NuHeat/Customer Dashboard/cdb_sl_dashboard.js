@@ -143,6 +143,12 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return ctx.typeLabels;
     }
 
+    /** Amendment 2: both term IDs, so a dispute over the payment options offered can be traced. */
+    function termsNote(order) {
+        return 'terms: customer ' + (order.customerTermsId || '(blank)') + ', order ' + (order.termsId || '(blank)') +
+            ' -> ' + (order.prepay ? 'pay up front' : 'account');
+    }
+
     /** 1.2: the payment options an order is offered. */
     function paymentOptions(order) {
         return order.prepay ? [data.PAYMENT.BACS, data.PAYMENT.CARD] : [data.PAYMENT.BACS, data.PAYMENT.ACCOUNT];
@@ -162,7 +168,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var am = customerManager(ctx);
         // 1.2: one extras search for every order on the page; a failure leaves them pay-up-front.
         data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)), typeLabels(ctx), ctx.cfg,
-            amountOdd);
+            ctx.customer.termsId, amountOdd);
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,
@@ -213,7 +219,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
         // 1.2: the extras for this one order, once per request. Sets typeLabel, uniqueRef, prepay
         // and amount on the guard's order row.
-        data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), typeLabels(ctx), ctx.cfg, amountOdd);
+        data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), typeLabels(ctx), ctx.cfg,
+            ctx.customer.termsId, amountOdd);
 
         // Once per request (formContext runs once per GET or POST). Never fails the page.
         if (hints.status === 'invalid') {
@@ -474,7 +481,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         log.audit({
             title: title('SO_UPDATED'),
             details: clip('Sales order ' + guard.order.id + ' (' + guard.order.tranId + '), customer ' +
-                ctx.customer.id + ': ' + JSON.stringify(changes))
+                ctx.customer.id + ', ' + termsNote(guard.order) + ': ' + JSON.stringify(changes))
         });
 
         am = fc.assignee;
@@ -508,7 +515,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             log.audit({
                 title: title('TASK_CREATED'),
                 details: 'Task ' + taskResult.id + ' for sales order ' + guard.order.id + ', assigned to ' +
-                    am.id + ' (' + am.source + '), sendemail ' + (taskResult.sendEmailSet ? 'set' : 'NOT set')
+                    am.id + ' (' + am.source + '), sendemail ' + (taskResult.sendEmailSet ? 'set' : 'NOT set') +
+                    ', payment ' + check.values.payment + ', ' + termsNote(guard.order)
             });
         } catch (e) {
             log.error({

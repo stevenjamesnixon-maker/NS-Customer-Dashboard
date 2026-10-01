@@ -37,6 +37,9 @@ function setup(opts) {
     var so = w.orders[100];
     so.quoteDescription = o.description === undefined ? 'Underfloor heating Ground floor' : o.description;
     so.terms = o.terms === undefined ? '9' : o.terms;
+    // Amendment 2: the customer's current terms. By default the same as the order's, as when the
+    // order was created (an order copies the customer's terms and keeps them).
+    w.customers[42].terms = o.customerTerms === undefined ? so.terms : o.customerTerms;
     so.custbody_unique_so_ref = o.ref || '';
     so.custbodycustbody_sys_bal_incvat = o.balance === undefined ? '1234.5' : o.balance;
     so.total = o.total || '';
@@ -121,13 +124,54 @@ test('3. extras search throws: pages render, no amount, pay-up-front options, EX
     assert.strictEqual(logs(s.w, 'EXTRAS_FAILED').length, 2, 'once more for the second request');
 });
 
-test('4. terms: in the list / other / blank / parameter empty', function () {
+test('4. terms table (amendment 2): the customer AND the order must say account', function () {
     var cfg = { PREPAY_TERMS: ['9'], PAY_ACCOUNT: ACCOUNT_ID };
-    assert.strictEqual(data.isPrepay({ termsId: '9' }, cfg), true);
-    assert.strictEqual(data.isPrepay({ termsId: '10' }, cfg), false);
-    assert.strictEqual(data.isPrepay({ termsId: '' }, cfg), true);
-    assert.strictEqual(data.isPrepay({ termsId: '10' }, { PREPAY_TERMS: [], PAY_ACCOUNT: ACCOUNT_ID }), true);
-    assert.strictEqual(data.isPrepay(undefined, cfg), true, 'no extras: pay up front');
+    // customer prepay, order anything -> pay up front
+    assert.strictEqual(data.isPrepay('9', { termsId: '10' }, cfg), true, 'customer moved to prepay; old credit order');
+    assert.strictEqual(data.isPrepay('9', { termsId: '9' }, cfg), true);
+    // customer blank -> pay up front (fail closed)
+    assert.strictEqual(data.isPrepay('', { termsId: '10' }, cfg), true, 'blank customer terms');
+    // customer credit, order prepay -> pay up front (staff made this order pay up front)
+    assert.strictEqual(data.isPrepay('10', { termsId: '9' }, cfg), true);
+    // customer credit, order credit or blank -> account
+    assert.strictEqual(data.isPrepay('10', { termsId: '10' }, cfg), false);
+    assert.strictEqual(data.isPrepay('10', { termsId: '' }, cfg), false, 'blank order terms on a credit customer');
+    // the fail-closed rules on top
+    assert.strictEqual(data.isPrepay('10', undefined, cfg), true, 'extras search failed');
+    assert.strictEqual(data.isPrepay('10', { termsId: '10' }, { PREPAY_TERMS: [], PAY_ACCOUNT: ACCOUNT_ID }), true);
+    assert.strictEqual(data.isPrepay('10', { termsId: '10' }, { PREPAY_TERMS: ['9'], PAY_ACCOUNT: '' }), true);
+});
+
+test('4b. customer 215781\'s case end to end: moved to prepay, old credit order offers Card, not account', function () {
+    var s = setup({ terms: '10', customerTerms: '9' });
+    var html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
+    assert.deepStrictEqual(paymentValues(html), ['BACS', 'CARD']);
+    // A credit customer with a credit order still gets the account option.
+    s = setup({ terms: '10', customerTerms: '10' });
+    html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
+    assert.deepStrictEqual(paymentValues(html), ['BACS', 'ACCOUNT']);
+    // Blank customer terms: pay up front.
+    s = setup({ terms: '10', customerTerms: '' });
+    html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
+    assert.deepStrictEqual(paymentValues(html), ['BACS', 'CARD']);
+});
+
+test('6b. tampered ACCOUNT from a customer whose own terms are prepay: field error, nothing written', function () {
+    var s = setup({ terms: '10', customerTerms: '9' });
+    var html = run(s.sl, 'POST', form(s.tok, { payment: 'ACCOUNT' }));
+    assert.ok(html.indexOf('Please choose one of the payment options shown.') > 0);
+    assert.strictEqual(s.w.saves.length, 0);
+    assert.strictEqual(s.w.tasks.length, 0);
+});
+
+test('6c. the SO_UPDATED and Task logs record both term IDs', function () {
+    var s = setup({ terms: '10', customerTerms: '10' });
+    run(s.sl, 'POST', form(s.tok, { payment: 'ACCOUNT' }));
+    var so = logs(s.w, 'SO_UPDATED')[0][2];
+    var task = logs(s.w, 'TASK_CREATED')[0][2];
+    [so, task].forEach(function (d) {
+        assert.ok(d.indexOf('terms: customer 10, order 10 -> account') >= 0, d.slice(0, 200));
+    });
 });
 
 test('5. an account customer\'s form: BACS and Add to my account, no Card; the amount with the BACS-only hint', function () {
@@ -381,4 +425,59 @@ test('A3. the card confirmation names no employee', function () {
     assert.ok(s.w.tasks[0].values.message.indexOf('Amount to pay: £1,234.50') >= 0, 'the Task has the amount for Card');
     assert.strictEqual(render.confirmation({ payment: 'CARD', bank: {}, tranId: 'SO1', backUrl: 'u', am: { name: 'Pat Lee' } })
         .indexOf('We’ll call you to take payment.') > 0, true, 'no amount: "take payment"');
+});
+
+// ---------------------------------------------------------------- PR #3 amendment 2: contact fallback
+
+function withRep(phone, email, name) {
+    return function (w) {
+        w.employees[88].phone = phone;
+        w.employees[88].email = email;
+        if (name === '') { w.employees[88].firstname = ''; w.employees[88].lastname = ''; }
+    };
+}
+
+test('B1. page contact: phone / email only / neither / no name', function () {
+    var s = setup({ tweak: withRep('0202', 'ray@example.com') });
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('<span>Questions? Call Ray Rep on <a href="tel:0202">0202</a>.</span>') > 0, 'footer');
+    assert.ok(html.indexOf('<span class="am-name">Ray Rep · <a href="tel:0202">0202</a></span>') > 0, 'header');
+    assert.ok(html.indexOf('class="am-call" href="tel:0202"') > 0);
+
+    s = setup({ tweak: withRep('', 'ray@example.com') });
+    html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('<span>Questions? Email Ray Rep at <a href="mailto:ray@example.com">ray@example.com</a>.</span>') > 0);
+    assert.ok(html.indexOf('<span class="am-name">Ray Rep · <a href="mailto:ray@example.com">ray@example.com</a></span>') > 0);
+    assert.ok(html.indexOf('class="am-call" href="mailto:ray@example.com" aria-label="Email your account manager') > 0);
+    assert.strictEqual(html.indexOf('Questions? Call'), -1);
+    html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
+    assert.ok(html.indexOf('<span class="hq">Questions? Email Ray Rep at <a href="mailto:ray@example.com">') > 0, 'delivery header');
+
+    s = setup({ tweak: withRep('', '') });
+    html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('<span>Questions? Contact Ray Rep.</span>') > 0);
+    assert.ok(html.indexOf('<span class="am-name">Ray Rep</span>') > 0);
+    assert.strictEqual(html.indexOf('class="am-call"'), -1, 'no button that goes nowhere');
+
+    assert.strictEqual(render.questionsLine({ name: '', phone: '0202' }), '', 'no name: no line');
+});
+
+test('B2. email contact: footer and AM block, phone / email only / neither / no name', function () {
+    var groups = data.groupProjects([], [], fx.CFG);
+    function email(am) {
+        return render.digestEmail({ customerName: 'A', groups: groups, link: 'https://x/l', am: am, digestDays: 14 });
+    }
+    var html = email({ name: 'Ray Rep', phone: '0202', email: 'ray@example.com' });
+    assert.ok(html.indexOf('reply to this email or call Ray Rep on 0202.</td>') > 0);
+    assert.ok(html.indexOf('>0202 · <a href="mailto:ray@example.com"') > 0, 'AM block keeps both when both exist');
+
+    html = email({ name: 'Ray Rep', phone: '', email: 'ray@example.com' });
+    assert.ok(html.indexOf('reply to this email or email Ray Rep at <a href="mailto:ray@example.com" style="color:#59315f;">ray@example.com</a>.</td>') > 0);
+    assert.strictEqual(html.indexOf('or call'), -1);
+
+    html = email({ name: 'Ray Rep', phone: '', email: '' });
+    assert.ok(html.indexOf('reply to this email or contact Ray Rep.</td>') > 0);
+
+    html = email({ name: '', phone: '0202', email: '' });
+    assert.ok(html.indexOf('To stop these updates, reply to this email.</td>') > 0);
 });

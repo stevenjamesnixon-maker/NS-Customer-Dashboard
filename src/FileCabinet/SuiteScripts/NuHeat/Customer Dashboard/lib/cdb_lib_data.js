@@ -30,9 +30,12 @@
  * fails it logs CDB EXTRAS_FAILED and returns {}: no amount, no split reference, and every order
  * treated as PAY UP FRONT (fail closed: the account option is offered to nobody).
  *
- * PAY UP FRONT vs ACCOUNT (1.2), isPrepay(): an order pays up front when its terms are blank or
- * in custscript_cdb_prepay_terms, or when that parameter or custscript_cdb_pay_account is empty,
- * or when its extras are missing. Otherwise it is an account order.
+ * PAY UP FRONT vs ACCOUNT (1.2, amendment 2), isPrepay(): BOTH the customer and the order must say
+ * account. An order copies the customer's terms when it is created and keeps them, so a customer
+ * moved off credit terms would otherwise still be offered "Add to my account" on old orders. The
+ * account option needs the CUSTOMER's current terms set and not in custscript_cdb_prepay_terms, AND
+ * the ORDER's terms blank or not in that list. Every doubt — either parameter empty, the extras
+ * search failed, blank customer terms — means pay up front.
  *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
  * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
@@ -450,19 +453,27 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
-     * Pure: does this order pay up front? True unless every one of these holds: the extras were
-     * read, the account pay value and the prepay terms list are set, and the order's terms are set
-     * and NOT in that list. Every doubt resolves to "pay up front", which offers less.
+     * Pure: does this order pay up front? (Amendment 2: the customer AND the order must say account.)
      *
-     * @param {Object|undefined} extras - { termsId }; undefined when the extras search failed
+     *   customer terms          order terms         result
+     *   in PREPAY_TERMS         anything            pay up front
+     *   blank                   anything            pay up front (fail closed)
+     *   credit (not in list)    in PREPAY_TERMS     pay up front (staff made this order pay up front)
+     *   credit                  credit or blank     ACCOUNT
+     *
+     * On top: an empty PAY_ACCOUNT or PREPAY_TERMS, or missing extras (the search failed), means pay
+     * up front. Every doubt resolves to "pay up front", which offers less.
+     *
+     * @param {string} customerTermsId - the customer's CURRENT terms (getCustomer().termsId)
+     * @param {Object|undefined} extras - { termsId } of the order; undefined when the search failed
      * @param {Object} cfg - PREPAY_TERMS, PAY_ACCOUNT
      * @returns {boolean}
      */
-    function isPrepay(extras, cfg) {
+    function isPrepay(customerTermsId, extras, cfg) {
         if (!extras || trim(cfg.PAY_ACCOUNT) === '' || !(cfg.PREPAY_TERMS || []).length) {
             return true;
         }
-        if (trim(extras.termsId) === '') {
+        if (trim(customerTermsId) === '' || contains(cfg.PREPAY_TERMS, customerTermsId)) {
             return true;
         }
         return contains(cfg.PREPAY_TERMS, extras.termsId);
@@ -473,7 +484,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      *   typeLabel  the short label for its quote type (custscript_cdb_quote_type_labels), else the
      *              quote type's own text
      *   uniqueRef  custbody_unique_so_ref, cleaned like the description ('' when unknown)
-     *   prepay     isPrepay()
+     *   termsId, customerTermsId  the order's and the customer's terms, for the logs (amendment 2)
+     *   prepay     isPrepay(customerTermsId, extras, cfg)
      *   amount     amountToPay() for EVERY order when known (amendment 1: account customers paying
      *              by BACS see it too); null when unknown. An Add-to-account booking never shows it:
      *              render and the Task leave it out for that choice.
@@ -482,15 +494,18 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * @param {Object} extrasById - from getOrderExtras(); {} when it failed
      * @param {Object} labels - quote type id -> label
      * @param {Object} cfg
+     * @param {string} customerTermsId - the customer's current terms
      * @param {function(string)} [onOdd]
      * @returns {Object} the order
      */
-    function decorateOrder(order, extrasById, labels, cfg, onOdd) {
+    function decorateOrder(order, extrasById, labels, cfg, customerTermsId, onOdd) {
         var extras = extrasById ? extrasById[order.id] : undefined;
         order.typeLabel = (labels && labels.hasOwnProperty(order.quoteType) && labels[order.quoteType]) ||
             order.quoteTypeText || '';
         order.uniqueRef = extras ? cleanDescription(extras.uniqueRef) : '';
-        order.prepay = isPrepay(extras, cfg);
+        order.termsId = extras ? trim(extras.termsId) : '';
+        order.customerTermsId = trim(customerTermsId);
+        order.prepay = isPrepay(customerTermsId, extras, cfg);
         order.amount = amountToPay(extras, onOdd ? function (why) {
             onOdd('Sales order ' + order.id + ': ' + why);
         } : null);
@@ -498,12 +513,12 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /** Pure: every order in the delivery section. */
-    function decorateGroups(groups, extrasById, labels, cfg, onOdd) {
+    function decorateGroups(groups, extrasById, labels, cfg, customerTermsId, onOdd) {
         var i;
         var j;
         for (i = 0; i < groups.forDelivery.length; i++) {
             for (j = 0; j < groups.forDelivery[i].orders.length; j++) {
-                decorateOrder(groups.forDelivery[i].orders[j].order, extrasById, labels, cfg, onOdd);
+                decorateOrder(groups.forDelivery[i].orders[j].order, extrasById, labels, cfg, customerTermsId, onOdd);
             }
         }
         return groups;
@@ -576,7 +591,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             r = search.lookupFields({
                 type: search.Type.CUSTOMER,
                 id: customerId,
-                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email',
+                // terms: standard field, safe in lookupFields (amendment 2).
+                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email', 'terms',
                     'salesrep', 'isinactive', CUST.DASHBOARD_CONTACT]
             });
         } catch (e) {
@@ -593,6 +609,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
             email: trim(r.email),
             salesRep: lookupSelect(r.salesrep).value,
+            termsId: lookupSelect(r.terms).value,
             dashboardContact: lookupSelect(r[CUST.DASHBOARD_CONTACT]).value,
             isInactive: isTicked(r.isinactive)
         };
