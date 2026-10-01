@@ -171,7 +171,7 @@ function count(html, needle) {
 test('1. the update button shows only on "Projects to order" opportunities', function () {
     var s = setup({ settings: FULL });
     var html = run(s.sl, 'GET', { t: s.tok });
-    assert.strictEqual(count(html, 'Tell us where you’re up to</a>'), 1, 'one open quote, one button');
+    assert.strictEqual(count(html, 'Give us an update</a>'), 1, 'one open quote, one button (amendment 2 wording)');
     assert.ok(html.indexOf('class="out" href="https://acct.extforms.netsuite.com/sl?t=' + s.tok + '&amp;a=update&amp;opp=5"') > 0, html);
     assert.strictEqual(html.indexOf('opp=4'), -1, 'not on the won opportunity in delivery');
     assert.strictEqual(html.indexOf('opp=6'), -1, 'not on the lost one');
@@ -564,12 +564,14 @@ test('the stage and date fields are read in the guard, and the update fields are
 
 // ---------------------------------------------------------------- PR #7 amendment 1
 
-test('A1. "Projects to order" meta line: stage and timeframe, either alone, or none', function () {
+test('A1. (amendment 2) "Projects to order": two labelled lines, each alone, or none', function () {
+    var STAGE = '<span class="meta fact">Project stage: <span class="fv">Roof, Doors, Windows</span></span>';
+    var START = '<span class="meta fact">Expected start: <span class="fv">Mar 2027</span></span>';
     var cases = [
-        [{ custbody_build_stage_text: 'First fix', custbody_opp_del_date: '2027-03-10' }, 'First fix · Starting around Mar 2027'],
-        [{ custbody_build_stage_text: 'First fix', custbody_opp_del_date: '' }, 'First fix'],
-        [{ custbody_build_stage_text: '', custbody_opp_del_date: '2027-03-10' }, 'Starting around Mar 2027'],
-        [{ custbody_build_stage_text: '', custbody_opp_del_date: '' }, null]
+        [{ custbody_build_stage_text: '7 - Roof, Doors, Windows', custbody_opp_del_date: '2027-03-10' }, STAGE + START],
+        [{ custbody_build_stage_text: '7 - Roof, Doors, Windows', custbody_opp_del_date: '' }, STAGE],
+        [{ custbody_build_stage_text: '', custbody_opp_del_date: '2027-03-10' }, START],
+        [{ custbody_build_stage_text: '', custbody_opp_del_date: '' }, '']
     ];
     cases.forEach(function (c) {
         var s = setup({ settings: FULL });
@@ -577,34 +579,35 @@ test('A1. "Projects to order" meta line: stage and timeframe, either alone, or n
         var html = run(s.sl, 'GET', { t: s.tok });
         var row = html.slice(html.indexOf('<span class="name">New build</span>'));
         row = row.slice(0, row.indexOf('<div class="acts">'));
-        if (c[1]) {
-            assert.ok(row.indexOf('<span class="badge b-quote">Quote sent</span><span class="meta">' + c[1] + '</span>') > 0, row);
-        } else {
-            assert.ok(/Quote sent<\/span><\/div>$/.test(row), 'no meta line: ' + row);
-        }
+        assert.ok(row.indexOf('<span class="badge b-quote">Quote sent</span>' + c[1] + '</div>') > 0, row);
+        assert.strictEqual(row.indexOf('Starting around'), -1, 'the 2.1.1 one-liner is gone');
     });
 });
 
-test('A1b. the stage and date come from the one opportunity search; any stage shows; a past date shows as stored', function () {
+test('A1b. the stage and date come from the one opportunity search; any stage shows; a past date shows as stored; escaped', function () {
     var s = setup({ settings: { UPD_BUILD_STAGES: '4' } });
-    s.w.opps[5].custbody_build_stage_text = 'Foundations';
+    s.w.opps[5].custbody_build_stage_text = 'Foundations <b>';
     s.w.opps[5].custbody_opp_del_date = '2020-06-01';
     var html = run(s.sl, 'GET', { t: s.tok });
-    assert.ok(html.indexOf('Foundations · Starting around Jun 2020') > 0, 'not limited to UPD_BUILD_STAGES; past shown');
+    assert.ok(html.indexOf('Project stage: <span class="fv">Foundations &lt;b&gt;</span>') > 0, 'not limited to UPD_BUILD_STAGES; escaped');
+    assert.ok(html.indexOf('Expected start: <span class="fv">Jun 2020</span>') > 0, 'past shown as stored');
     var oppSearches = s.w.searches.filter(function (d) { return d.type === 'opportunity'; });
     assert.strictEqual(oppSearches.length, 1);
     assert.ok(oppSearches[0].columns.indexOf('custbody_build_stage') >= 0 && oppSearches[0].columns.indexOf('custbody_opp_del_date') >= 0);
-    assert.strictEqual(s.w.logs.filter(function (l) { return l[1] === 'CDB USAGE'; }).length, 1);
+    // Each fact is its own line and wraps on a phone.
+    var css = amd.load('lib/cdb_lib_render', s.s).css();
+    assert.ok(css.indexOf('.fact{display:block;min-width:0;overflow-wrap:anywhere}') >= 0);
+    assert.ok(css.indexOf('.fv{font-weight:600;') >= 0);
 });
 
-test('A1c. the digest rows are unchanged by the meta line', function () {
+test('A1c. the digest rows are unchanged by the labelled lines', function () {
     var w = ns.world();
     var render = amd.load('lib/cdb_lib_render', ns.stubs(w));
-    var opp = { id: '5', title: 'New build', tranId: 'QR5', siteAddress: '', buildStageText: 'First fix', delDateKey: '2027-03-10' };
+    var opp = { id: '5', title: 'New build', tranId: 'QR5', siteAddress: '', buildStageText: '8 - First Fix', delDateKey: '2027-03-10' };
     var rows = render.digestRows({ toOrder: [opp], inDesign: [], forDelivery: [] }, '1');
-    assert.strictEqual(JSON.stringify(rows).indexOf('First fix'), -1);
-    assert.strictEqual(JSON.stringify(rows).indexOf('Starting around'), -1);
-    assert.strictEqual(render.quoteMeta(opp), 'First fix · Starting around Mar 2027');
+    assert.strictEqual(JSON.stringify(rows).indexOf('First Fix'), -1);
+    assert.strictEqual(JSON.stringify(rows).indexOf('Expected start'), -1);
+    assert.strictEqual(render.quoteMeta, undefined, 'replaced, not kept');
 });
 
 test('A1d. formatMonthYear: month and year only, any year; blank or invalid gives \'\'', function () {
@@ -617,7 +620,7 @@ test('A1d. formatMonthYear: month and year only, any year; blank or invalid give
     assert.strictEqual(d.formatMonthYear('2027-02-30'), '');
 });
 
-test('A2. the amendment 1 wording on the page; the Task says "Expected to begin work"', function () {
+test('A2. the amendment 1 wording on the page (heading per amendment 2); the Task says "Expected to begin work"', function () {
     var s = setup({ settings: FULL });
     var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
     assert.ok(html.indexOf('When do you expect to begin work?') > 0);
@@ -633,4 +636,52 @@ test('A2. the amendment 1 wording on the page; the Task says "Expected to begin 
     assert.strictEqual(s.w.tasks[0].values.message.indexOf('Goods needed'), -1);
     assert.ok(s.w.logs.filter(function (l) { return l[1] === 'CDB OPP_UPDATED'; })[0][2].indexOf('Expected to begin work ') > 0);
     assert.deepStrictEqual(Object.keys(writes(s.w)[0][1].values), ['custbody_opp_del_date'], 'the same field');
+});
+
+// ---------------------------------------------------------------- PR #7 amendment 2
+
+test('B1. stageLabel strips the list numbering only', function () {
+    var render = amd.load('lib/cdb_lib_render', ns.stubs(ns.world()));
+    assert.strictEqual(render.stageLabel('7 - Roof, Doors, Windows'), 'Roof, Doors, Windows');
+    assert.strictEqual(render.stageLabel('12–Handover'), 'Handover');
+    assert.strictEqual(render.stageLabel('8-First Fix/Internal Works'), 'First Fix/Internal Works');
+    assert.strictEqual(render.stageLabel('First fix'), 'First fix');
+    assert.strictEqual(render.stageLabel('2027 plans'), '2027 plans', 'no dash');
+    assert.strictEqual(render.stageLabel(''), '');
+    assert.strictEqual(render.stageLabel(undefined), '');
+    assert.strictEqual(render.stageLabel('7 - '), '7 - ', 'never stripped to nothing');
+});
+
+test('B2. the page\'s choices and the confirmation show the stripped label; the Task and the log keep the full text', function () {
+    var s = setup({ settings: FULL });
+    var all = BUILD_STAGE_OPTIONS;
+    BUILD_STAGE_OPTIONS = [{ id: '', text: '' }, { id: '2', text: '3 - Foundations' }, { id: '4', text: '7 - Roof, Doors, Windows' }];
+    try {
+        var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
+        assert.ok(html.indexOf('<span class="ot">Roof, Doors, Windows</span>') > 0);
+        assert.ok(html.indexOf('<span class="ot">Foundations</span>') > 0);
+        assert.strictEqual(html.indexOf('7 - Roof'), -1);
+        html = post(s, { buildStage: '4' });
+        assert.ok(html.indexOf('Project stage: <strong>Roof, Doors, Windows</strong>') > 0, html);
+        assert.strictEqual(html.indexOf('7 - Roof'), -1);
+        assert.ok(s.w.tasks[0].values.message.indexOf('Project stage: 3 - Foundations → 7 - Roof, Doors, Windows') > 0,
+            s.w.tasks[0].values.message);
+        assert.ok(s.w.logs.filter(function (l) { return l[1] === 'CDB OPP_UPDATED'; })[0][2].indexOf('7 - Roof, Doors, Windows') > 0);
+    } finally {
+        BUILD_STAGE_OPTIONS = all;
+    }
+});
+
+test('B3. the button, the page heading and its <title> read "Give us an update"', function () {
+    var s = setup({ settings: FULL });
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('>Give us an update</a>') > 0);
+    assert.strictEqual(html.indexOf('Tell us where you'), -1);
+    assert.ok(html.indexOf('Where it’s up to') > 0, 'the column heading is unchanged');
+    assert.ok(html.indexOf('Each project shows where it’s up to and what you can do next.') > 0, 'the intro is unchanged');
+    html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
+    assert.ok(html.indexOf('<h1>Give us an update</h1>') > 0);
+    assert.ok(html.indexOf('<title>Give us an update | Nu-Heat</title>') > 0);
+    assert.ok(html.indexOf('>Send update</button>') > 0, 'SEND unchanged');
+    assert.strictEqual(html.indexOf('Tell us where you'), -1);
 });

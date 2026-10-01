@@ -6,7 +6,7 @@
  *   GET  ?t=<token>                         the dashboard
  *   GET  ?t=<token>&a=delivery&so=<id>      the delivery form
  *   POST  t, a=delivery, so, form fields    the request: SO fields, then a Task, then confirmation
- *   GET  ?t=<token>&a=update&opp=<id>       "Tell us where you're up to" (2.1)
+ *   GET  ?t=<token>&a=update&opp=<id>       "Tell us where you're up to" (2.1; "Give us an update" to customers)
  *   POST  t, a=update, opp, mode, fields    update: opportunity fields, then a Task, then confirmation;
  *                                           not going ahead: objection, then Lost, then a Task (2.1)
  *
@@ -55,7 +55,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.1.1
+ * @version 2.1.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
@@ -63,7 +63,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.1.1';
+    var VERSION = '2.1.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -865,7 +865,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return render.updateDone({
             logoUrl: ctx.cfg.LOGO_URL,
             am: uc.am,
-            saved: saved.map(function (c) { return { label: c.label, text: c.newText }; }),
+            // Amendment 2: the customer sees the stage without the list's numbering; the Task above keeps it.
+            saved: saved.map(function (c) {
+                return { label: c.label, text: c.key === 'build_stage' ? render.stageLabel(c.newText) : c.newText };
+            }),
             notSaved: !!notSaved,
             callText: callText(uc, v),
             backUrl: ctx.baseUrl

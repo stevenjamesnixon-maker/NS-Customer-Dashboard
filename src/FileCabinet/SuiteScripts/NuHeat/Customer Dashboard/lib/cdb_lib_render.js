@@ -28,7 +28,8 @@
  * and each button one [if !mso] / [if mso] pair. digestEmail() and deliveryLinkEmail() are built
  * from these blocks.
  *
- * "TELL US WHERE YOU'RE UP TO" (2.1, release 2.1 part B) follows docs/design/canvas/Update.dc.html
+ * "TELL US WHERE YOU'RE UP TO" (2.1, release 2.1 part B; the customer sees it as "Give us an update" from
+ * 2.1.2) follows docs/design/canvas/Update.dc.html
  * and the outline button on Main: updatePage(), updateDone(), lostDone() and unavailablePage(). The
  * page needs no script: the call fields show with a CSS sibling rule when the box is ticked, and the
  * not-going-ahead panel is a closed <details> holding its own form — opening it is one step, its confirm
@@ -38,13 +39,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.1
+ * @version 2.1.2
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.1.1';
+    var VERSION = '2.1.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -348,6 +349,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '.back{align-self:center;font-size:16px}',
             // 2.1: tell us where you're up to
             '.q-help{margin:0;font-size:15px;color:#4a4650;line-height:1.45}',
+            // 2.1.2: the labelled facts under Quote sent; each its own line, wrapping on a phone.
+            '.fact{display:block;min-width:0;overflow-wrap:anywhere}',
+            '.fv{font-weight:600;color:' + c.TEXT + '}',
             '.cbxrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}',
             '.cbxrow > input{width:20px;height:20px;margin:0;accent-color:' + c.PURPLE + '}',
             '.chk{font-size:16px;font-weight:600;cursor:pointer}',
@@ -589,15 +593,40 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     }
 
     /**
-     * Pure (2.1.1, PR #7 amendment 1): where an open quote's project is up to, under its Quote sent badge —
-     * "First fix · Starting around Mar 2027", either part alone, or '' with neither. The stage is the
-     * opportunity's current text, whatever it is (not limited to UPD_BUILD_STAGES); the date is month and
-     * year only, as stored, even when past. Plain text: stateCell() escapes it.
+     * Pure (2.1.2, PR #7 amendment 2): a build stage as a CUSTOMER sees it — the list's ordering prefix
+     * removed: a leading "<digits> - " (or an en dash, with or without the spaces). "7 - Roof, Doors,
+     * Windows" -> "Roof, Doors, Windows". Anything else, and anything that would come out empty, stays as
+     * stored. The Task and the logs keep the full stored text: staff know the numbering.
+     * @param {string} text
+     * @returns {string}
      */
-    function quoteMeta(opp) {
+    function stageLabel(text) {
+        var raw = String(text === null || text === undefined ? '' : text);
+        var stripped = raw.replace(/^\s*\d+\s*[-\u2013]\s*/, '');
+        return stripped !== raw && stripped.replace(/\s+/g, '') !== '' ? stripped : raw;
+    }
+
+    /**
+     * Pure (2.1.2, PR #7 amendment 2; replaces 2.1.1's one-line quoteMeta): where an open quote's project is
+     * up to, under its Quote sent badge — one labelled line per fact that has a value:
+     *   Project stage: <stageLabel(current text)>   (whatever the opportunity holds, not only UPD_BUILD_STAGES)
+     *   Expected start: <Mon yyyy>                  (custbody_opp_del_date, month and year, as stored even if past)
+     * '' with neither. Label muted, value stronger; every value escaped here.
+     * @returns {string} HTML
+     */
+    function quoteFacts(opp) {
+        var stage = stageLabel(opp && opp.buildStageText);
         var when = dates.formatMonthYear(opp && opp.delDateKey);
-        return [opp && opp.buildStageText, when ? 'Starting around ' + when : '']
-            .filter(function (x) { return !!x; }).join(' \u00b7 ');
+        var lines = [];
+        if (stage) {
+            lines.push(['Project stage', stage]);
+        }
+        if (when) {
+            lines.push(['Expected start', when]);
+        }
+        return lines.map(function (l) {
+            return '<span class="meta fact">' + esc(l[0]) + ': <span class="fv">' + esc(l[1]) + '</span></span>';
+        }).join('');
     }
 
     function stateCell(badgeHtml, meta) {
@@ -675,7 +704,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             for (i = 0; i < g.toOrder.length; i++) {
                 // 2.1: "Tell us where you're up to" on every open quote (Main.dc.html's outline button),
                 // only while the update action is available.
-                html += '<div class="row">' + projectCell(g.toOrder[i]) + stateCell(badge('quote', 'Quote sent'), quoteMeta(g.toOrder[i])) +
+                html += '<div class="row">' + projectCell(g.toOrder[i]) + '<div class="cell">' + badge('quote', 'Quote sent') +
+                    quoteFacts(g.toOrder[i]) + '</div>' +
                     '<div class="acts">' + (m.updateUrl ? '<a class="out" href="' + esc(m.updateUrl(g.toOrder[i].id)) +
                         '">' + esc(UPDATE_TEXT.BUTTON) + '</a>' : '') + '</div></div>';
             }
@@ -1081,8 +1111,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     /** 2.1: the customer-facing wording of the update action, in one place. Plain text: escaped when used. */
     var UPDATE_TEXT = {
-        BUTTON: 'Tell us where you\u2019re up to',
-        TITLE: 'Tell us where you\u2019re up to',
+        BUTTON: 'Give us an update',
+        TITLE: 'Give us an update',
         Q_STAGE: 'What stage is your project at?',
         Q_DATE: 'When do you expect to begin work?',
         DATE_LABEL: 'Approximate date',
@@ -1108,13 +1138,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     };
 
     /** Radio cards without `required` (2.1): every update question is optional. */
-    function choiceCards(name, options, selected, errors) {
+    function choiceCards(name, options, selected, errors, textFor) {
         var html = '<div class="opts">';
         var i;
         for (i = 0; i < options.length; i++) {
             html += '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(options[i].id) + '"' +
                 (String(selected) === String(options[i].id) ? ' checked' : '') + describedBy(errors, name) +
-                '><span><span class="ot">' + esc(options[i].text) + '</span></span></label>';
+                '><span><span class="ot">' + esc(textFor ? textFor(options[i].text) : options[i].text) + '</span></span></label>';
         }
         return html + '</div>';
     }
@@ -1176,7 +1206,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         if ((m.stages || []).length) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
                 '<fieldset><legend class="sr" style="position:absolute">' + esc(t.Q_STAGE) + '</legend>' +
-                fieldError(e, 'buildStage') + choiceCards('buildStage', m.stages, v.buildStage, e) + '</fieldset></section>';
+                fieldError(e, 'buildStage') + choiceCards('buildStage', m.stages, v.buildStage, e, stageLabel) + '</fieldset></section>';
         }
         if (m.showDate) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_DATE) + '</h2><div>' +
@@ -2184,7 +2214,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         INVALID_LINK_TEXT: INVALID_LINK_TEXT,
         esc: esc,
         orderTitle: orderTitle,
-        quoteMeta: quoteMeta,
+        stageLabel: stageLabel,
+        quoteFacts: quoteFacts,
         contactParts: contactParts,
         questionsLine: questionsLine,
         formatMoney: formatMoney,

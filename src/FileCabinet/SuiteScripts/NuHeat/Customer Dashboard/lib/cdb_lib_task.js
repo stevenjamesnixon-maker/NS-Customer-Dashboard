@@ -25,13 +25,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 1.3.1
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '1.3.1';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -124,7 +124,7 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @returns {string}
      */
     function buildUpdateMessage(o) {
-        var lines = ['The customer sent an update through the customer dashboard ("Tell us where you\u2019re up to").', ''];
+        var lines = ['The customer sent an update through the customer dashboard ("Give us an update").', ''];
         var list = o.notSaved ? (o.attempted || []) : (o.changes || []);
         var i;
         if (list.length) {
