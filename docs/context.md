@@ -763,42 +763,108 @@ Every title starts `CDB `.
 
 ## 8. Deployment sequence
 
-Steve deploys. Manual File Cabinet upload to
-`SuiteScripts/NuHeat/Customer Dashboard/`, keeping the `lib/` subfolder.
+Steve deploys. Manual File Cabinet upload to `SuiteScripts/NuHeat/Customer Dashboard/`, keeping the
+`lib/` subfolder.
 
-**Account objects checklist, in this order:**
+**Which list to follow.** The account already has release 1.x installed (section 0: releases 1 and 1.1
+passed their Production tests on 30 Sep 2026). **Follow 8.1 to install 2.0.** 8.2 is the first-install
+list, kept for a new account only — do not follow it for 2.0: it creates objects that already exist.
+
+**Entering IDs in NetSuite.** NetSuite adds the prefix itself. In each ID field type **only the part
+after the prefix**, starting with the underscore:
+
+| Object | Prefix NetSuite adds | You type | Result |
+|---|---|---|---|
+| Script record | `customscript` | `_cdb_sl_send_link` | `customscript_cdb_sl_send_link` |
+| Script deployment | `customdeploy` | `_cdb_sl_send_link` | `customdeploy_cdb_sl_send_link` |
+| Script parameter | `custscript` | `_cdbsend_notice_days` | `custscript_cdbsend_notice_days` |
+
+Typing the full ID gives `customscriptcustomscript_…` or an *ID already in use* error, and then the code
+cannot find the script or the parameter (`CDB_UNKNOWN_SCRIPT`, `CDB_PARAMETER_MISSING`).
+
+**Check before you create.** Before creating any script record, deployment or parameter, search for its
+ID (*Customization › Scripting › Scripts*, filter by ID; for a parameter, open the script record's
+*Parameters* subtab). **If it exists, do not create it again**: open it and check its settings against
+the list below.
+
+### 8.1 Install release 2.0 on the existing account
+
+**Already in the account — do not create; check only:**
+
+| Object | 2.0 change | What to do |
+|---|---|---|
+| Customer, sales order and employee fields (`custentity_cdb_*`, `custbody_*`, `custentity_employee_photo_link`) | none | nothing |
+| Custom record `customrecord_cdb_nondelivery` | none (2.0 also reads it for the delivery-link email's earliest date) | keep the dates current |
+| API Secret `custsecret_cdb_link_key` | **setting only** | open it; set **Allow for all scripts**; do not change its value (that revokes every link) |
+| Script record `customscript_cdb_sl_dashboard` and deployment `customdeploy_cdb_sl_dashboard` | file replaced; **no new parameters** | do not create; replace the file (below) |
+| Script record `customscript_cdb_mr_digest` and deployment `customdeploy_cdb_mr_digest` | file replaced; **no new parameters** | do not create; replace the file (below) |
+
+**1. Replace the files** in `SuiteScripts/NuHeat/Customer Dashboard/`. Upload each with the same name
+and choose to overwrite: the existing script records keep pointing at the file, so nothing else
+changes. Libraries first:
+- `lib/cdb_lib_config.js`, `lib/cdb_lib_data.js`, `lib/cdb_lib_render.js`, `lib/cdb_lib_token.js`
+  (changed); `lib/cdb_lib_dates.js`, `lib/cdb_lib_task.js` (unchanged — re-upload only if unsure);
+- then `cdb_sl_dashboard.js` and `cdb_mr_digest.js` (overwrite);
+- then the two **new** files, `cdb_sl_send_link.js` and `cdb_ue_salesorder.js`.
+
+**2. The Send link Suitelet — new** (skip any part that already exists; check its settings instead).
+- Script record: *Customization › Scripting › Scripts › New*, file `cdb_sl_send_link.js`, type Suitelet.
+  ID `_cdb_sl_send_link` → `customscript_cdb_sl_send_link`.
+- Parameters on the **script record** (*Parameters* subtab), each ID typed without `custscript`. Set the
+  values on the deployment. "Same as" means copy the value from the dashboard Suitelet's deployment:
+
+| You type (ID) | Full ID | Type | Value | Empty means |
+|---|---|---|---|---|
+| `_cdbsend_excluded_statuses` | `custscript_cdbsend_excluded_statuses` | Free-Form Text | same as `custscript_cdb_excluded_statuses` | the script refuses to run (`CDB PARAMETER_MISSING`) |
+| `_cdbsend_excluded_quote_types` | `custscript_cdbsend_excluded_quote_types` | Free-Form Text | same as `custscript_cdb_excluded_quote_types` | refuses to run |
+| `_cdbsend_fallback_employee` | `custscript_cdbsend_fallback_employee` | List/Record → Employee | same as `custscript_cdb_fallback_employee` | refuses to run |
+| `_cdbsend_released_statuses` | `custscript_cdbsend_released_statuses` | Free-Form Text | same as `custscript_cdb_released_statuses` | none |
+| `_cdbsend_prepay_terms` | `custscript_cdbsend_prepay_terms` | Free-Form Text | same as `custscript_cdb_prepay_terms` | everyone pays up front |
+| `_cdbsend_pay_account` | `custscript_cdbsend_pay_account` | Integer | same as `custscript_cdb_pay_account` | everyone pays up front |
+| `_cdbsend_notice_days` | `custscript_cdbsend_notice_days` | Integer | same as `custscript_cdb_notice_days` | 3 |
+| `_cdbsend_quote_type_labels` | `custscript_cdbsend_quote_type_labels` | Long Text | same as `custscript_cdb_quote_type_labels` | each quote type's own text |
+| `_cdbsend_logo_url` | `custscript_cdbsend_logo_url` | Free-Form Text | same as `custscript_cdb_logo_url` | no logo |
+
+  Nine parameters, no more: the hero and the icons are constants (2.0.4), not parameters.
+- Deployment: ID `_cdb_sl_send_link` → `customdeploy_cdb_sl_send_link`. **Not** Available Without Login.
+  Audience: the sales roles. Status Released. Log level Audit.
+
+**3. The sales order User Event — new** (skip any part that already exists).
+- Script record: file `cdb_ue_salesorder.js`, type User Event. ID `_cdb_ue_salesorder` →
+  `customscript_cdb_ue_salesorder`. No parameters.
+- Deployment: ID `_cdb_ue_salesorder` → `customdeploy_cdb_ue_salesorder`. Applies To **Sales Order**.
+  Event Type **View**. Audience all roles. Status **Testing** first; **Released** after testing.
+
+**4. Check.** View a ready, unbooked sales order with an opportunity: *Send delivery link* shows.
+Press it (testing on a test customer): the green banner, the email on the customer's and the order's
+Communication tabs, and `CDB SEND_LINK` in the Suitelet's execution log. A `CDB PARAMETER_MISSING` or
+`CDB_UNKNOWN_SCRIPT` entry names the ID to fix. Then the scenarios in section 9 (16–20).
+
+### 8.2 First install on a new account (reference — not for 2.0)
+
+For an account with no customer dashboard at all. On the existing account these all exist already.
 
 1. **The fields.**
    - Customer: `custentity_cdb_link_version` (Integer; empty = 0), `custentity_cdb_dashboard_contact`
      (List/Record → Contact; empty = the customer's email), `custentity_cdb_digest_optout`
      (Checkbox), `custentity_cdb_last_digest` (Date).
-   - Sales order (Steve has created these): `custbody_cust_pay_intent` → `customlist_cust_pay_intent`
-     (BACS / Card, account manager to call), `custbody_cust_booking_req` (Date/Time).
-   - Sales order, 1.1 (Steve has created it): `custbody_cdb_awaiting_payment` (Check Box). Also
-     read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
+   - Sales order: `custbody_cust_pay_intent` → `customlist_cust_pay_intent` (BACS / Card, account
+     manager to call), `custbody_cust_booking_req` (Date/Time), `custbody_cdb_awaiting_payment` (Check
+     Box). Also read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
 2. **The custom record** `customrecord_cdb_nondelivery` (*Non-delivery date*), field
    `custrecord_cdb_nd_date` (Date) plus its name. Add bank holidays and shutdowns for the next year.
 3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters, set to
    **Allow for all scripts** — **never** restricted by employee. (Restricting it to the two scripts
    failed in Production: *"An error occurred while decrypting a secret"*; section 4.)
-4. **Upload the libs, then the scripts.** All six `lib/` files first; then `cdb_sl_dashboard.js`,
-   `cdb_mr_digest.js`, and (2.0) `cdb_ue_salesorder.js` and `cdb_sl_send_link.js`.
-5. **The Suitelet** `customscript_cdb_sl_dashboard`, deployment `customdeploy_cdb_sl_dashboard`:
-   Available Without Login, Execute As Administrator, Released, log level Audit. Define and set every
-   `custscript_cdb_*` parameter in section 4.
-6. **The Map/Reduce** `customscript_cdb_mr_digest`, deployment `customdeploy_cdb_mr_digest`: Not
-   Scheduled, `custscript_cdb_digest_mode` = TEST, test customers set. Define every
-   `custscript_cdbmr_*` twin **with the same value as its `custscript_cdb_*` original**.
-7. **A run by hand** (Save and Execute). Check `CDB DIGEST_SUMMARY` and the test customer's
-   Communication tab.
-8. **Then schedule it daily**, and switch to LIVE when Steve says.
-9. **(2.0) The Send link Suitelet** `customscript_cdb_sl_send_link`, deployment
-   `customdeploy_cdb_sl_send_link`: **not** Available Without Login, audience the sales roles,
-   Released, log level Audit. Define every `custscript_cdbsend_*` twin (section 4) with the same value
-   as its `custscript_cdb_*` original.
-10. **(2.0) The User Event** `customscript_cdb_ue_salesorder`, deployment `customdeploy_cdb_ue_salesorder`
-    on Sales Order: event type **View**, all roles, Testing first, then Released after testing. No
-    parameters.
+4. **Upload the libs, then the scripts.** All six `lib/` files first; then the four scripts.
+5. **The dashboard Suitelet** `customscript_cdb_sl_dashboard`, deployment `customdeploy_cdb_sl_dashboard`:
+   Available Without Login, Execute As Administrator, Released, log level Audit. Every `custscript_cdb_*`
+   parameter in section 4.
+6. **The digest Map/Reduce** `customscript_cdb_mr_digest`, deployment `customdeploy_cdb_mr_digest`: Not
+   Scheduled, `custscript_cdb_digest_mode` = TEST, test customers set. Every `custscript_cdbmr_*` twin
+   **with the same value as its `custscript_cdb_*` original**. Run by hand (Save and Execute), check
+   `CDB DIGEST_SUMMARY`, then schedule daily and switch to LIVE when Steve says.
+7. **The Send link Suitelet and the sales order User Event**: as 8.1 steps 2 and 3.
 
 ---
 
