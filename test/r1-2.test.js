@@ -378,11 +378,11 @@ test('16. digest: split reference and short label in the email, no amounts; labe
     var mr = amd.load('cdb_mr_digest', ns.stubs(w));
     mr.map({ value: JSON.stringify({ customerId: '42' }), write: function () {} });
     var body = w.emails[0].body;
-    assert.ok(body.indexOf('>Manifolds only</p>') > 0);
+    assert.ok(body.indexOf('>Manifolds only</b></font></p>') > 0);
     // No description in this fixture: line 1 falls back to the short label from the MR twin, and the
     // muted line does not repeat it.
-    assert.ok(body.indexOf('color:#2b2a2e;">UFH</p>') > 0, 'short label as line 1');
-    assert.ok(body.indexOf('>Order SO100 · ready to arrange delivery</p>') > 0);
+    assert.ok(body.indexOf('color="#2b2a2e">UFH</font></p>') > 0, 'short label as line 1');
+    assert.ok(body.indexOf('>Order SO100 · ready to arrange delivery</font></p>') > 0);
     assert.strictEqual(body.indexOf('£'), -1, 'no amounts in the email');
 });
 
@@ -463,22 +463,25 @@ test('B1. page contact: phone / email only / neither / no name', function () {
     assert.strictEqual(render.questionsLine({ name: '', phone: '0202' }), '', 'no name: no line');
 });
 
-test('B2. email contact: footer and AM block, phone / email only / neither / no name', function () {
+test('B2. email contact: footer and AM card, phone / email only / neither / no name', function () {
+    // 2.0.2: the footer line sits in the Send Quote footer (</font></p>); the AM card shows the phone
+    // and the email on their own lines, and only the buttons it has values for.
     var groups = data.groupProjects([], [], fx.CFG);
     function email(am) {
         return render.digestEmail({ customerName: 'A', groups: groups, link: 'https://x/l', am: am, digestDays: 14 });
     }
     var html = email({ name: 'Ray Rep', phone: '0202', email: 'ray@example.com' });
-    assert.ok(html.indexOf('reply to this email or call Ray Rep on 0202.</td>') > 0);
-    assert.ok(html.indexOf('>0202 · <a href="mailto:ray@example.com"') > 0, 'AM block keeps both when both exist');
+    assert.ok(html.indexOf('reply to this email or call Ray Rep on 0202.</font></p>') > 0);
+    assert.ok(html.indexOf('<span class="cl-line">0202</span><span class="cl-sep"> · </span><span class="cl-line">ray@example.com</span>') > 0,
+        'the AM card keeps both when both exist');
 
     html = email({ name: 'Ray Rep', phone: '', email: 'ray@example.com' });
-    assert.ok(html.indexOf('reply to this email or email Ray Rep at <a href="mailto:ray@example.com" style="color:#59315f;">ray@example.com</a>.</td>') > 0);
+    assert.ok(html.indexOf('reply to this email or email Ray Rep at <a href="mailto:ray@example.com" style="color:#59315f;">ray@example.com</a>.</font></p>') > 0);
     assert.strictEqual(html.indexOf('or call'), -1);
 
     html = email({ name: 'Ray Rep', phone: '', email: '' });
-    assert.ok(html.indexOf('reply to this email or contact Ray Rep.</td>') > 0);
+    assert.ok(html.indexOf('reply to this email or contact Ray Rep.</font></p>') > 0);
 
     html = email({ name: '', phone: '0202', email: '' });
-    assert.ok(html.indexOf('To stop these updates, reply to this email.</td>') > 0);
+    assert.ok(html.indexOf('To stop these updates, reply to this email.</font></p>') > 0);
 });

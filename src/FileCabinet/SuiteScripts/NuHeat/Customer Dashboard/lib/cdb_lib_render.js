@@ -2,7 +2,7 @@
  * cdb_lib_render.js
  *
  * HTML strings: the page shell, the dashboard, the delivery form, the confirmations and the digest
- * email. Pure: no NetSuite module. Every value from a record, a parameter or a request goes
+ * email. Pure: no NetSuite module of its own (2.0.2: it reads constants from cdb_lib_config). Every value from a record, a parameter or a request goes
  * through esc(), exactly once.
  *
  * THE DESIGN SOURCE is docs/design/canvas/ (release 1.1): Main, Mobile, Delivery, ConfirmBacs,
@@ -20,24 +20,25 @@
  * prev/next, and mirrors the choices into the summary aside. Without it, the aside shows static
  * text and the form still submits.
  *
- * THE EMAIL is tables and inline styles, 600px and fluid on phones, Calibri/Arial with no web
- * font, no flex or grid, no display:none, and a bulletproof table-cell button for Outlook.
- *
- * EMAIL BUILDING BLOCKS (2.0): emailShell, emailLogo, emailBand, emailButton, emailAmBlock and
- * emailFooter are the digest's pieces, extracted unchanged (its snapshot is byte-identical), so
- * every email looks the same. deliveryLinkEmail() — "Send delivery link" — is built from them.
+ * THE EMAILS (2.0.2) follow ONE STANDARD, Send Quote 2.2.0's email card (2026.03-Online-quote,
+ * commit 4463cfa, lib 1.1.0): emailShell, emailRepCard, emailButton and the green footer with the
+ * five social links. Tables and HTML attributes carry the layout, so an email stays centred and
+ * single-column with every style removed (Online-quote AI_AGENT_CONTEXT §9 pitfall 25). Calibri/Arial
+ * with no web font, no flex or grid, no display:none outside the preheader and the phone media query,
+ * and each button one [if !mso] / [if mso] pair. digestEmail() and deliveryLinkEmail() are built
+ * from these blocks.
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.2
  */
-define(['./cdb_lib_dates'], function (dates) {
+define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -1169,27 +1170,115 @@ define(['./cdb_lib_dates'], function (dates) {
         return n % 7 === 0 ? (n === 7 ? 'every week' : 'every ' + (n / 7) + ' weeks') : 'every ' + n + ' days';
     }
 
-    /** The email's inline font declaration. */
+    // ---------------------------------------------------------------- the customer email standard (2.0.2)
+    //
+    // Send Quote 2.2.0's email card, copied from 2026.03-Online-quote (lib 1.1.0 / Send Quote SL 2.3.1,
+    // commit 4463cfa): emailShell, emailRepCard and emailButton, with their constants in
+    // config.EMAIL_STANDARD. Pitfall 25: the email must stay centred and single-column with every style
+    // attribute and every <style> block removed (NetSuite's Communication tab view), so layout, width,
+    // alignment and colour are HTML attributes (align, width, bgcolor, valign, <font color>); CSS only
+    // polishes and stacks two-up cells on phones. No floats, no percentage-width side-by-side tables,
+    // no display:none wrappers (the preheader span excepted); each button is one [if !mso] / [if mso]
+    // pair, so exactly one visible link per button in every client.
+
+    /** The email's inline font declaration and <font face>. */
     var EF = 'font-family:' + EMAIL_FONT + ';';
+    var FACE = EMAIL_FONT;
+
+    /** Text in a colour that survives stripped styles. html must be escaped already. */
+    function fontHtml(color, html) {
+        return '<font face="' + FACE + '" color="' + color + '">' + html + '</font>';
+    }
 
     /**
-     * The outer tables: the page colour, and the 600px white card. content is rows (<tr>).
-     * @param {string} content - HTML
+     * The whole email document (Send Quote's emailShell): head, the phone media queries, the Outlook
+     * blocks, the hidden preheader, the centred 600px column, the caller's rows, the account manager
+     * card, and the Send Quote footer (logo, five social links) with this email's line under it.
+     *
+     * @param {Object} s - every value already escaped HTML:
+     *   title, preheader, rows (<tr>…</tr>), card (emailRepCard() or ''), footerLine
+     * @returns {string}
      */
-    function emailShell(content) {
-        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eeebe7" ' +
-            'style="background-color:#eeebe7;"><tr><td align="center" style="padding:24px 8px;">' +
-            '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
-            'style="width:100%;max-width:600px;background-color:#ffffff;">' + content + '</table></td></tr></table>';
+    function emailShell(s) {
+        var std = config.EMAIL_STANDARD;
+        var social = std.SOCIAL_LINKS.map(function (sl) {
+            return '<td align="center" valign="middle" width="42" style="padding:0 10px;"><a href="' + esc(sl[0]) +
+                '" target="_blank"><img src="' + esc(std.IMG_BASE + sl[1]) + '" width="22" height="22" alt="" border="0" style="display:block;width:22px;height:22px;"></a></td>\n';
+        }).join('');
+
+        return '' +
+            '<!DOCTYPE html>\n' +
+            '<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">\n' +
+            '<head>\n' +
+            '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+            '<meta http-equiv="X-UA-Compatible" content="IE=edge">\n' +
+            '<meta name="x-apple-disable-message-reformatting">\n' +
+            '<meta name="format-detection" content="telephone=no">\n' +
+            '<title>' + s.title + '</title>\n' +
+            '<!--[if gte mso 16]>\n' +
+            '<xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>\n' +
+            '<![endif]-->\n' +
+            '<style>\n' +
+            'body { margin:0; padding:0; -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }\n' +
+            'table { border-spacing:0; mso-table-lspace:0pt; mso-table-rspace:0pt; }\n' +
+            'td { border-collapse:collapse; }\n' +
+            'img { -ms-interpolation-mode:bicubic; border:0; outline:none; text-decoration:none; }\n' +
+            'a[x-apple-data-detectors=true] { color:inherit !important; text-decoration:inherit !important; }\n' +
+            '@media all and (max-width: 599px) {\n' +
+            '.main-container { width:100% !important; }\n' +
+            '.fluid { width:100% !important; height:auto !important; }\n' +
+            '.stack { display:block !important; width:100% !important; box-sizing:border-box; }\n' +
+            '.btn-full { width:100% !important; }\n' +
+            '.cl-sep { display:none !important; }\n' +
+            '.cl-line { display:block !important; }\n' +
+            '.h1 { font-size:26px !important; line-height:32px !important; }\n' +
+            '}\n' +
+            '</style>\n' +
+            '<!--[if mso]>\n' +
+            '<style>h1, h2, p, td, a, span, font { font-family:Arial, sans-serif !important; }</style>\n' +
+            '<![endif]-->\n' +
+            '</head>\n' +
+            '<body id="body" bgcolor="#ffffff" style="margin:0;padding:0;background-color:#ffffff;">\n' +
+            '<span style="display:none;font-size:0px;line-height:0px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">' +
+            s.preheader + '</span>\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="background-color:#ffffff;">\n' +
+            '<tr><td align="center" valign="top">\n' +
+            '<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="top"><![endif]-->\n' +
+            '<table role="presentation" class="width600 main-container" width="600" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:600px;">\n' +
+
+            s.rows +
+
+            (s.card ? '<tr><td align="center" valign="top" style="padding:28px 20px 32px 20px;">\n' + s.card + '</td></tr>\n' : '') +
+
+            // The Send Quote footer: logo and the five social links, then this email's line.
+            '<tr><td align="center" valign="top" bgcolor="' + std.FOOTER_BG + '" style="background-color:' + std.FOOTER_BG +
+            ';padding:10px 10px 24px 10px;">\n' +
+            '<img src="' + esc(std.IMG_BASE + std.FOOTER_LOGO) + '" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' + social + '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:16px 20px 24px 20px;">\n' +
+            '<p style="margin:0;' + EF + 'font-size:13px;line-height:17px;color:#6b6b6b;">' + fontHtml('#6b6b6b', s.footerLine) + '</p>\n' +
+            '</td></tr>\n' +
+
+            '</table>\n' +
+            '<!--[if mso]></td></tr></table><![endif]-->\n' +
+            '</td></tr>\n' +
+            '</table>\n' +
+            '</body>\n' +
+            '</html>\n';
     }
 
     /** The logo row: the image when there is a URL, else "Nu-Heat" in purple. */
     function emailLogo(logoUrl) {
-        return '<tr><td align="center" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
-            (logoUrl ? '<img src="' + esc(logoUrl) + '" alt="Nu-Heat" height="60" style="display:block;height:60px;' +
+        return '<tr><td align="center" valign="top" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
+            (logoUrl ? '<img src="' + esc(logoUrl) + '" alt="Nu-Heat" height="60" border="0" style="display:block;height:60px;' +
                 'max-height:60px;width:auto;max-width:100%;border:0;margin:0 auto;">' :
-                '<span style="' + EF + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE + ';">Nu-Heat</span>') +
-            '</td></tr>';
+                fontHtml(COLORS.PURPLE, '<span style="' + EF + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE +
+                    ';">Nu-Heat</span>')) +
+            '</td></tr>\n';
     }
 
     /**
@@ -1199,129 +1288,206 @@ define(['./cdb_lib_dates'], function (dates) {
      * @param {string} hello - the whole line, e.g. "Hello Sam"
      */
     function emailBand(eyebrow, heading, hello) {
-        return '<tr><td align="center" bgcolor="' + COLORS.PURPLE + '" style="background-color:' + COLORS.PURPLE +
+        return '<tr><td align="center" valign="top" bgcolor="' + COLORS.PURPLE + '" style="background-color:' + COLORS.PURPLE +
             ';padding:36px 32px;' + EF + 'color:#ffffff;">' +
             '<p style="margin:0 0 10px;' + EF + 'font-size:15px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
-            'color:#e7d9ea;">' + esc(eyebrow) + '</p>' +
-            '<h1 style="margin:0 0 10px;' + EF + 'font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">' +
-            esc(heading) + '</h1>' +
-            '<p style="margin:0;' + EF + 'font-size:17px;color:#f3ecf4;">' + esc(hello) + '</p></td></tr>';
+            'color:#e7d9ea;">' + fontHtml('#e7d9ea', '<b>' + esc(eyebrow) + '</b>') + '</p>' +
+            '<h1 class="h1" style="margin:0 0 10px;' + EF + 'font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">' +
+            fontHtml('#ffffff', esc(heading)) + '</h1>' +
+            '<p style="margin:0;' + EF + 'font-size:17px;color:#f3ecf4;">' + fontHtml('#f3ecf4', esc(hello)) + '</p></td></tr>\n';
     }
 
     /**
-     * The yellow button row (bulletproof: a padded table cell, no VML, so the URL appears once).
-     * @param {string} link
-     * @param {string} label - plain text
+     * Send Quote's bulletproof button: one [if !mso] / [if mso] pair, never a display:none wrapper.
+     * Colour by bgcolor and <font color>, padding by cellpadding, so it survives stripped styles.
+     * @param {string} href - plain; escaped here
+     * @param {string} label - plain; escaped here
      */
-    function emailButton(link, label) {
-        return '<tr><td align="center" style="padding:16px 32px 8px;">' +
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr>' +
-            '<td align="center" bgcolor="' + COLORS.CTA + '" style="background-color:' + COLORS.CTA + ';border-radius:6px;">' +
-            '<a href="' + esc(link) + '" target="_blank" style="display:inline-block;padding:16px 36px;' + EF +
-            'font-size:18px;font-weight:bold;letter-spacing:0.5px;color:' + COLORS.CTA_TEXT + ';text-decoration:none;' +
-            'border-radius:6px;">' + esc(label) + '</a></td></tr></table></td></tr>';
+    function emailButton(href, label) {
+        var bg = config.EMAIL_STANDARD.BUTTON_BG;
+        var fg = config.EMAIL_STANDARD.BUTTON_TEXT;
+        var text = EF + 'font-size:18px;line-height:22px;font-weight:bold;color:' + fg + ';text-decoration:none;';
+        var h = esc(href);
+        var l = esc(label);
+        return '' +
+            '<!--[if !mso]><!-- -->\n' +
+            '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' + bg +
+            '" style="background-color:' + bg + ';border-radius:5px;border-collapse:separate;">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:0;border-radius:5px;"><a href="' + h +
+            '" target="_blank" style="display:block;padding:15px 28px;' + text + '"><font face="' + FACE + '" color="' + fg +
+            '"><b>' + l + '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<!--<![endif]-->\n' +
+            '<!--[if mso]>\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + bg + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:15px 28px;"><a href="' + h +
+            '" target="_blank" style="' + text + '"><font face="Arial, sans-serif" color="' + fg + '"><b>' + l +
+            '</b></font></a></td></tr>\n' +
+            '</table>\n' +
+            '<![endif]-->\n';
+    }
+
+    /** A centred row holding one button. */
+    function emailButtonRow(link, label) {
+        return '<tr><td align="center" valign="top" style="padding:16px 32px 8px;">\n' + emailButton(link, label) + '</td></tr>\n';
     }
 
     /**
-     * The account manager card, no photo: the name, then phone · email (either may be missing).
-     * '' without a name.
-     * @param {Object} am - { name, phone, email }
+     * Pure (Send Quote's resolveFirstName): the first name for the CALL / EMAIL buttons — the
+     * employee's firstname, else the first word of the name, else ''.
      */
-    function emailAmBlock(am) {
-        if (!am || !am.name) {
+    function resolveFirstName(firstName, fullName) {
+        var first = String(firstName === null || firstName === undefined ? '' : firstName).replace(/^\s+|\s+$/g, '');
+        var name = String(fullName === null || fullName === undefined ? '' : fullName).replace(/^\s+|\s+$/g, '');
+        if (first) {
+            return first;
+        }
+        if (!name || name === config.EMAIL_STANDARD.GENERIC_AM_NAME) {
             return '';
         }
-        return '<tr><td align="center" bgcolor="' + COLORS.TIP + '" style="background-color:' + COLORS.TIP +
-            ';padding:28px 32px;' + EF + '">' +
-            '<p style="margin:0;' + EF + 'font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
-            'color:' + COLORS.MUTED + ';">Your account manager</p>' +
-            '<p style="margin:4px 0;' + EF + 'font-size:22px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
-            esc(am.name) + '</p>' +
-            '<p style="margin:0;' + EF + 'font-size:15px;color:#4a4650;">' +
-            [am.phone ? esc(am.phone) : '', am.email ? '<a href="mailto:' + esc(am.email) + '" style="color:' +
-                COLORS.PURPLE + ';">' + esc(am.email) + '</a>' : ''].filter(function (x) { return !!x; })
-                .join(' · ') + '</p></td></tr>';
+        return name.split(/\s+/)[0];
     }
 
     /**
-     * The footer row.
-     * @param {string} html - ALREADY ESCAPED: the digest's carries a mailto link
+     * The account manager card (Send Quote 2.2.0's emailRepCard): the photo (a 96px circle, only for an
+     * https:// URL, else no photo row at all), YOUR ACCOUNT MANAGER, the name, phone · email (two lines
+     * on phones), then CALL {FIRST} and EMAIL {FIRST} side by side (stacked, full width, on phones). A
+     * button without its value is left out. '' when there is no name, phone or email at all.
+     *
+     * @param {Object} am - { name, phone, email, firstName, photoUrl }, plain text
+     * @returns {string}
      */
-    function emailFooter(html) {
-        return '<tr><td align="center" style="padding:24px 32px;border-top:1px solid #ece8e3;' + EF +
-            'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">' + html + '</td></tr>';
+    function emailRepCard(am) {
+        var a = am || {};
+        var name = a.name || config.EMAIL_STANDARD.GENERIC_AM_NAME;
+        var first = resolveFirstName(a.firstName, a.name).toUpperCase();
+        var tel = String(a.phone || '').replace(/[^\d+]/g, '');
+        var photo = /^https:\/\/[^\s"'<>]+$/i.test(String(a.photoUrl || '')) ? String(a.photoUrl) : '';
+        var buttons = [];
+        var lines = [];
+        if (!a.name && !a.phone && !a.email) {
+            return '';
+        }
+        if (tel) {
+            buttons.push(emailButton('tel:' + tel, first ? 'CALL ' + first : 'CLICK TO CALL'));
+        }
+        if (a.email) {
+            buttons.push(emailButton('mailto:' + a.email, first ? 'EMAIL ' + first : 'SEND AN EMAIL'));
+        }
+        if (a.phone) {
+            lines.push('<span class="cl-line">' + esc(a.phone) + '</span>');
+        }
+        if (a.email) {
+            lines.push('<span class="cl-line">' + esc(a.email) + '</span>');
+        }
+        return '' +
+            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:8px;">\n' +
+            (photo ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="' + esc(photo) +
+                '" width="96" height="96" alt="' + esc(name) + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n' : '') +
+            '<tr><td align="center" valign="top" style="padding:' + (photo ? '14px' : '24px') + ' 20px ' +
+            (buttons.length ? '0' : '24px') + ' 20px;">\n' +
+            '<p style="margin:0 0 4px 0;' + EF + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;">' +
+            fontHtml('#59315f', '<b>YOUR ACCOUNT MANAGER</b>') + '</p>\n' +
+            '<p style="margin:0 0 6px 0;' + EF + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;">' +
+            fontHtml('#000000', '<b>' + esc(name) + '</b>') + '</p>\n' +
+            (lines.length ? '<p style="margin:0;' + EF + 'font-size:17px;line-height:23px;color:#131313;">' +
+                fontHtml('#131313', lines.join('<span class="cl-sep"> · </span>')) + '</p>\n' : '') +
+            '</td></tr>\n' +
+            (buttons.length ? '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
+                '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+                '<tr>\n' +
+                buttons.map(function (b) {
+                    return '<td class="stack" width="' + (buttons.length === 2 ? '50%' : '100%') +
+                        '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
+                }).join('') +
+                '</tr>\n' +
+                '</table>\n' +
+                '</td></tr>\n' : '') +
+            '</table>\n';
     }
 
     /** The muted "This link is personal to you…" row. text is plain. */
     function emailPersonal(text) {
-        return '<tr><td align="center" style="padding:4px 32px 32px;' + EF + 'font-size:14px;color:' + COLORS.MUTED + ';">' +
-            esc(text) + '</td></tr>';
+        return '<tr><td align="center" valign="top" style="padding:4px 32px 8px;' + EF + 'font-size:14px;color:' + COLORS.MUTED + ';">' +
+            fontHtml(COLORS.MUTED, esc(text)) + '</td></tr>\n';
+    }
+
+    /** One digest row's badge: a small table, colour by bgcolor and <font color>. */
+    function emailBadge(kind, text) {
+        var b = BADGES[kind] || BADGES.quote;
+        return '<table role="presentation" align="right" cellpadding="3" cellspacing="0" border="0" bgcolor="' + b.bg +
+            '" style="background-color:' + b.bg + ';border-radius:12px;border-collapse:separate;"><tr>' +
+            '<td align="center" valign="middle" bgcolor="' + b.bg + '" style="padding:3px 12px;border-radius:12px;white-space:nowrap;">' +
+            fontHtml(b.fg, '<span style="' + EF + 'font-size:13px;font-weight:bold;color:' + b.fg + ';white-space:nowrap;">' +
+                esc(text) + '</span>') + '</td></tr></table>';
+    }
+
+    /** A paragraph in a colour: plain text, escaped here. */
+    function emailP(margin, size, color, text, bold) {
+        return '<p style="margin:' + margin + ';' + EF + 'font-size:' + size + 'px;' + (bold ? 'font-weight:bold;' : '') +
+            'color:' + color + ';">' + fontHtml(color, bold ? '<b>' + esc(text) + '</b>' : esc(text)) + '</p>';
     }
 
     /**
-     * The digest email body. Pure, snapshot-tested.
-     * @param {Object} m - { customerName, greetingName, logoUrl, groups, payBacs, link,
-     *                       am {name, phone, email}, digestDays }
+     * The digest email. Pure, snapshot-tested.
+     * @param {Object} m - { customerName, greetingName, logoUrl, groups, payBacs, link, title (the
+     *                       subject), am {name, phone, email, firstName, photoUrl}, digestDays }
      * @returns {string}
      */
     function digestEmail(m) {
-        var f = EF;
         var rows = digestRows(m.groups, m.payBacs);
         var callout = digestCallout(m.groups, m.payBacs);
         var html = '';
         var i;
         var r;
-        var b;
 
-        // 1. logo, 2. purple band
         html += emailLogo(m.logoUrl);
         html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
 
-        html += '<tr><td style="padding:32px 32px 8px;"><table role="presentation" width="100%" cellpadding="0" ' +
-            'cellspacing="0" border="0">';
+        html += '<tr><td align="center" valign="top" style="padding:32px 32px 8px;"><table role="presentation" width="100%" ' +
+            'align="center" cellpadding="0" cellspacing="0" border="0">\n';
 
-        // 3. action callout
+        // The action callout
         if (callout) {
-            html += '<tr><td style="padding:0 0 8px;"><table role="presentation" width="100%" cellpadding="0" ' +
-                'cellspacing="0" border="0"><tr><td bgcolor="#fffaf0" style="background-color:#fffaf0;border:2px solid ' +
-                COLORS.CTA + ';padding:16px 18px;' + f + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
-                callout + '</td></tr></table></td></tr>';
+            html += '<tr><td align="left" valign="top" style="padding:0 0 8px;"><table role="presentation" width="100%" align="center" ' +
+                'cellpadding="16" cellspacing="0" border="0" bgcolor="#fffaf0" style="background-color:#fffaf0;"><tr>' +
+                '<td align="left" valign="top" bgcolor="#fffaf0" style="background-color:#fffaf0;border:2px solid ' + COLORS.CTA +
+                ';padding:16px 18px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
+                fontHtml(COLORS.TEXT, callout) + '</td></tr></table></td></tr>\n';
         }
 
-        // 4. one row per project
+        // One row per order or project
         for (i = 0; i < rows.length; i++) {
             r = rows[i];
-            b = BADGES[r.badgeKind] || BADGES.quote;
             if (r.heading) {
-                html += '<tr><td style="padding:20px 0 4px;' + f + 'font-size:15px;font-weight:bold;letter-spacing:1px;' +
-                    'text-transform:uppercase;color:' + COLORS.PURPLE + ';">' + esc(r.heading) + '</td></tr>';
+                html += '<tr><td align="left" valign="top" style="padding:20px 0 4px;' + EF + 'font-size:15px;font-weight:bold;' +
+                    'letter-spacing:1px;text-transform:uppercase;color:' + COLORS.PURPLE + ';">' +
+                    fontHtml(COLORS.PURPLE, '<b>' + esc(r.heading) + '</b>') + '</td></tr>\n';
             }
-            html += '<tr><td style="padding:16px 0;' + (i < rows.length - 1 ? 'border-bottom:1px solid #ece8e3;' : '') + '">' +
-                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
-                '<td valign="middle" style="' + f + 'text-align:left;">' +
-                '<p style="margin:0;' + f + 'font-size:17px;font-weight:bold;color:' + COLORS.TEXT + ';">' + esc(r.title) + '</p>' +
-                (r.line1 ? '<p style="margin:2px 0 0;' + f + 'font-size:15px;color:' + COLORS.TEXT + ';">' + esc(r.line1) + '</p>' : '') +
-                (r.ref ? '<p style="margin:2px 0 0;' + f + 'font-size:15px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
-                    esc(r.ref) + '</p>' : '') +
-                '<p style="margin:2px 0 0;' + f + 'font-size:15px;color:' + COLORS.MUTED + ';">' + esc(r.sub) + '</p></td>' +
-                '<td valign="middle" align="right" style="padding-left:12px;white-space:nowrap;">' +
-                '<span style="' + f + 'display:inline-block;background-color:' + b.bg + ';color:' + b.fg +
-                ';border-radius:12px;padding:3px 12px;font-size:13px;font-weight:bold;white-space:nowrap;">' +
-                esc(r.badgeText) + '</span></td></tr></table></td></tr>';
+            html += '<tr><td align="left" valign="top" style="padding:16px 0;' + (i < rows.length - 1 ? 'border-bottom:1px solid #ece8e3;' : '') + '">' +
+                '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
+                '<td align="left" valign="middle" style="' + EF + 'text-align:left;">' +
+                emailP('0', 17, COLORS.TEXT, r.title, true) +
+                (r.line1 ? emailP('2px 0 0', 15, COLORS.TEXT, r.line1) : '') +
+                (r.ref ? emailP('2px 0 0', 15, COLORS.TEXT, r.ref, true) : '') +
+                emailP('2px 0 0', 15, COLORS.MUTED, r.sub) + '</td>' +
+                '<td align="right" valign="middle" style="padding-left:12px;white-space:nowrap;">' +
+                emailBadge(r.badgeKind, r.badgeText) + '</td></tr></table></td></tr>\n';
         }
-        html += '</table></td></tr>';
+        html += '</table></td></tr>\n';
 
-        // 5. the button, 6. personal link, 7. account manager
-        html += emailButton(m.link, 'VIEW YOUR PROJECTS');
+        html += emailButtonRow(m.link, 'VIEW YOUR PROJECTS');
         html += emailPersonal('This link is personal to you. Please don’t forward this email.');
-        html += emailAmBlock(m.am);
 
-        // 8. footer
-        html += emailFooter('You get this update ' + everyText(m.digestDays) +
-            ' while you have an open project or order with us. To stop these updates, reply to this email' +
-            emailFooterContact(m.am) + '.');
-
-        return emailShell(html);
+        return emailShell({
+            title: esc(m.title || 'Your Nu-Heat projects'),
+            preheader: esc(config.EMAIL_STANDARD.DIGEST_PREHEADER),
+            rows: html,
+            card: emailRepCard(m.am),
+            footerLine: 'You get this update ' + everyText(m.digestDays) +
+                ' while you have an open project or order with us. To stop these updates, reply to this email' +
+                emailFooterContact(m.am) + '.'
+        });
     }
 
     /**
@@ -1334,17 +1500,17 @@ define(['./cdb_lib_dates'], function (dates) {
     }
 
     /**
-     * 2.0: the "Send delivery link" email body — one order, one button to its direct delivery link.
+     * 2.0: the "Send delivery link" email — one order, one button to its direct delivery link.
      * Pure, snapshot-tested. No opt-out wording: it is not the digest.
      *
-     * @param {Object} m - { text (config.DELIVERY_LINK_EMAIL), customerName, greetingName, logoUrl,
-     *                       opp {title, tranId}, order (decorated: tranId, description, uniqueRef,
-     *                       typeLabel, quoteTypeText), link (the direct delivery link),
-     *                       dashboardLink, am {name, phone, email} }
+     * @param {Object} m - { text (config.DELIVERY_LINK_EMAIL; defaults to it), customerName, greetingName,
+     *                       logoUrl, opp {title, tranId}, order (decorated: tranId, description, uniqueRef,
+     *                       typeLabel, quoteTypeText), link (the direct delivery link), dashboardLink,
+     *                       am {name, phone, email, firstName, photoUrl} }
      * @returns {string}
      */
     function deliveryLinkEmail(m) {
-        var t = m.text;
+        var t = m.text || config.DELIVERY_LINK_EMAIL;
         var o = m.order;
         var html = '';
 
@@ -1352,32 +1518,34 @@ define(['./cdb_lib_dates'], function (dates) {
         html += emailBand(t.EYEBROW, t.HEADING, String(t.HELLO).replace('{name}', m.greetingName || m.customerName || ''));
 
         // Intro, then the one order block: project, order title, split reference, "Order SO… · UFH".
-        html += '<tr><td style="padding:32px 32px 8px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
-            '<p style="margin:0 0 20px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
-            esc(t.INTRO) + '</p>' +
-            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
-            '<td style="padding:16px 18px;border:1px solid #ece8e3;border-left:4px solid ' + COLORS.PURPLE + ';' + EF +
-            'text-align:left;">' +
-            '<p style="margin:0;' + EF + 'font-size:17px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
-            esc((m.opp && (m.opp.title || m.opp.tranId)) || '') + '</p>' +
-            '<p style="margin:2px 0 0;' + EF + 'font-size:15px;color:' + COLORS.TEXT + ';">' + esc(orderTitle(o)) + '</p>' +
-            (o.uniqueRef ? '<p style="margin:2px 0 0;' + EF + 'font-size:15px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
-                esc(o.uniqueRef) + '</p>' : '') +
-            '<p style="margin:2px 0 0;' + EF + 'font-size:15px;color:' + COLORS.MUTED + ';">' + esc(orderMeta(o)) + '</p>' +
-            '</td></tr></table></td></tr>';
+        html += '<tr><td align="center" valign="top" style="padding:32px 32px 8px;">' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
+            '<td align="left" valign="top" style="padding:0 0 20px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
+            emailP('0', 17, COLORS.TEXT, t.INTRO) + '</td></tr><tr>' +
+            '<td align="left" valign="top" bgcolor="#ffffff" style="padding:16px 18px;border:1px solid #ece8e3;border-left:4px solid ' +
+            COLORS.PURPLE + ';' + EF + 'text-align:left;">' +
+            emailP('0', 17, COLORS.TEXT, (m.opp && (m.opp.title || m.opp.tranId)) || '', true) +
+            emailP('2px 0 0', 15, COLORS.TEXT, orderTitle(o)) +
+            (o.uniqueRef ? emailP('2px 0 0', 15, COLORS.TEXT, o.uniqueRef, true) : '') +
+            emailP('2px 0 0', 15, COLORS.MUTED, orderMeta(o)) +
+            '</td></tr></table></td></tr>\n';
 
-        html += emailButton(m.link, t.BUTTON);
+        html += emailButtonRow(m.link, t.BUTTON);
 
         // The secondary link to the dashboard: small, purple, underlined.
-        html += '<tr><td align="center" style="padding:8px 32px 4px;' + EF + 'font-size:15px;">' +
+        html += '<tr><td align="center" valign="top" style="padding:8px 32px 4px;' + EF + 'font-size:15px;">' +
             '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
-            ';text-decoration:underline;">' + esc(t.DASHBOARD_LINK) + '</a></td></tr>';
+            ';text-decoration:underline;">' + fontHtml(COLORS.PURPLE, esc(t.DASHBOARD_LINK)) + '</a></td></tr>\n';
 
         html += emailPersonal(t.PERSONAL);
-        html += emailAmBlock(m.am);
-        html += emailFooter(esc(t.FOOTER));
 
-        return emailShell(html);
+        return emailShell({
+            title: esc(deliveryLinkSubject(t, o.tranId)),
+            preheader: esc(t.PREHEADER),
+            rows: html,
+            card: emailRepCard(m.am),
+            footerLine: esc(t.FOOTER)
+        });
     }
 
     return {
@@ -1408,8 +1576,8 @@ define(['./cdb_lib_dates'], function (dates) {
         emailLogo: emailLogo,
         emailBand: emailBand,
         emailButton: emailButton,
-        emailAmBlock: emailAmBlock,
-        emailFooter: emailFooter,
+        emailRepCard: emailRepCard,
+        resolveFirstName: resolveFirstName,
         deliveryLinkSubject: deliveryLinkSubject,
         deliveryLinkEmail: deliveryLinkEmail
     };

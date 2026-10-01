@@ -74,6 +74,10 @@ function stubs(w) {
             var r = src && src[o.id];
             var out = {};
             if (!r) { throw new Error('RCRD_DSNT_EXIST'); }
+            // 2.0.2: model an account where the photo field does not exist on the employee.
+            if (o.type === 'employee' && w.photoFieldThrows && o.columns.indexOf('custentity_employee_photo_link') >= 0) {
+                throw new Error('An nlobjSearchColumn contains an invalid column: custentity_employee_photo_link.');
+            }
             o.columns.forEach(function (c) {
                 var v = r[c];
                 out[c] = (((o.type === 'opportunity' && ['entity', 'salesrep', 'custbody_pe', 'custbody_value_proposition', 'entitystatus'].indexOf(c) >= 0) ||

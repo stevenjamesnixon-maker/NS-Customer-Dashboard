@@ -231,11 +231,11 @@ test('5. happy path: one email from the rep, on the customer and the order, with
     assert.ok(e.body.indexOf('href="https://acct.extforms.netsuite.com/sl?t=' + tok + '&amp;a=delivery&amp;so=100"') > 0,
         'the direct link');
     assert.ok(e.body.indexOf('href="https://acct.extforms.netsuite.com/sl?t=' + tok + '"') > 0, 'the dashboard link');
-    assert.ok(e.body.indexOf('>ARRANGE DELIVERY</a>') > 0);
-    assert.ok(e.body.indexOf('>Underfloor heating Ground floor</p>') > 0);
+    assert.ok(e.body.indexOf('>ARRANGE DELIVERY</b></font></a>') > 0);
+    assert.ok(e.body.indexOf('>Underfloor heating Ground floor</font></p>') > 0);
     assert.ok(e.body.indexOf('Order SO100 · Underfloor heating system') > 0);
-    assert.ok(e.body.indexOf('>Barn</p>') > 0, 'the project title');
-    assert.ok(e.body.indexOf('>Ray Rep</p>') > 0, 'the AM card is the author');
+    assert.ok(e.body.indexOf('>Barn</b></font></p>') > 0, 'the project title');
+    assert.ok(e.body.indexOf('>Ray Rep</b></font></p>') > 0, 'the AM card is the author');
     landed(s.w, 'sent');
     var line = logs(s.w, 'SEND_LINK');
     assert.strictEqual(line.length, 1);
@@ -257,7 +257,7 @@ test('6. rep inactive: the author is the fallback employee', function () {
     var s = slSetup(function (w) { w.employees[88].isinactive = true; });
     press(s);
     assert.strictEqual(s.w.emails[0].author, 500);
-    assert.ok(s.w.emails[0].body.indexOf('>Fall Back</p>') > 0);
+    assert.ok(s.w.emails[0].body.indexOf('>Fall Back</b></font></p>') > 0);
 });
 
 test('7. email.send throws: redirect failed, logged', function () {
@@ -341,8 +341,11 @@ test('9. delivery-link email: snapshot, no opt-out, escaped', function () {
     var m = emailModel();
     var html = render.deliveryLinkEmail(m);
     var snap = path.join(__dirname, 'snapshots', 'delivery-link-email.html');
-    assert.ok(/^<table role="presentation"/.test(html));
-    assert.strictEqual(/display:\s*flex|grid|display:\s*none/i.test(html), false);
+    var body = html.slice(html.indexOf('<body'));
+    var visible = body.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/g, '');
+    assert.ok(/^<!DOCTYPE html>/.test(html));
+    assert.strictEqual(/display:\s*flex|grid/i.test(html), false);
+    assert.strictEqual((body.match(/display:\s*none/gi) || []).length, 1, 'only the preheader span');
     assert.strictEqual(html.indexOf('<div'), -1);
     assert.strictEqual(html.indexOf('<script'), -1);
     assert.ok(html.indexOf('UFH &lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;more&quot;') > 0, 'description escaped');
@@ -352,11 +355,11 @@ test('9. delivery-link email: snapshot, no opt-out, escaped', function () {
     assert.ok(html.indexOf('READY TO DELIVER') > 0 && html.indexOf('Choose your delivery date') > 0);
     assert.ok(html.indexOf('Good news: your order below is ready to deliver.') > 0);
     assert.ok(html.indexOf('Order SO100 · UFH') > 0);
-    assert.strictEqual(html.split(render.esc(m.link)).length - 1, 1, 'the direct link once');
+    assert.strictEqual(visible.split(render.esc(m.link)).length - 1, 1, 'the direct link once in the visible markup');
     assert.ok(html.indexOf('href="' + render.esc(m.dashboardLink) + '"') > 0);
-    assert.ok(html.indexOf('>ARRANGE DELIVERY</a>') > 0 && html.indexOf('>Or view all your projects</a>') > 0);
+    assert.ok(html.indexOf('<b>ARRANGE DELIVERY</b>') > 0 && html.indexOf('>Or view all your projects</font></a>') > 0);
     assert.ok(html.indexOf('This link is personal to you. Please don’t forward this email.') > 0);
-    assert.ok(html.indexOf('>Pat Lee</p>') > 0);
+    assert.ok(html.indexOf('<b>Pat Lee</b>') > 0);
     assert.ok(html.indexOf('You’re receiving this because you have an order with Nu-Heat.') > 0);
     ['stop these updates', 'You get this update', 'reply to this email', 'opt'].forEach(function (t) {
         assert.strictEqual(html.indexOf(t), -1, 'no digest opt-out wording: ' + t);
@@ -374,8 +377,8 @@ test('9. no split reference, no description: the fallbacks', function () {
     m.order.uniqueRef = '';
     m.order.description = '';
     var html = render.deliveryLinkEmail(m);
-    assert.ok(html.indexOf('>UFH</p>') > 0, 'the type label as the title');
-    assert.ok(html.indexOf('>Order SO100</p>') > 0, 'the label not shown twice');
+    assert.ok(html.indexOf('>UFH</font></p>') > 0, 'the type label as the title');
+    assert.ok(html.indexOf('>Order SO100</font></p>') > 0, 'the label not shown twice');
     m.am = { name: '' };
     assert.strictEqual(render.deliveryLinkEmail(m).indexOf('Your account manager'), -1);
 });

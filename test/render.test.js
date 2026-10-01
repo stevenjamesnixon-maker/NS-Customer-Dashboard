@@ -45,18 +45,25 @@ test('invalid page says only the generic text', function () {
     assert.ok(html.indexOf('This link is no longer valid. Please contact your account manager') > 0);
 });
 
-test('digest email: tables, inline styles, no display:none, the button and the footer', function () {
+test('digest email: tables, the Send Quote standard, the button and the footer', function () {
+    // 2.0.2: a whole document with the Send Quote <style> block (phone stacking); display:none only in
+    // the preheader and the media query; external URLs: our logo, our link, and the Send Quote image
+    // host and social links (config.EMAIL_STANDARD).
+    var std = amd.load('lib/cdb_lib_config', { 'N/runtime': {} }).EMAIL_STANDARD;
     var html = render.digestEmail({ customerName: 'Sam', logoUrl: LOGO, groups: groups(), payBacs: '1',
         link: 'https://acct.extforms.netsuite.com/x?t=a', am: { name: 'Pat', phone: '1', email: 'p@x.com' },
         digestDays: 14 });
-    assert.ok(html.indexOf('display:none') === -1);
-    assert.ok(html.indexOf('<style') === -1);
+    var body = html.slice(html.indexOf('<body'));
+    assert.strictEqual((body.match(/display:none/g) || []).length, 1, 'the preheader only');
+    assert.strictEqual((html.match(/<style>/g) || []).length, 2, 'the standard block and the Outlook one');
     assert.ok(html.indexOf('VIEW YOUR PROJECTS') > 0);
     assert.ok(html.indexOf('every 2 weeks') > 0);
     assert.ok(html.indexOf('reply to this email') > 0);
     assert.ok(html.indexOf('ready to arrange delivery') > 0, 'callout');
     externalUrls(html).forEach(function (u) {
-        assert.ok(u.indexOf('src="' + LOGO) === 0 || u.indexOf('href="https://acct.extforms.netsuite.com') === 0, u);
+        var ok = u.indexOf('src="' + LOGO) === 0 || u.indexOf('href="https://acct.extforms.netsuite.com') === 0 ||
+            u.indexOf('src="' + std.IMG_BASE) === 0 || std.SOCIAL_LINKS.some(function (l) { return u === 'href="' + l[0] + '"'; });
+        assert.ok(ok, u);
     });
 });
 

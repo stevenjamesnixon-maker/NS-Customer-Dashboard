@@ -54,7 +54,10 @@
  * EMAILS TO THE CUSTOMER (2.0) share two rules, so the customer sees the same person and the same
  * inbox everywhere: emailRecipient() — the dashboard contact's email, else the customer's email —
  * and emailAuthor() — the customer's sales rep if active, else the fallback employee. The digest
- * and the Send delivery link Suitelet both use them. orderCustomer() gives the customer an order
+ * and the Send delivery link Suitelet both use them. 2.0.2: emailAuthor() also reads the author's
+ * firstname and custentity_employee_photo_link in the SAME lookup, and emailAm() turns the author
+ * into the email card's account manager — the Send Quote 2.2.0 card — logging CDB AM_PHOTO once per
+ * email (photo used, or skipped and why). orderCustomer() gives the customer an order
  * belongs to for links: its OPPORTUNITY's customer (the guard's rule), never the order's entity.
  *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
@@ -65,14 +68,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.2
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -861,10 +864,21 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * One lookup on an employee. The phone is the employee `phone` field — the field Send Quote's card
+     * reads (master proposal loadSalesRepData) — else `mobilephone`, this repo's fallback.
+     *
+     * 2.0.2: withPhoto adds custentity_employee_photo_link to the SAME lookup, for the email card. If
+     * that lookup throws (say, the field is missing in an account) it is retried once without the
+     * photo, so a photo problem never costs the author or the send; photoError says why.
+     *
      * @param {string} employeeId
-     * @returns {Object|null} { id, name, phone, email, isInactive }
+     * @param {boolean} [withPhoto]
+     * @returns {Object|null} { id, name, firstName, phone, email, isInactive, photoLink, photoError }
      */
-    function getEmployee(employeeId) {
+    function getEmployee(employeeId, withPhoto) {
+        var columns = ['entityid', 'firstname', 'lastname', 'phone', 'mobilephone', 'email', 'isinactive'];
+        var photoField = config.FIELDS.EMPLOYEE.PHOTO_LINK;
+        var photoError = '';
         var r;
         if (trim(employeeId) === '') {
             return null;
@@ -873,19 +887,64 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             r = search.lookupFields({
                 type: search.Type.EMPLOYEE,
                 id: employeeId,
-                columns: ['entityid', 'firstname', 'lastname', 'phone', 'mobilephone', 'email',
-                    'isinactive']
+                columns: withPhoto ? columns.concat([photoField]) : columns
             });
         } catch (e) {
-            return null;
+            if (!withPhoto) {
+                return null;
+            }
+            photoError = 'employee lookup with the photo field failed: ' + (e && e.message ? e.message : String(e));
+            try {
+                r = search.lookupFields({ type: search.Type.EMPLOYEE, id: employeeId, columns: columns });
+            } catch (e2) {
+                return null;
+            }
         }
         return {
             id: String(employeeId),
             name: trim(trim(r.firstname) + ' ' + trim(r.lastname)) || trim(r.entityid),
+            firstName: trim(r.firstname),
             phone: trim(r.phone) || trim(r.mobilephone),
             email: trim(r.email),
-            isInactive: isTicked(r.isinactive)
+            isInactive: isTicked(r.isinactive),
+            photoLink: withPhoto && !photoError ? trim(r[photoField]) : '',
+            photoError: photoError
         };
+    }
+
+    /**
+     * Pure (Send Quote's checkPhotoUrl): the photo URL if an email can use it — absolute https://, no
+     * spaces, quotes or angle brackets.
+     * @returns {{url: string, reason: string}} reason says why not, when url is ''
+     */
+    function checkPhotoUrl(value) {
+        var text = trim(value);
+        if (!text) {
+            return { url: '', reason: config.FIELDS.EMPLOYEE.PHOTO_LINK + ' is empty' };
+        }
+        if (!/^https:\/\//i.test(text)) {
+            return { url: '', reason: 'not an https:// URL' };
+        }
+        if (/[\s"'<>]/.test(text)) {
+            return { url: '', reason: 'URL contains spaces, quotes or angle brackets' };
+        }
+        return { url: text, reason: '' };
+    }
+
+    /**
+     * 2.0.2: the account manager for an email's card, from emailAuthor()'s result. Logs CDB AM_PHOTO
+     * once — photo used, or skipped and why (the Send Quote pattern). Call once per email.
+     * @param {Object} author - from emailAuthor()
+     * @param {string} what - for the log, e.g. 'Digest, customer 42'
+     * @returns {Object} { name, phone, email, firstName, photoUrl }
+     */
+    function emailAm(author, what) {
+        var a = author || {};
+        var photo = a.photoError ? { url: '', reason: a.photoError } : checkPhotoUrl(a.photoLink);
+        log.audit({ title: config.logTitle('AM_PHOTO'), details: what + ', employee ' + (a.id || 'none') +
+            (photo.url ? ': photo used' : ': photo skipped: ' + photo.reason) });
+        return { name: a.name || '', phone: a.phone || '', email: a.email || '', firstName: a.firstName || '',
+            photoUrl: photo.url };
     }
 
     /**
@@ -921,15 +980,17 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * Never the current user.
      * @param {Object} customer - from getCustomer()
      * @param {Object} cfg - FALLBACK_EMPLOYEE
-     * @returns {Object} { id, name, phone, email }
+     * 2.0.2: the lookup also reads the photo link (getEmployee(id, true)).
+     * @returns {Object} { id, name, firstName, phone, email, photoLink, photoError }
      */
     function emailAuthor(customer, cfg) {
-        var rep = customer.salesRep ? getEmployee(customer.salesRep) : null;
+        var rep = customer.salesRep ? getEmployee(customer.salesRep, true) : null;
         if (rep && !rep.isInactive) {
             return rep;
         }
-        return getEmployee(String(cfg.FALLBACK_EMPLOYEE)) ||
-            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', phone: '', email: '' };
+        return getEmployee(String(cfg.FALLBACK_EMPLOYEE), true) ||
+            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', firstName: '', phone: '', email: '', photoLink: '',
+                photoError: 'the employee could not be read' };
     }
 
     /**
@@ -1360,6 +1421,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getContactEmail: getContactEmail,
         emailRecipient: emailRecipient,
         emailAuthor: emailAuthor,
+        emailAm: emailAm,
+        checkPhotoUrl: checkPhotoUrl,
         orderCustomer: orderCustomer,
         getOpportunities: getOpportunities,
         getOrdersForOpportunities: getOrdersForOpportunities,

@@ -25,6 +25,9 @@
  *      custscript_cdbsend_quote_type_labels, with the dashboard's parser and fallback: empty or
  *      invalid -> the quote type's own text, logged once (CDB PARAMETER_DEFAULT when empty,
  *      CDB TYPE_LABELS_INVALID when invalid), never failing the send.
+ *      2.0.2: in the customer email standard (Send Quote 2.2.0's card, footer and robustness rules);
+ *      the AM card is the author, with firstname and photo from the same lookup (data.emailAm(),
+ *      CDB AM_PHOTO once per email).
  *   6. email.send with relatedRecords { entityId: customer, transactionId: order }, so it shows on
  *      both Communication tabs. Any failure -> cdbsl=failed; CDB SEND_FAILED.
  *   7. CDB SEND_LINK: the order, the customer, the recipient, the author and the user who pressed.
@@ -41,7 +44,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.1
+ * @version 2.0.2
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -49,7 +52,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
     'use strict';
 
-    var VERSION = '2.0.1';
+    var VERSION = '2.0.2';
 
     /** The banner codes cdb_ue_salesorder.js shows (config.SEND_LINK_BANNERS). */
     var OUTCOME = { SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' };
@@ -154,7 +157,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
                 order: order,
                 link: token.buildLink(owner.customerId, { a: 'delivery', so: order.id }),
                 dashboardLink: token.buildLink(owner.customerId),
-                am: from
+                am: data.emailAm(from, 'Delivery link, sales order ' + orderId)
             });
             email.send({
                 author: parseInt(from.id, 10),

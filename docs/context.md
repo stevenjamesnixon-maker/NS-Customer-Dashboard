@@ -9,6 +9,9 @@ on. It does not describe the wider NetSuite account.
 **Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
+**2.0.2 (PR #5 amendment 2):** one customer email standard — both emails follow Send Quote 2.2.0's
+email card (section 4, *The customer email standard*).
+
 **2.0.1 (PR #5 amendment 1):** `custscript_cdbsend_quote_type_labels` added; the delivery-link email
 shows the short type label (*Order SO… · UFH*).
 
@@ -103,14 +106,14 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
 | Dashboard Suitelet | 2.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 2.0.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Digest Map/Reduce | 2.0.2 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
-| Send link Suitelet (2.0) | 2.0.1 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 2.0.1 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording | Not deployed |
+| Send link Suitelet (2.0) | 2.0.2 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.2 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 2.0.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient and author rules | Not deployed |
-| Render library | 2.0.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, the email building blocks, the digest and the delivery-link email | Not deployed |
+| Data library | 2.0.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
+| Render library | 2.0.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -226,9 +229,57 @@ DELIVER / Choose your delivery date / Hello {name}*; the intro; one order block 
 title, split reference, *Order SO… · UFH*); the yellow **ARRANGE DELIVERY** button; *Or view all your
 projects*; the personal-link line; the AM card (the author); the footer *"You're receiving this
 because you have an order with Nu-Heat."* — **no opt-out wording**. Every word is in
-`config.DELIVERY_LINK_EMAIL`, so it changes in one place. It is built from the digest's blocks
-(`emailShell`, `emailLogo`, `emailBand`, `emailButton`, `emailAmBlock`, `emailFooter`), extracted in
-2.0 without changing the digest (its snapshot is byte-identical).
+`config.DELIVERY_LINK_EMAIL`, so it changes in one place. It is built from the shared email blocks
+(below), as the digest is.
+
+### The customer email standard (2.0.2)
+
+**Every customer email from the dashboard — the digest and the delivery link — follows Send Quote
+2.2.0's email card** (Steve, 1 Oct 2026), so a customer gets one family of emails. Copied from
+`stevenjamesnixon-maker/2026.03-Online-quote` `main` at **commit `4463cfa`** (1 Oct 2026; Send Quote SL
+2.3.1, where the 2.2.0 email builder now lives in `nuheat_opp_update_lib.js` 1.1.0 — `emailShell`,
+`emailRepCard`, `emailButton`, `checkPhotoUrl`, `resolveFirstName` — moved there byte-identical).
+The patterns and constants are copied; the proposal content (hero, *Your quote*, *Why choose
+Nu-Heat?*, the Send Quote logo and purple header) is not. Constants: `config.EMAIL_STANDARD`.
+
+- **The document** (`render.emailShell`): a whole HTML document, Send Quote's head (meta, the Outlook
+  `OfficeDocumentSettings`, the phone media query, the Outlook font rule), the hidden **preheader**,
+  white page, the centred `width="600"` column. Inside it, unchanged in content: our logo
+  (`custscript_cdb_logo_url`), our band, the rows, the button(s), the links.
+- **The account manager card** (`render.emailRepCard`, replaces 2.0's `emailAmBlock`): a 96 px
+  circular photo only when `custentity_employee_photo_link` (trimmed) is an `https://` URL with no
+  spaces, quotes or angle brackets — otherwise no photo row at all; *YOUR ACCOUNT MANAGER*; the name;
+  phone · email (two lines on phones); **CALL {FIRST}** (`tel:`, digits and + only) and **EMAIL
+  {FIRST}** (`mailto:`) side by side, full width and stacked on phones. FIRST is the employee's
+  `firstname`, else the first word of the name, else the buttons read *CLICK TO CALL* / *SEND AN
+  EMAIL*. A button without its value is left out. No name, phone or email at all: no card.
+- **The AM** is the email's author, as before (`data.emailAuthor()`: the customer's rep if active,
+  else the fallback employee). The author lookup now also reads `custentity_employee_photo_link` in the
+  **same** `search.lookupFields` (`getEmployee(id, true)`); if that lookup throws it is retried once
+  without the photo, so a photo problem never costs the author or the send. **The phone** is the
+  employee `phone` field, else `mobilephone` (this repo's fallback). Send Quote's card reads the same
+  `phone` field (not `officephone`), after an Opportunity override this repo does not have.
+- **`CDB AM_PHOTO`**, once per email at audit: *photo used*, or *photo skipped: <why>* (the Send Quote
+  pattern, `data.emailAm()`).
+- **The footer**: Send Quote's green footer unchanged — its logo and the five social icons and links
+  (Facebook, Instagram, LinkedIn, Twitter, YouTube) from Send Quote's image host — then one line per
+  email: the digest's *"You get this update every {N} weeks … reply to this email or call / email /
+  contact {AM}."* (the 1.2 wording rules), the delivery link's *"You’re receiving this because you
+  have an order with Nu-Heat."*
+- **Preheaders**: digest *"Here’s where your Nu-Heat projects are up to."*; delivery link *"Your order
+  is ready: choose your delivery date."*
+
+**Robustness (Online-quote `AI_AGENT_CONTEXT.md` §9, pitfall 25).** The email must stay centred and
+single-column with every `style` attribute and every `<style>` block removed — NetSuite's message view
+on the Communication tab is such a viewer. So: layout by tables and attributes (`align`, `width`,
+`bgcolor`, `valign` on every structural `table` and `td`), CSS only polishing; no floats and no
+percentage-width side-by-side tables (two-up is one row of two `td width="50%"`, stacked on phones);
+centred by attribute at every level; the container `width="600"` with `style="width:100%;max-width:600px"`;
+**buttons are bulletproof tables with exactly one `[if !mso]` / `[if mso]` pair each** (this replaces
+1.1's "plain table cell, no VML": Send Quote's is proven in Outlook; still exactly one visible link per
+button in every client), no `display:none` wrappers (the preheader span excepted); colours as
+attributes too (`bgcolor`, `<font color>`); every value escaped. A stripped viewer shows the preheader
+text at the top — accepted, as in Send Quote. `test/r2-0-2.test.js` checks both emails stripped.
 
 ### Stages (`cdb_lib_data.groupProjects`, pure)
 
@@ -420,8 +471,8 @@ is no longer used for the header.
 at {email}"* (`mailto:`); neither gives *"Questions? Contact {name}"*; no name leaves the line out.
 The page footer, the delivery header and the main header (*name · phone*, else *name · email*) all
 use it, and on phones the round button calls or, with no phone, emails. The email's opt-out
-sentence uses the same rule (*"…or call / email / contact {name}"*); its AM block shows the phone,
-the email, or both when both exist. So a customer whose rep is A, with a PE-case opportunity whose PE
+sentence uses the same rule (*"…or call / email / contact {name}"*); its AM card (2.0.2, the Send
+Quote card) shows the phone, the email, or both when both exist, and a CALL / EMAIL button for each. So a customer whose rep is A, with a PE-case opportunity whose PE
 is B, sees A on every page, and the Task still goes to B.
 
 ### The delivery form and the guard
@@ -566,7 +617,8 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **Output is escaped.** Every value from a record or a request goes through `esc()`.
 - **Almost nothing loads from a third-party host.** Inline CSS. From 1.1 the **pages** load Source
   Sans 3 from Google Fonts (the email does not); otherwise the only external resource is the logo
-  from `custscript_cdb_logo_url`. The delivery form carries a small inline script (month switching,
+  from `custscript_cdb_logo_url`. **The emails (2.0.2)** also load Send Quote's footer logo and social
+  icons from its image host (`config.EMAIL_STANDARD.IMG_BASE`) and, when set, the AM's https photo. The delivery form carries a small inline script (month switching,
   the live summary); the form works and submits without it.
 - Responses carry `Cache-Control: no-store`, `X-Frame-Options: DENY`, `robots noindex` and
   `referrer no-referrer` so the token is not cached, framed, indexed or leaked in a Referer.
@@ -629,6 +681,7 @@ Every title starts `CDB `.
 | `CDB RECENT_FAILED` | audit | The 1.3 recently delivered search threw; the page or digest carries on without the section | Check the search in `getRecentlyDelivered()` |
 | `CDB EXTRAS_FAILED` | audit | The 1.2 extras search threw; the page shows no amounts or split references and treats every order as pay up front | Check the field IDs in `getOrderExtras()` against the account |
 | `CDB AMOUNT_ODD` | audit | An amount to pay came out negative, so it is not shown | Check the order's balance, total and deposit |
+| `CDB AM_PHOTO` (2.0.2) | audit | Once per customer email: the AM's photo used, or skipped and why | Set `custentity_employee_photo_link` to an https URL if a photo is wanted |
 | `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR or SEND twin) is not a JSON object; each type shows its own text | Fix the JSON |
 | `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
@@ -692,7 +745,7 @@ six-month limit, London across BST changes), the token (payload, base64url, sign
 failure, crypto stubbed), stage grouping and order states from fixtures, the addendum's native
 status rule (a Billed SO with a blank Record Status is not shown; a Pending Fulfillment SO is),
 the C6 recipient, validation, configuration (every throw case), the rendered HTML (escaping, no
-third-party URLs, no `display:none` in the email), house style (ES5, no current user, versions in
+third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub.
 
 **Sandbox / Production, digest in TEST mode:**
@@ -718,6 +771,7 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 17 (2.0) | Press it | One email from the rep to the dashboard contact / customer, on the customer's and the order's Communication tabs; the green banner; `CDB SEND_LINK` names you; the button opens the delivery form directly; the secondary link opens the dashboard |
 | 18 (2.0) | A released order with the box ticked; a customer with no email | The button shows; pressing gives the warning banner and no email; `CDB SEND_REFUSED` / `SEND_NO_RECIPIENT` |
 | 19 (2.0) | Reload the order after 5 minutes | No banner |
+| 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the green footer with five social icons |
 
 ---
 
@@ -783,10 +837,8 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    `custscript_cdbsend_quote_type_labels` added, with the dashboard's parser and fallback.
 3. **The recipient's email is not in the banner.** No record holds it and reading the log costs a
    search; the brief allowed leaving it out.
-4. **The AM block "contact fallback".** The brief describes phone, then email, then the name; the
-   digest's block (now `emailAmBlock`, shared so the digest is byte-identical) shows the phone **and**
-   the email when both exist, then whichever exists, then the name alone. The new email uses the same
-   block.
+4. ~~The AM block "contact fallback".~~ **Superseded (amendment 2, 2.0.2):** both emails use the Send
+   Quote card.
 5. **The author.** Moved from the digest to `data.emailAuthor()` unchanged, so both emails use one
    rule (the page's `customerManager()` is the same rule).
 6. **The button's five conditions do not include the Record Status**, as briefed (record fields only):
@@ -795,6 +847,28 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 7. **Apostrophes.** The wording uses the typographic ’ (*you’d*, *don’t*, *You’re*), as the digest does.
 8. **A missing `cdbsend_` parameter** sends nothing and redirects with `cdbsl=failed`
    (`CDB PARAMETER_MISSING` names it).
+
+### Release 2.0.2 (amendment 2) — notes for Steve
+
+1. **Send Quote is at 2.3.1, not 2.2.0, and its email builder moved.** `buildEmailBody()` in
+   `nuheat_send_quote_sl.js` now supplies copy only; `emailShell`, `emailRepCard`, `emailButton` and the
+   constants are in `nuheat_opp_update_lib.js` 1.1.0 (moved byte-identical in 2.3.1, so the 2.2.0
+   design). Copied from there, commit `4463cfa`.
+2. **The phone field is `phone`, not `officephone`.** Send Quote's card reads the employee `phone`
+   field (master proposal `loadSalesRepData`), after an Opportunity override (`custbody_sales_rep_phone`)
+   this repo has no equivalent for. `officephone` is what Send Design reads. This repo keeps `phone`,
+   else `mobilephone`.
+3. **Send Quote's fallbacks are not copied.** It shows *info@nu-heat.co.uk* and *01404 540604* when
+   the rep has none; the note says a button without its value is left out, so these emails leave it
+   out. The generic name *Your Account Manager* is used when the employee has no name.
+4. **Not carried over:** the Calibri web-font stylesheet link in Send Quote's `<head>` (the emails load
+   no web font, as before); Send Quote's own top logo and purple header (our logo parameter and band
+   stay). Our logo has a `height` attribute only: it is a parameter of unknown width.
+5. **The page background is now white** (Send Quote's), not the grey around a white card.
+6. **The digest's footer line can repeat the EMAIL button's target.** With no phone, the 1.2 wording
+   is *"…or email {AM} at {address}"* with a mailto link, so the address is linked twice (footer text
+   and button). Kept: the note keeps today's wording rules.
+7. **Preheader apostrophe.** *Here’s* uses the typographic ’, as the rest of the wording does.
 
 ### Release 1.3.2 — notes for Steve
 

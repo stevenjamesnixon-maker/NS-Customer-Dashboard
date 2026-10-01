@@ -23,7 +23,10 @@
  *   skip       no recipient, or nothing to show — logged at audit with the reason
  *   extras     1.2: data.getOrderExtras() once per customer (fail-safe) for the split reference;
  *              the short type labels come from custscript_cdbmr_quote_type_labels. No amounts.
- *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1)
+ *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1), in the customer
+ *              email standard (2.0.2: Send Quote 2.2.0's card, footer and robustness rules). The AM
+ *              card is the author, with firstname and photo from the same lookup (data.emailAm(),
+ *              CDB AM_PHOTO once per email)
  *   send       email.send with relatedRecords.entityId = customer, so it lands on the customer's
  *              Communication tab
  *   stamp      custentity_cdb_last_digest = today (London). THE ONLY CUSTOMER FIELD THIS REPO
@@ -34,7 +37,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.2
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -42,7 +45,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.2';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -245,7 +248,8 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 groups: groups,
                 payBacs: cfg.PAY_BACS,
                 link: token.buildLink(customerId),
-                am: from,
+                title: SUBJECT,
+                am: data.emailAm(from, 'Digest, customer ' + customerId),
                 digestDays: cfg.DIGEST_DAYS
             });
 

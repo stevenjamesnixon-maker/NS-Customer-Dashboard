@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.1
+ * @version 2.0.2
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '2.0.1';
+    var VERSION = '2.0.2';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -125,6 +125,10 @@ define(['N/runtime'], function (runtime) {
         },
         NON_DELIVERY: {
             DATE: 'custrecord_cdb_nd_date'
+        },
+        /** 2.0.2: the account manager's photo for the email card (Send Quote 2.2.0 reads the same field). */
+        EMPLOYEE: {
+            PHOTO_LINK: 'custentity_employee_photo_link'
         }
     };
 
@@ -196,7 +200,34 @@ define(['N/runtime'], function (runtime) {
         BUTTON: 'ARRANGE DELIVERY',
         DASHBOARD_LINK: 'Or view all your projects',
         PERSONAL: 'This link is personal to you. Please don\u2019t forward this email.',
-        FOOTER: 'You\u2019re receiving this because you have an order with Nu-Heat.'
+        FOOTER: 'You\u2019re receiving this because you have an order with Nu-Heat.',
+        // 2.0.2: the hidden preview text.
+        PREHEADER: 'Your order is ready: choose your delivery date.'
+    };
+
+    /**
+     * 2.0.2: THE CUSTOMER EMAIL STANDARD — Send Quote 2.2.0's email card, constants copied unchanged
+     * from 2026.03-Online-quote nuheat_opp_update_lib.js 1.1.0 (commit 4463cfa): the image host, the
+     * green footer, its logo and the five social links, and the button colours. Every customer email
+     * from the dashboard (the digest and the delivery link) uses them, so they are one family with the
+     * quote email. Change them here and in the Online-quote library together.
+     */
+    var EMAIL_STANDARD = {
+        IMG_BASE: 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/',
+        FOOTER_LOGO: '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png',
+        FOOTER_BG: '#00857d',
+        SOCIAL_LINKS: [
+            ['https://www.facebook.com/nuheatuk/', '1604502171665_white%20-%20facebook.png'],
+            ['https://www.instagram.com/nuheatufh/', '1604502172039_white%20-%20instagram.png'],
+            ['https://www.linkedin.com/company/nu-heat/', '1604502171857_white%20-%20linkedin.png'],
+            ['https://twitter.com/nuheatuk', '1604502172417_white%20-%20twitter.png'],
+            ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', '1604502172308_white%20-%20youtube.png']
+        ],
+        BUTTON_BG: '#ffb500',
+        BUTTON_TEXT: '#3e3b39',
+        // The card's name when the employee has none (Send Quote's GENERIC_REP_NAME); never a first name.
+        GENERIC_AM_NAME: 'Your Account Manager',
+        DIGEST_PREHEADER: 'Here\u2019s where your Nu-Heat projects are up to.'
     };
 
     /**
@@ -611,6 +642,7 @@ define(['N/runtime'], function (runtime) {
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
         DELIVERY_LINK_EMAIL: DELIVERY_LINK_EMAIL,
+        EMAIL_STANDARD: EMAIL_STANDARD,
         SEND_LINK_BANNERS: SEND_LINK_BANNERS,
         SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         parseOptionHints: parseOptionHints,
