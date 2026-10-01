@@ -6,7 +6,7 @@
  * through esc(), exactly once.
  *
  * THE DESIGN SOURCE is docs/design/canvas/ (release 1.1): Main, Mobile, Delivery, ConfirmBacs,
- * ConfirmCard and Email. Order and Update are release 2 and are not built. Anything the canvas
+ * ConfirmCard and Email. Update is built in 2.1 (below); Order is not built yet. Anything the canvas
  * shows that 1.1 has no data or action for is left out — never a button that goes nowhere.
  *
  * PAGES are fluid: the dashboard is centred at max-width 1200px, the delivery form at 1120px, the
@@ -28,17 +28,23 @@
  * and each button one [if !mso] / [if mso] pair. digestEmail() and deliveryLinkEmail() are built
  * from these blocks.
  *
+ * "TELL US WHERE YOU'RE UP TO" (2.1, release 2.1 part B) follows docs/design/canvas/Update.dc.html
+ * and the outline button on Main: updatePage(), updateDone(), lostDone() and unavailablePage(). The
+ * page needs no script: the call fields show with a CSS sibling rule when the box is ticked, and the
+ * not-going-ahead panel is a closed <details> holding its own form — opening it is one step, its confirm
+ * button the second, and the main form never carries the confirm value.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.5
+ * @version 2.1.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.0.5';
+    var VERSION = '2.1.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -340,6 +346,25 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '.cap{font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:' + c.MUTED + ';font-weight:600}',
             '.amn{font-size:22px;font-weight:700}',
             '.back{align-self:center;font-size:16px}',
+            // 2.1: tell us where you're up to
+            '.q-help{margin:0;font-size:15px;color:#4a4650;line-height:1.45}',
+            '.cbxrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}',
+            '.cbxrow > input{width:20px;height:20px;margin:0;accent-color:' + c.PURPLE + '}',
+            '.chk{font-size:16px;font-weight:600;cursor:pointer}',
+            '.callfields{display:none;flex-basis:100%;gap:16px;margin-top:6px}',
+            '#f-call:checked ~ .callfields{display:grid}',
+            'details.ngp{gap:0}',
+            'details.ngp[open]{gap:16px}',
+            'details.ngp > summary{cursor:pointer;list-style:none;color:' + c.PURPLE + ';font-size:16px;font-weight:600;' +
+                'text-decoration:underline}',
+            'details.ngp > summary::-webkit-details-marker{display:none}',
+            'details.ngp form{display:flex;flex-direction:column;gap:16px;margin-top:16px}',
+            '.warnbtn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;' +
+                'border-radius:6px;background:#fff;color:' + c.ERROR + ';border:2px solid ' + c.ERROR + ';font:inherit;' +
+                'font-size:16px;font-weight:700;cursor:pointer}',
+            '.warnbtn:hover,.warnbtn:focus{background:#fbeceb}',
+            '.saved{margin:0;padding-left:20px;text-align:left;display:flex;flex-direction:column;gap:6px;font-size:16px}',
+            'aside .goes{display:flex;flex-direction:column}',
             // tablet: the delivery summary moves under the form
             '@media (max-width:899px){' +
                 '.layout{grid-template-columns:minmax(0,1fr)}' +
@@ -371,6 +396,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 '.seg{flex:1 1 30%}' +
                 '.seg .s{padding:0 8px}' +
                 '.submitrow .cta{width:100%}' +
+                '.warnbtn{width:100%}' +
                 '.amcard{flex-direction:column;align-items:flex-start}' +
                 '.done{padding:24px 16px}' +
                 '}'
@@ -612,7 +638,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     /**
      * The dashboard.
      * @param {Object} m - { customerName, greetingName, logoUrl, am, groups, notice,
-     *                       deliveryUrl(soId), bank, payBacs }
+     *                       deliveryUrl(soId), bank, payBacs, updateUrl(oppId) (2.1; null when the
+     *                       update action is unavailable, so no button shows) }
      */
     function dashboard(m) {
         var g = m.groups;
@@ -634,8 +661,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 sectionHead('Projects to order', g.toOrder.length, 'Quotes we’ve sent you') +
                 colHead('Project');
             for (i = 0; i < g.toOrder.length; i++) {
+                // 2.1: "Tell us where you're up to" on every open quote (Main.dc.html's outline button),
+                // only while the update action is available.
                 html += '<div class="row">' + projectCell(g.toOrder[i]) + stateCell(badge('quote', 'Quote sent'), '') +
-                    '<div class="acts"></div></div>';
+                    '<div class="acts">' + (m.updateUrl ? '<a class="out" href="' + esc(m.updateUrl(g.toOrder[i].id)) +
+                        '">' + esc(UPDATE_TEXT.BUTTON) + '</a>' : '') + '</div></div>';
             }
             body += html + '</section>';
         }
@@ -1033,6 +1063,219 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         body += '<a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>';
         return page({ title: 'Delivery requested', logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600', body: body });
+    }
+
+    // ---------------------------------------------------------------- 2.1: tell us where you're up to (Update)
+
+    /** 2.1: the customer-facing wording of the update action, in one place. Plain text: escaped when used. */
+    var UPDATE_TEXT = {
+        BUTTON: 'Tell us where you\u2019re up to',
+        TITLE: 'Tell us where you\u2019re up to',
+        Q_STAGE: 'What stage is your project at?',
+        Q_DATE: 'When do you expect to need the goods?',
+        DATE_LABEL: 'Approximate date',
+        DATE_HINT: 'Approximate is fine.',
+        Q_NOTE: 'Anything else we should know?',
+        Q_CALL: 'Would you like us to call you?',
+        CALL_BOX: 'Yes, please call me',
+        CALL_PHONE: 'Phone',
+        CALL_TIME: 'Best time to call',
+        SEND: 'Send update',
+        NOT_GOING: 'Not going ahead? Let us know',
+        WHY_NOT: 'Why not?',
+        COMMENT: 'Anything you\u2019d like to add? (optional)',
+        CONFIRM: 'Yes, we\u2019re not going ahead',
+        CONFIRM_HELP: 'This tells us you\u2019ve decided not to go ahead with this project. It will no longer show on ' +
+            'your projects page.',
+        NOTHING: 'Nothing to update: you haven\u2019t changed anything, added a note or asked for a call.',
+        DONE: 'Thanks, we\u2019ve updated your project',
+        DONE_NOT_SAVED: 'Thanks, we\u2019ve passed your update on',
+        LOST_DONE: 'Thanks for letting us know.',
+        UNAVAILABLE: 'This isn\u2019t available right now'
+    };
+
+    /** Radio cards without `required` (2.1): every update question is optional. */
+    function choiceCards(name, options, selected, errors) {
+        var html = '<div class="opts">';
+        var i;
+        for (i = 0; i < options.length; i++) {
+            html += '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(options[i].id) + '"' +
+                (String(selected) === String(options[i].id) ? ' checked' : '') + describedBy(errors, name) +
+                '><span><span class="ot">' + esc(options[i].text) + '</span></span></label>';
+        }
+        return html + '</div>';
+    }
+
+    /** "title · QR · site": the update page's lead line, plain text. */
+    function oppLine(opp) {
+        return [opp.title, opp.tranId, String(opp.siteAddress || '').replace(/\s*\r?\n\s*/g, ', ')]
+            .filter(function (x) { return !!x; }).join(' \u00b7 ');
+    }
+
+    /**
+     * The "Tell us where you're up to" page (Update.dc.html, with the questions of release 2.1 part B).
+     * @param {Object} m - { logoUrl, am (header), assignee ({ name }, the "Goes to" card), opp,
+     *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values,
+     *   errors, notice, reasons ([{id, text}]; [] no list), notGoingOpen, limits, callTimes
+     *   ([{id, text}]) }
+     */
+    function updatePage(m) {
+        var v = m.values || {};
+        var e = m.errors || {};
+        var t = UPDATE_TEXT;
+        var n = 0;
+        var hasErrors = false;
+        var updErrors = false;
+        var body;
+        var key;
+
+        for (key in e) {
+            if (e.hasOwnProperty(key)) {
+                hasErrors = true;
+                if (['reason', 'comment', 'confirm'].indexOf(key) < 0) {
+                    updErrors = true;
+                }
+            }
+        }
+
+        function num() {
+            n += 1;
+            return '<span class="num">' + n + '</span>';
+        }
+
+        function hidden(mode) {
+            return '<input type="hidden" name="t" value="' + esc(m.token) + '">' +
+                '<input type="hidden" name="a" value="update">' +
+                '<input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
+                '<input type="hidden" name="mode" value="' + esc(mode) + '">';
+        }
+
+        body = '<div style="display:flex;flex-direction:column;gap:8px">' +
+            '<a href="' + esc(m.backUrl) + '" style="font-size:15px;text-decoration:none">\u2190 Your projects</a>' +
+            '<h1>' + esc(t.TITLE) + '</h1>' +
+            '<p class="lead" style="margin:0">' + esc(oppLine(m.opp)) + '</p></div>' +
+            (m.notice ? '<div class="notice" role="status">' + esc(m.notice) + '</div>' : '') +
+            (hasErrors ? '<div class="notice" role="alert">Please check the highlighted answers below.</div>' : '') +
+            '<div class="layout"><div class="fcol">' +
+            '<form class="fcol" id="uform" method="post" action="' + esc(m.actionUrl) + '" accept-charset="utf-8">' +
+            hidden('update');
+
+        if ((m.stages || []).length) {
+            body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
+                '<fieldset><legend class="sr" style="position:absolute">' + esc(t.Q_STAGE) + '</legend>' +
+                fieldError(e, 'buildStage') + choiceCards('buildStage', m.stages, v.buildStage, e) + '</fieldset></section>';
+        }
+        if (m.showDate) {
+            body += '<section class="card"><h2>' + num() + esc(t.Q_DATE) + '</h2><div>' +
+                '<label class="lbl" for="f-delDate">' + esc(t.DATE_LABEL) + '</label>' + fieldError(e, 'delDate') +
+                '<input class="inp" type="date" id="f-delDate" name="delDate" value="' + esc(v.delDate) + '"' +
+                describedBy(e, 'delDate') + ' style="max-width:260px">' +
+                '<p class="hint" style="margin:6px 0 0">' + esc(t.DATE_HINT) + '</p></div></section>';
+        }
+        body += '<section class="card"><h2>' + num() + esc(t.Q_NOTE) + '</h2><div>' +
+            '<label class="lbl" for="f-note">Your note (optional)</label>' + fieldError(e, 'note') +
+            '<textarea class="inp" id="f-note" name="note" maxlength="' + m.limits.UPDATE_NOTE + '"' +
+            ' placeholder="For example: the slab goes down in March, or we\u2019re waiting for planning"' +
+            describedBy(e, 'note') + '>' + esc(v.note) + '</textarea><p class="hint" style="margin:6px 0 0">Up to ' +
+            m.limits.UPDATE_NOTE + ' characters.</p></div></section>' +
+
+            '<section class="card"><h2>' + num() + esc(t.Q_CALL) + '</h2>' +
+            '<div class="cbxrow"><input type="checkbox" id="f-call" name="call" value="T"' + (v.call ? ' checked' : '') + '>' +
+            '<label class="chk" for="f-call">' + esc(t.CALL_BOX) + '</label>' +
+            '<div class="callfields g2">' +
+            '<div><label class="lbl" for="f-phone">' + esc(t.CALL_PHONE) + '</label>' + fieldError(e, 'phone') +
+            '<input class="inp" type="tel" id="f-phone" name="phone" value="' + esc(v.phone) + '" maxlength="' +
+            m.limits.CONTACT_PHONE + '" autocomplete="tel"' + describedBy(e, 'phone') + '></div>' +
+            '<fieldset><legend>' + esc(t.CALL_TIME) + '</legend>' + fieldError(e, 'callTime') +
+            choiceCards('callTime', m.callTimes, v.callTime, e) + '</fieldset>' +
+            '</div></div></section>' +
+
+            '<div class="submitrow"><button type="submit" class="cta">' + esc(t.SEND) + '</button>' +
+            '<a href="' + esc(m.backUrl) + '" style="font-size:16px">Cancel</a></div>' +
+            '</form>' +
+
+            // The not-going-ahead panel: closed unless its own POST came back with an error. Its form is
+            // separate, so the update form above can never send the confirm value.
+            '<details class="card ngp"' + (m.notGoingOpen && !updErrors ? ' open' : '') + '><summary>' +
+            esc(t.NOT_GOING) + '</summary>' +
+            '<form method="post" action="' + esc(m.actionUrl) + '" accept-charset="utf-8">' + hidden('notgoing') +
+            ((m.reasons || []).length ? '<fieldset><legend>' + esc(t.WHY_NOT) + '</legend>' + fieldError(e, 'reason') +
+                choiceCards('reason', m.reasons, v.reason, e) + '</fieldset>' : '') +
+            '<div><label class="lbl" for="f-comment">' + esc(t.COMMENT) + '</label>' + fieldError(e, 'comment') +
+            '<textarea class="inp" id="f-comment" name="comment" maxlength="' + m.limits.UPDATE_COMMENT + '"' +
+            describedBy(e, 'comment') + '>' + esc(v.comment) + '</textarea></div>' +
+            '<p class="q-help">' + esc(t.CONFIRM_HELP) + '</p>' + fieldError(e, 'confirm') +
+            '<div class="submitrow"><button type="submit" class="warnbtn" name="confirm" value="yes">' + esc(t.CONFIRM) +
+            '</button></div></form></details>' +
+            '</div>' +
+
+            '<aside class="card" aria-label="Who gets your update"><div class="goes"><span class="cap">Goes to</span>' +
+            '<span class="amn">' + esc((m.assignee && m.assignee.name) || 'Your account manager') + '</span></div>' +
+            '<p class="q-help">A quick update means we can have your system designed and ready when your build ' +
+            'needs it, and saves you chasing calls.</p>' +
+            '<p class="q-help">It takes about a minute. Every question is optional.</p></aside></div>';
+
+        return page({ title: t.TITLE, logoUrl: m.logoUrl, am: m.am, header: 'questions', width: 'w1120', body: body });
+    }
+
+    /**
+     * 2.1: after an update. saved: [{label, text}] — what was saved on the opportunity; notSaved: the
+     * write failed (the Task still went to the account manager); callText: "Ray will call you in the
+     * morning." or ''.
+     * @param {Object} m - { logoUrl, am, saved, notSaved, callText, backUrl }
+     */
+    function updateDone(m) {
+        var saved = m.saved || [];
+        var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>' +
+            esc(m.notSaved ? UPDATE_TEXT.DONE_NOT_SAVED : UPDATE_TEXT.DONE) + '</h1>';
+        var i;
+        if (m.notSaved) {
+            body += '<p>' + esc('Your account manager has your update and will make the change.') + '</p>';
+        } else if (saved.length) {
+            body += '<p>We\u2019ve saved:</p><ul class="saved">';
+            for (i = 0; i < saved.length; i++) {
+                body += '<li>' + esc(saved[i].label) + ': <strong>' + esc(saved[i].text) + '</strong></li>';
+            }
+            body += '</ul>';
+        } else {
+            body += '<p>' + esc('Your account manager has your message.') + '</p>';
+        }
+        if (m.callText) {
+            body += '<p>' + esc(m.callText) + '</p>';
+        }
+        body += '</div><a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>';
+        return page({ title: 'Update sent', logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600', body: body });
+    }
+
+    /** 2.1: after "not going ahead". */
+    function lostDone(m) {
+        var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>' + esc(UPDATE_TEXT.LOST_DONE) +
+            '</h1><p>' + esc('We\u2019ve told your account manager. If anything changes, just get in touch.') +
+            '</p></div><a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>';
+        return page({ title: 'Thanks for letting us know', logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600',
+            body: body });
+    }
+
+    /**
+     * 2.1: the update action is unavailable (the Online-quote library is missing or older than 1.2.0):
+     * "This isn't available right now; please call {AM}" — by phone, else email, else by name.
+     * @param {Object} m - { logoUrl, am, backUrl }
+     */
+    function unavailablePage(m) {
+        var c = contactParts(m.am);
+        var how;
+        if (m.am && m.am.name && c.kind === 'phone') {
+            how = 'please call ' + esc(m.am.name) + ' on <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        } else if (m.am && m.am.name && c.kind === 'email') {
+            how = 'please email ' + esc(m.am.name) + ' at <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        } else if (m.am && m.am.name) {
+            how = 'please contact ' + esc(m.am.name);
+        } else {
+            how = 'please contact your account manager';
+        }
+        return page({ title: 'Not available', logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600',
+            body: '<div class="card"><p style="margin:0">' + esc(UPDATE_TEXT.UNAVAILABLE) + '; ' + how + '.</p></div>' +
+                '<a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>' });
     }
 
     // ---------------------------------------------------------------- email (Email)
@@ -1941,6 +2184,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         dashboard: dashboard,
         deliveryForm: deliveryForm,
         confirmation: confirmation,
+        UPDATE_TEXT: UPDATE_TEXT,
+        updatePage: updatePage,
+        updateDone: updateDone,
+        lostDone: lostDone,
+        unavailablePage: unavailablePage,
         digestRows: digestRows,
         digestCallout: digestCallout,
         digestEmail: digestEmail,

@@ -138,8 +138,11 @@ test('6. neither: a throw key throws as today; a default key gets the default as
     s = setup({ params: p });
     assert.strictEqual(s.config.load(s.log).RECENT_DAYS, 7);
     assert.ok(/RECENT_DAYS=default/.test(logs(s.w, 'SETTINGS_SOURCE')[0][2]));
+    // 3.1: plus the three record-only keys, empty here (no row, no parameter), noted as every 'none' key is.
     assert.deepStrictEqual(logs(s.w, 'PARAMETER_DEFAULT').map(function (l) { return l[2]; }),
-        ['custscript_cdb_recent_days is empty: using the default 7'], 'the 2.x note, word for word');
+        ['custscript_cdb_recent_days is empty: using the default 7', 'setting UPD_LOST_STATUS_MAP is empty: treated as none',
+            'setting UPD_BUILD_STAGES is empty: treated as none', 'setting UPD_OBJECTION_TYPES is empty: treated as none'],
+        'the 2.x note, word for word');
 });
 
 test('an invalid record value does not fall back: it is the setting, and the empty rule names it', function () {
@@ -189,6 +192,10 @@ test('9. the settings search throws: one SETTINGS_UNAVAILABLE line; the paramete
     var expected = setup({ params: fullParams(SL) }).config.readParameters(function (id) {
         return fullParams(SL)[id];
     }, 'SL').config;
+    // 3.1: the record-only keys have no parameter, so with no search they take their empty rule.
+    expected.UPD_LOST_STATUS_MAP = '';
+    expected.UPD_BUILD_STAGES = [];
+    expected.UPD_OBJECTION_TYPES = [];
     assert.deepStrictEqual(s.config.load(s.log), expected);
     s.config.load(s.log);
     var lines = logs(s.w, 'SETTINGS_UNAVAILABLE');
@@ -356,13 +363,16 @@ test('14c. a script in neither table still throws CDB_UNKNOWN_SCRIPT', function 
 
 // ---------------------------------------------------------------- the tables
 
-test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column; no new keys', function () {
+test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plus its record-only keys', function () {
     var c = setup().config;
+    // 3.1: the record-only keys (no parameter on any script) — the dashboard Suitelet's update settings.
+    var recordOnly = Object.keys(c.PARAMETERS).filter(function (k) { return !Object.keys(c.PARAMETERS[k].ids).length; });
+    assert.deepStrictEqual(recordOnly, ['UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES']);
     Object.keys(c.PARAMETER_COLUMNS).forEach(function (scriptId) {
         assert.deepStrictEqual(c.SCRIPT_KEYS[scriptId].slice().sort(),
-            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).sort(), scriptId);
+            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? recordOnly : []).sort(), scriptId);
     });
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 31, 'the 2.0.5 keys, no more');
-    assert.strictEqual(c.VERSION, '3.0.0');
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 34, 'the 2.0.5 keys and the three 3.1 keys, no more');
+    assert.strictEqual(c.VERSION, '3.1.0');
 });

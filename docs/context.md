@@ -6,8 +6,16 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 1 Oct 2026 (release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**Release 2.1 part B (1 Oct 2026, new PR; config 3.1):** *"Tell us where you're up to"* — on every open
+quote in *Projects to order*, the customer can update the build stage and the date the goods are needed,
+add a note, ask for a call, or say they are not going ahead (an objection, Lost by the customer's stage,
+and a high-priority Task). Every opportunity write goes through the Online-quote **Update Opportunity
+library (≥ 1.2.0)**; without it the action is simply unavailable (section 4, *Tell us where you're up to*).
+Three record-only settings: `UPD_LOST_STATUS_MAP`, `UPD_BUILD_STAGES`, `UPD_OBJECTION_TYPES`. Not merged,
+not deployed.
 
 **Config 3.0 (1 Oct 2026, new PR):** every setting is held **once**, as a row of the custom record
 *Customer Dashboard Setting* (`customrecord_cdb_setting`) that every dashboard script reads; the script
@@ -57,7 +65,10 @@ every file it changes. Steve tells deployed copies apart by version.
 
 4. **The dashboard never writes `custbody_del_date` or `custbody_finance_status`.** A person
    confirms the date after payment; a workflow runs from it. The customer's requested date goes
-   in `custbody_defaultshipdate`.
+   in `custbody_defaultshipdate`. **2.1:** nor the opportunity sub-status
+   (`custbody_opportunity_sub_status`). The only opportunity fields it writes are
+   `custbody_build_stage`, `custbody_opp_del_date` and `entitystatus` (Lost), and only through the
+   Online-quote Update Opportunity library.
 
 5. **Field IDs are used exactly as they exist in the account.** `custbody_opp_site_adress` has
    one `d`. It is the real ID. Do not correct it.
@@ -95,7 +106,7 @@ every file it changes. Steve tells deployed copies apart by version.
     evaluate readiness". Do not "tidy" the two lists into one.
 
 13. **Every customer action has its own direct link (2.0).** `?t=<token>&a=<action>&<id>=<value>`
-    (today: `a=delivery&so=<sales order>`). Emails link to the action; confirmation pages link back to
+    (today: `a=delivery&so=<sales order>` and, 2.1, `a=update&opp=<opportunity>`). Emails link to the action; confirmation pages link back to
     the dashboard. The link's customer is **always the order's opportunity's customer** (the guard's
     rule), never the order's `entity`. Section 4, *Direct links*.
 
@@ -122,16 +133,17 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.0.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Dashboard Suitelet | 2.1.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.1.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 2.0.4 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
-| Render library | 2.0.5 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
-| Task library | 1.2.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
+| Data library | 2.1.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data | Not deployed |
+| Render library | 2.1.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Task library | 1.3.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option | Not deployed |
+| **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
 
@@ -202,6 +214,90 @@ dashboard; confirmation pages link back to the dashboard.
 **The customer for a link is always the order's opportunity's customer** (`data.orderCustomer()`,
 the guard's rule), never the order's own `entity`. A link built for any other customer would be
 refused by the guard as *another customer*.
+
+### Tell us where you're up to (2.1, release 2.1 part B)
+
+**Where.** An outline button, *Tell us where you're up to*, on every opportunity in *Projects to order*
+(open quotes: not Won, not Lost), as `Main.dc.html`. Direct link `?t=…&a=update&opp=<id>`; emails can
+build it with `token.buildLink(customerId, { a: 'update', opp })` (none does yet; the digest is unchanged).
+
+**The guard, `data.guardOpportunity(customerId, oppId, cfg)`**, on GET and POST: one `lookupFields` on the
+opportunity; refused unless its `entity` is the token's customer and its status is in neither
+`WON_STATUSES` nor `LOST_STATUSES`. A refusal re-renders the dashboard with a notice (another customer's or
+a bad ID: *can't be updated online*; Won: *has been ordered*; Lost: *is closed*) and logs
+`CDB GUARD_REFUSED … opportunity <id>: <reason>`, as `guardOrder` does.
+
+**The page** (`render.updatePage`, from `Update.dc.html` with the brief's questions; every question optional):
+
+| # | Question | Source | Rules |
+|---|---|---|---|
+| — | Header | the opportunity | title · QR number · site address |
+| 1 | *What stage is your project at?* | `optlib.fieldOptions('custbody_build_stage', oppId)` ∩ `UPD_BUILD_STAGES`, **in the setting's order** (`data.stageOptions`) | Radio cards; the current value preselected. **Empty setting → hidden** (and `fieldOptions` not called). A failed read → hidden, `CDB BUILD_STAGES_FAILED`; setting IDs not offered → `CDB LIST_VALUE_MISSING` |
+| 2 | *When do you expect to need the goods?* | `custbody_opp_del_date` | `<input type="date">`, prefilled, hint *Approximate is fine.* **Only while the opportunity is not Won** (never Won here; the rule is in the code because after Won the sync copies this date to the sales orders' ship dates). A changed date must be today to five years ahead; an unchanged past date is accepted |
+| 3 | *Anything else we should know?* | — | Up to 1,000 characters; goes into the Task only |
+| 4 | *Would you like us to call you?* | phone: the dashboard contact's, else the customer's | A checkbox; ticked, the phone (required, phone-shaped) and the best time (morning / afternoon / any time) show by a CSS sibling rule — no script. **A Task only, never a phone call record** |
+| — | *Not going ahead? Let us know* | `UPD_OBJECTION_TYPES`, names from `customrecord_nh_objection_type` | A closed `<details>` panel holding **its own form**: *Why not?* (radio; empty setting → no list; a failed read → no list, `CDB OBJECTION_TYPES_FAILED`), an optional comment, and the button **Yes, we're not going ahead** (`name="confirm" value="yes"`). Two steps: open the panel, press the button. The server requires `mode=notgoing` **and** `confirm=yes`; the update form never carries either |
+
+The aside *Goes to* names the Task's assignee (C6). The header is the customer's own AM, as on the delivery form.
+
+**The POST — one request, validate everything first** (`data.validateUpdate`, pure). Any error re-renders
+the page with the messages and the input kept (`CDB UPDATE_REJECTED`), and **nothing is written**.
+
+*Update path:*
+1. `optlib.writeOppUpdate({ oppId, values, allowed: { custbody_build_stage: UPD_BUILD_STAGES } })` with
+   **only the values that differ** from the current ones (blank never clears; an allowed list is always
+   passed, because the library refuses a select without one). `CDB OPP_UPDATED` logs old → new.
+2. **A Task** (normal priority) to the C6 assignee: *Customer update: {QR} {title}*; the changes (old →
+   new), the note, and the call request with phone and time. Created **only if something changed, a note
+   was given or a call was requested** — otherwise *Nothing to update* and nothing is written.
+   `CDB UPDATE_TASK`.
+3. *Thanks, we've updated your project*, what was saved, and *{assignee's first name} will call you {in the
+   morning / in the afternoon / soon}* when a call was asked for; a link back.
+   If the write fails (`CDB OPP_UPDATE_FAILED`, error) the Task still goes, saying the values were **NOT
+   saved** so the AM makes the change, and the customer is thanked (*we've passed your update on*).
+
+*Not-going-ahead path, in this order:*
+1. `optlib.createObjections({ oppId, typeIds: [reason], notes: comment, contextLine: 'Customer, via dashboard (dd/mm/yyyy)', raisedBy: '', raisedOn: today })`,
+   when a reason was chosen — checked against `UPD_OBJECTION_TYPES` first, because the library does not
+   validate type IDs. A failure is noted in the Task (`CDB OBJECTION_FAILED`) and the next steps go on.
+2. **Lost by the customer's stage.** One `lookupFields` of the customer's `stage` (`LEAD` / `PROSPECT` /
+   `CUSTOMER`; `_customer`-style values normalised), mapped through `UPD_LOST_STATUS_MAP`
+   (`data.lostStatusFor`), then `optlib.writeOppUpdate({ values: { entitystatus }, allowed: { entitystatus: [it] } })`
+   (`CDB OPP_LOST`). An opportunity status belongs to a stage, and a Customer-stage status on a prospect's
+   opportunity can move the prospect to Customer, so it **never falls back to another stage's status**:
+   an empty or invalid setting (invalid also logs `CDB LOST_MAP_INVALID`), an unknown stage, no entry for
+   the stage, or a mapped status that is not in `LOST_STATUSES` → **skipped**, `CDB LOST_NOT_SET` with the
+   stage, and the Task says *NOT set to Lost: <why>*. A failed write → `CDB OPP_LOST_FAILED` (error) and
+   *NOT set to Lost: <error>*.
+3. **A high-priority Task**: *Customer not going ahead: {QR} {title}*; the reason, the comment, the Lost
+   line, the objection line, and the opportunity's **open quotes** (native `Estimate:A`, with their
+   descriptions) for the AM to deal with. **The dashboard never touches an estimate.**
+4. *Thanks for letting us know.* The project then leaves the dashboard (Lost).
+
+A Task failure on either path logs `CDB TASK_FAILED` (error) and the page still confirms: the writes have
+happened. **The customer's own words are escaped in the Task** (note, comment, phone) as on the page; the
+objection's notes get the comment as typed (the library writes it to a text field).
+
+**The library dependency and version guard.** The Suitelet requires
+`/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib` **at request time** (the AMD `require`
+dependency, not `define()`), only when a page needs it — a dashboard with an open quote, or `a=update`.
+It must load and report `LIB_VERSION` ≥ **1.2.0** (`data.versionAtLeast`; `config.OPPLIB`). Otherwise the
+update action is unavailable: no button; a direct link shows *This isn't available right now; please call
+{AM} on {phone}*; `CDB OPPLIB_VERSION` is logged once per execution with the reason; **everything else
+works as before** (the delivery pages never load it). Library errors are plain `Error`s whose `name` is the
+`OPPLIB_*` code; the Suitelet logs and reports `name: message`.
+
+**Settings** (record only — no script parameter; dashboard Suitelet only):
+
+| Key | Kind | Empty means |
+|---|---|---|
+| `UPD_LOST_STATUS_MAP` | text: JSON stage → status ID, e.g. `{"CUSTOMER": "14", "PROSPECT": "35", "LEAD": "54"}` | *Not going ahead* sends the Task but does not set Lost. Invalid JSON: logged (`CDB LOST_MAP_INVALID`) and treated as empty. Each status must also be in `LOST_STATUSES` |
+| `UPD_BUILD_STAGES` | idlist | The stage question is hidden |
+| `UPD_OBJECTION_TYPES` | idlist | No reason list |
+
+**Governance.** A GET: guard 1 + `fieldOptions` 10 + objection types 10, about 60 in all. An update POST
+adds `writeOppUpdate` (≤ 21) and the Task; a not-going-ahead POST adds the objection (6), the stage lookup,
+the status write (≤ 21), the estimates search (10) and the Task — well under 1,000.
 
 ### Send delivery link (2.0)
 
@@ -654,7 +750,7 @@ differently. From 3.0 each setting is held **once** (Steve, 1 Oct 2026).
 | `custrecord_cdb_setting_notes` | Text Area, optional: what the setting means, for people. The code never reads it |
 | Inactive | Standard. **Inactive rows are ignored** |
 
-**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 31 in
+**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 34 (3.1: 31 plus the three record-only `UPD_` keys, which have no parameter on any script) in
 `docs/settings-seed.csv` — and no others. `SCRIPT_KEYS` says which keys each script needs.
 
 **How `config.load()` chooses each value** — for every key the script needs, first match wins:
@@ -883,7 +979,8 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **The dashboard never writes the confirmed date or the status.** `custbody_del_date` and
   `custbody_finance_status` are never set. The customer's date goes in `custbody_defaultshipdate`.
 - **No amount shown** in release 1.
-- **Release 1 has no actions outside delivery.** Quotes and designs are shown, not actionable.
+- **Release 1 has no actions outside delivery.** Quotes and designs are shown, not actionable. (2.1: open
+  quotes gain *Tell us where you're up to*.)
 - **The earliest date follows the brief's example** (skip N working days, then the next working day),
   not its prose. See section 10.
 - **The calendar is server-rendered** radio buttons, not a native date input. Without script every
@@ -893,7 +990,7 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **EDD certainty is set to Customer Definite on every booking, whatever it was**: the customer has
   chosen a date. An empty parameter writes nothing (fails closed).
 - **Canvas actions release 1.1 does not have are left out**: *Start a new project*, *Place order*,
-  *Tell us where you're up to*, *Add design information*, *Provide information*, *Request design
+  *Add design information*, *Provide information*, *Request design
   changes*, and *View quote* / *View design* (no URL is read). No button goes nowhere.
 
 ---
@@ -953,6 +1050,18 @@ Every title starts `CDB `.
 | `CDB SEND_NO_RECIPIENT` (2.0) | audit | Not sent: no dashboard contact email and no valid customer email | Add an email to the customer or the dashboard contact |
 | `CDB SEND_FAILED` (2.0) | error | `email.send` (or a read before it) threw; nothing was sent | Read the details; often the author is not a valid employee |
 | `CDB UE_FAILED` (2.0) | error | The sales order User Event threw; the order still opened, without the button or banner | Read the details |
+| `CDB OPPLIB_VERSION` (2.1) | audit | Once per execution: the Update Opportunity library could not be loaded or its `LIB_VERSION` is below 1.2.0 (or missing); the update action is unavailable | Deploy the library at ≥ 1.2.0 |
+| `CDB OPP_UPDATED` (2.1) | audit | The customer's update was written: old → new | — |
+| `CDB OPP_UPDATE_FAILED` (2.1) | error | The update write failed; the Task says NOT saved | Make the change by hand (the Task lists it) |
+| `CDB OPP_LOST` (2.1) | audit | Not going ahead: `entitystatus` old → the mapped Lost status, with the customer's stage | — |
+| `CDB OPP_LOST_FAILED` (2.1) | error | The Lost write failed; the Task says NOT set to Lost | Set it by hand |
+| `CDB LOST_NOT_SET` (2.1) | audit | Lost skipped: the setting empty or invalid, the stage unknown or unmapped, or the mapped status not in `LOST_STATUSES`; names the stage | Fix `UPD_LOST_STATUS_MAP`; set the status by hand |
+| `CDB LOST_MAP_INVALID` (2.1) | audit | `UPD_LOST_STATUS_MAP` is not a JSON object; treated as empty | Fix the JSON |
+| `CDB OBJECTION` / `OBJECTION_FAILED` (2.1) | audit / error | The library's objection log line (its log key) / the objection was not created; the Task says so | Create it by hand if wanted |
+| `CDB OPP_WRITE` (2.1) | audit / error | The library's own `writeOppUpdate` log line (its log key) | — |
+| `CDB UPDATE_TASK` (2.1) | audit | The customer update or not-going-ahead Task, its assignee and `sendemail` | — |
+| `CDB UPDATE_REJECTED` (2.1) | audit | The update POST failed validation; nothing written | — |
+| `CDB BUILD_STAGES_FAILED` / `OBJECTION_TYPES_FAILED` / `OPEN_QUOTES_FAILED` (2.1) | audit | A read for the update page or Task failed; the question or list is left out / the Task says the quotes could not be listed | Check the field or record type |
 
 ---
 
@@ -1057,6 +1166,21 @@ In order. Nothing changes for customers at any step.
 5. **Remove the parameters — later, separately**, once every key says `record` on every script: section
    4, *Removing the parameters*.
 
+### 8.4 Release 2.1 part B: Tell us where you're up to (after 3.0)
+
+1. **The library first.** Deploy the Online-quote Update Opportunity library **1.2.0 or later**
+   (`2026.03-Online-quote` PR #35) to `SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js`. Until
+   it is there the dashboard works and simply has no update button (`CDB OPPLIB_VERSION`).
+2. **Three settings rows** on `customrecord_cdb_setting` (no new script parameters): `UPD_LOST_STATUS_MAP`
+   = `{"CUSTOMER": "14", "PROSPECT": "35", "LEAD": "54"}` (Lost Customer, Prospect Lost, Lead Lost — and add
+   `35` and `54` to `LOST_STATUSES` if they are not there, or those stages are refused, `CDB LOST_NOT_SET`);
+   `UPD_BUILD_STAGES` = the build stage IDs, in display order; `UPD_OBJECTION_TYPES` = the objection type
+   IDs, in display order. Rows from `docs/settings-seed.csv`.
+3. **Upload**, overwriting, libraries first: `lib/cdb_lib_config.js` (3.1.0), `lib/cdb_lib_data.js`
+   (2.1.0), `lib/cdb_lib_render.js` (2.1.0), `lib/cdb_lib_task.js` (1.3.0), then `cdb_sl_dashboard.js`
+   (2.1.0). The digest, the Send link Suitelet and the User Event are unchanged.
+4. Test (section 9, scenarios 24–31).
+
 ### 8.2 First install on a new account (reference — not for 2.0)
 
 For an account with no customer dashboard at all. On the existing account these all exist already.
@@ -1095,7 +1219,7 @@ the C6 recipient, validation, configuration (every throw case; 3.0: the settings
 parameter, blank, inactive, duplicate, unknown, no search, one search, the source line, the seed file,
 and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
-step), and the Suitelet and digest end to end against an in-memory stub.
+step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm.
 
 **Sandbox / Production, digest in TEST mode:**
 
@@ -1123,6 +1247,14 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 21 (3.0) | Before any row: open a dashboard link | `CDB SETTINGS_SOURCE` all `parameter` / `default` / `none`; the page as before (`SETTINGS_UNAVAILABLE` if the record type does not exist yet) |
 | 22 (3.0) | Import the seed with values; open a link, press *Send delivery link* as a sales user, run the digest in TEST | `SETTINGS_SOURCE` all `record`; the page, both emails and the booking write exactly as before |
 | 23 (3.0) | A second active `LOGO_URL` row; a row named `WON_STATUS` | The duplicate stops the scripts (`CDB SETTING_DUPLICATE` with both IDs); the typo logs `CDB SETTING_UNKNOWN` and nothing else changes |
+| 24 (2.1) | A customer with an open quote, a won and a lost opportunity | *Tell us where you're up to* on the open quote only |
+| 25 (2.1) | The update link with another customer's, a Won or a Lost opportunity ID | The dashboard with a notice; `CDB GUARD_REFUSED` |
+| 26 (2.1) | The page | Stages = the setting's IDs in its order, the current one picked; the date prefilled; the phone prefilled. Clear `UPD_BUILD_STAGES`: no stage question |
+| 27 (2.1) | Change stage and date, add a note, ask for a morning call | The opportunity's two fields changed (`CDB OPP_UPDATED`), nothing else on it (sub-status, Record Status untouched); one *Customer update* Task with all four; *{name} will call you in the morning* |
+| 28 (2.1) | Submit without changing anything | *Nothing to update*; no Task |
+| 29 (2.1) | Not going ahead with a reason — for a customer, a prospect and a lead | A Customer Objection (*Customer, via dashboard (date)*), the status 14 / 35 / 54, the customer's **stage unchanged**, a HIGH Task listing the open quotes (estimates untouched); the project gone from the dashboard |
+| 30 (2.1) | Clear `UPD_LOST_STATUS_MAP`, then not going ahead | No status change; `CDB LOST_NOT_SET` with the stage; the Task says *NOT set to Lost: setting empty* |
+| 31 (2.1) | Rename the library file (or upload 1.1.0) | No button; the direct link says to call the AM; `CDB OPPLIB_VERSION` once; delivery booking still works |
 | 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
@@ -1148,6 +1280,41 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### Release 2.1 part B — unverified, decisions and notes for Steve
+
+**Unverified in the account:**
+
+| API | What the code assumes |
+|---|---|
+| `require(['/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib'], cb)` from the dashboard (SameAccount) | Server-side `require` runs the callback synchronously; the space in the folder name is fine in an AMD module ID; the library is `@NModuleScope Public`. **If the path fails**, the alternative is an `@NAmdConfig` JSON file beside the Suitelet mapping a space-free alias (`"paths": {"opplib": "/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib"}`), or moving the library to a folder without a space (it has two other consumers) |
+| `search.lookupFields({ type: CUSTOMER, columns: ['stage'] })` on a lead or prospect | Returns the stage as `[{ value, text }]` or a string; `CUSTOMER` / `_customer` / `Customer` are all normalised |
+| The opportunity's `entitystatus` options (the library's `getSelectOptions` check) include the Lost status of the customer's stage | If a prospect's opportunity does not offer 35, the library refuses it (`OPPLIB_VALUE_NOT_ALLOWED`) and the Task says *NOT set to Lost* |
+| `customrecord_nh_objection_type` has a `name` column | As the delivery lists' `name` |
+| An estimate search on `opportunity` with `status` `Estimate:A` and the unjoined `custbody_quote_description` | Lists the open quotes; a failure is logged and the Task says so |
+| Task `priority` `MEDIUM` | NetSuite's own text value, like `HIGH` |
+
+**Decisions (the brief left these open):**
+
+1. **The canvas and the brief differ.** `Update.dc.html` asks *Are you still planning to go ahead?* (Yes /
+   Still deciding / No), a build-stage dropdown, objection chips under *How do you feel about your quote?*
+   and a call chip. The brief's sections were built, in the canvas's visual style: radio cards for the
+   stage, *not going ahead* as a secondary two-step panel, objections only as its *Why not?*.
+2. **Who will call.** *{AM first name} will call you* uses the **Task assignee** (C6: rep or PE), because
+   that person gets the Task and makes the call; the header still shows the customer's own AM.
+3. **The update Task is normal priority** (`MEDIUM`); only *not going ahead* is HIGH. `createDeliveryTask`
+   is unchanged (HIGH).
+4. **A failed update write still sends the Task** (saying NOT saved) and thanks the customer — the brief
+   gives the failure rules for the not-going-ahead path only.
+5. **The mapped Lost status must also be in `LOST_STATUSES`**, or nothing is written (`LOST_NOT_SET`): a
+   status the dashboard does not count as Lost would neither hide the project nor be a Lost status.
+6. **The date's range**: a changed date must be from today to five years ahead; an unchanged one (even in
+   the past) is accepted, so a stale date never blocks a note.
+7. **Escaping in the Task**: the customer's note, comment and phone are HTML-escaped in the Task message
+   (the brief: *escape everything*; the notification email may render it). An `&` the customer types shows as
+   `&amp;` in the Task. The delivery Task's special requests are still unescaped (unchanged in this release).
+8. **`raisedOn`** is London's today (the dashboard's day), the same date as the context line.
+9. **The record-only keys are noted in `CDB PARAMETER_DEFAULT`** when empty, like every *none* key.
 
 ### Contradictions in the brief — for Steve
 

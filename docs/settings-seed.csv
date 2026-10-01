@@ -30,3 +30,6 @@ DIGEST_MODE,,"Digest only: TEST (only DIGEST_TEST_CUSTOMERS) or LIVE (every cust
 DIGEST_TEST_CUSTOMERS,,"Digest only: customer internal IDs (comma list) emailed in TEST mode. Required when the mode is TEST; not read in LIVE."
 DIGEST_DAYS,,"Digest only: days between one customer's digests. Empty: 14."
 DIGEST_CAP,,"Digest only: the most customers emailed in one LIVE run; the rest wait for the next run. Empty: 200."
+UPD_LOST_STATUS_MAP,,"Dashboard only, record only (no parameter). JSON {""CUSTOMER"": ""<status id>"", ""PROSPECT"": ""<status id>"", ""LEAD"": ""<status id>""}: the Lost opportunity status for a customer at each stage (Production: {""CUSTOMER"": ""14"", ""PROSPECT"": ""35"", ""LEAD"": ""54""}). Each status must also be in LOST_STATUSES. Empty, invalid or no entry for the customer's stage: Not going ahead sends the Task but does not set Lost."
+UPD_BUILD_STAGES,,"Dashboard only, record only (no parameter). custbody_build_stage option IDs (comma list) offered as What stage is your project at?, in display order. Empty: the stage question is hidden."
+UPD_OBJECTION_TYPES,,"Dashboard only, record only (no parameter). customrecord_nh_objection_type IDs (comma list) offered as Why not? when the customer is not going ahead, in display order. Empty: no reason list."

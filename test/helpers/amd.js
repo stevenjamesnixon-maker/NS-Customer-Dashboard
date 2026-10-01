@@ -27,6 +27,21 @@ function load(relativePath, stubs, cache) {
         if (dep.indexOf('N/') === 0) {
             return (stubs && stubs[dep]) || {};
         }
+        // 2.1: the AMD 'require' dependency. Absolute module paths resolve from stubs.modules (the
+        // Online-quote library, stubbed); anything else throws as NetSuite does for a missing module.
+        // The callback runs synchronously, as server-side require() does.
+        if (dep === 'require') {
+            return (stubs && stubs.require) || function (ids, callback) {
+                var mods = ids.map(function (id) {
+                    var m = stubs && stubs.modules && stubs.modules[id];
+                    if (!m) {
+                        throw new Error('MODULE_DOES_NOT_EXIST: ' + id);
+                    }
+                    return m;
+                });
+                callback.apply(null, mods);
+            };
+        }
         return load(path.relative(ROOT, path.resolve(path.dirname(file), dep)), stubs, seen);
     });
     seen[file] = captured.factory.apply(null, deps);

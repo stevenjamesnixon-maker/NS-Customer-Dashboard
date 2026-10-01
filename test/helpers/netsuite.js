@@ -64,7 +64,8 @@ function stubs(w) {
     }
     function asList(v) { return Array.isArray(v) ? v.map(String) : [String(v)]; }
     var search = {
-        Type: { CUSTOMER: 'customer', EMPLOYEE: 'employee', CONTACT: 'contact', OPPORTUNITY: 'opportunity', SALES_ORDER: 'salesorder' },
+        Type: { CUSTOMER: 'customer', EMPLOYEE: 'employee', CONTACT: 'contact', OPPORTUNITY: 'opportunity', SALES_ORDER: 'salesorder',
+            ESTIMATE: 'estimate' },
         Sort: { ASC: 'ASC', DESC: 'DESC' },
         Summary: { GROUP: 'GROUP' },
         createColumn: function (c) { return c; },
@@ -160,6 +161,20 @@ function stubs(w) {
                         var name = n && typeof n === 'object' ? n.name : n;
                         return name === 'name' ? row.name : (name === 'custrecord_cdb_setting_value' ? row.value : '');
                     } });
+                });
+            } else if (def.type === 'estimate') {
+                // 2.1: the opportunity's open quotes (w.estimates = { id: { tranid, opportunity, status,
+                // custbody_quote_description } }); w.estimatesThrow models a failed search.
+                if (w.estimatesThrow) {
+                    throw new Error('An unexpected error occurred in the estimate search.');
+                }
+                var estSt = findClause(def.filters, 'status');
+                var estOpp = findClause(def.filters, 'opportunity');
+                Object.keys(w.estimates || {}).forEach(function (id) {
+                    var q = w.estimates[id];
+                    if (estSt && asList(estSt[2]).indexOf(q.status) < 0) { return; }
+                    if (estOpp && asList(estOpp[2]).indexOf(String(q.opportunity)) < 0) { return; }
+                    rows.push({ id: id, getValue: function (n) { return q[n && typeof n === 'object' ? n.name : n] || ''; } });
                 });
             } else if (def.type === 'customrecord_cdb_nondelivery') {
                 // 2.0.3: non-delivery dates, as keys (the format stub reads and writes keys).
