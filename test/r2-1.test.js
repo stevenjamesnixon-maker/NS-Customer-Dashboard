@@ -264,7 +264,8 @@ test('5. stage + date + note + call: writeOppUpdate with only the changed keys; 
     assert.strictEqual(task.transaction, '5');
     assert.strictEqual(task.company, '42');
     assert.ok(task.message.indexOf('Project stage: Foundations → Roof on') > 0, task.message);
-    assert.ok(task.message.indexOf('Goods needed around: ' + dates().formatLong('2027-01-15') + ' → ' +
+    // Amendment 1: the date's label is what the customer was asked.
+    assert.ok(task.message.indexOf('Expected to begin work: ' + dates().formatLong('2027-01-15') + ' → ' +
         dates().formatLong(when)) > 0, task.message);
     assert.ok(task.message.indexOf('Note from the customer: Slab next month') > 0);
     assert.ok(task.message.indexOf('CALL REQUESTED: 07700 900000, best time: Morning.') > 0);
@@ -559,4 +560,77 @@ test('the stage and date fields are read in the guard, and the update fields are
         'cdb_sl_dashboard.js'), 'utf8');
     assert.ok(!/submitFields/.test(src), 'no direct opportunity write');
     assert.ok(!/custbody_opportunity_sub_status|SUB_STATUS/.test(src.replace(/\/\*[\s\S]*?\*\//g, '')), 'never the sub-status');
+});
+
+// ---------------------------------------------------------------- PR #7 amendment 1
+
+test('A1. "Projects to order" meta line: stage and timeframe, either alone, or none', function () {
+    var cases = [
+        [{ custbody_build_stage_text: 'First fix', custbody_opp_del_date: '2027-03-10' }, 'First fix · Starting around Mar 2027'],
+        [{ custbody_build_stage_text: 'First fix', custbody_opp_del_date: '' }, 'First fix'],
+        [{ custbody_build_stage_text: '', custbody_opp_del_date: '2027-03-10' }, 'Starting around Mar 2027'],
+        [{ custbody_build_stage_text: '', custbody_opp_del_date: '' }, null]
+    ];
+    cases.forEach(function (c) {
+        var s = setup({ settings: FULL });
+        Object.keys(c[0]).forEach(function (k) { s.w.opps[5][k] = c[0][k]; });
+        var html = run(s.sl, 'GET', { t: s.tok });
+        var row = html.slice(html.indexOf('<span class="name">New build</span>'));
+        row = row.slice(0, row.indexOf('<div class="acts">'));
+        if (c[1]) {
+            assert.ok(row.indexOf('<span class="badge b-quote">Quote sent</span><span class="meta">' + c[1] + '</span>') > 0, row);
+        } else {
+            assert.ok(/Quote sent<\/span><\/div>$/.test(row), 'no meta line: ' + row);
+        }
+    });
+});
+
+test('A1b. the stage and date come from the one opportunity search; any stage shows; a past date shows as stored', function () {
+    var s = setup({ settings: { UPD_BUILD_STAGES: '4' } });
+    s.w.opps[5].custbody_build_stage_text = 'Foundations';
+    s.w.opps[5].custbody_opp_del_date = '2020-06-01';
+    var html = run(s.sl, 'GET', { t: s.tok });
+    assert.ok(html.indexOf('Foundations · Starting around Jun 2020') > 0, 'not limited to UPD_BUILD_STAGES; past shown');
+    var oppSearches = s.w.searches.filter(function (d) { return d.type === 'opportunity'; });
+    assert.strictEqual(oppSearches.length, 1);
+    assert.ok(oppSearches[0].columns.indexOf('custbody_build_stage') >= 0 && oppSearches[0].columns.indexOf('custbody_opp_del_date') >= 0);
+    assert.strictEqual(s.w.logs.filter(function (l) { return l[1] === 'CDB USAGE'; }).length, 1);
+});
+
+test('A1c. the digest rows are unchanged by the meta line', function () {
+    var w = ns.world();
+    var render = amd.load('lib/cdb_lib_render', ns.stubs(w));
+    var opp = { id: '5', title: 'New build', tranId: 'QR5', siteAddress: '', buildStageText: 'First fix', delDateKey: '2027-03-10' };
+    var rows = render.digestRows({ toOrder: [opp], inDesign: [], forDelivery: [] }, '1');
+    assert.strictEqual(JSON.stringify(rows).indexOf('First fix'), -1);
+    assert.strictEqual(JSON.stringify(rows).indexOf('Starting around'), -1);
+    assert.strictEqual(render.quoteMeta(opp), 'First fix · Starting around Mar 2027');
+});
+
+test('A1d. formatMonthYear: month and year only, any year; blank or invalid gives \'\'', function () {
+    var d = dates();
+    assert.strictEqual(d.formatMonthYear('2027-03-10'), 'Mar 2027');
+    assert.strictEqual(d.formatMonthYear('2026-12-31'), 'Dec 2026', 'this year still shows the year');
+    assert.strictEqual(d.formatMonthYear('2019-01-01'), 'Jan 2019');
+    assert.strictEqual(d.formatMonthYear(''), '');
+    assert.strictEqual(d.formatMonthYear(undefined), '');
+    assert.strictEqual(d.formatMonthYear('2027-02-30'), '');
+});
+
+test('A2. the amendment 1 wording on the page; the Task says "Expected to begin work"', function () {
+    var s = setup({ settings: FULL });
+    var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
+    assert.ok(html.indexOf('When do you expect to begin work?') > 0);
+    assert.ok(html.indexOf('Approximate is fine. It helps us know when you may need us.') > 0);
+    assert.ok(html.indexOf('Anything else we should know, or is there any information you need from us?') > 0);
+    assert.ok(html.indexOf('Keeping your project details up to date means we can be ready whenever you need us.') > 0);
+    assert.ok(html.indexOf('It takes about a minute. Every question is optional.') > 0, 'second paragraph unchanged');
+    assert.strictEqual(html.indexOf('need the goods'), -1);
+    assert.strictEqual(html.indexOf('A quick update means'), -1);
+    var when = future(4);
+    post(s, { delDate: when });
+    assert.ok(s.w.tasks[0].values.message.indexOf('Expected to begin work: ') > 0);
+    assert.strictEqual(s.w.tasks[0].values.message.indexOf('Goods needed'), -1);
+    assert.ok(s.w.logs.filter(function (l) { return l[1] === 'CDB OPP_UPDATED'; })[0][2].indexOf('Expected to begin work ') > 0);
+    assert.deepStrictEqual(Object.keys(writes(s.w)[0][1].values), ['custbody_opp_del_date'], 'the same field');
 });

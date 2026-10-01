@@ -38,13 +38,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.0
+ * @version 2.1.1
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.1.0';
+    var VERSION = '2.1.1';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -588,6 +588,18 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             (meta.length ? '<span class="meta">' + esc(meta.join(' · ')) + '</span>' : '') + '</div>';
     }
 
+    /**
+     * Pure (2.1.1, PR #7 amendment 1): where an open quote's project is up to, under its Quote sent badge —
+     * "First fix · Starting around Mar 2027", either part alone, or '' with neither. The stage is the
+     * opportunity's current text, whatever it is (not limited to UPD_BUILD_STAGES); the date is month and
+     * year only, as stored, even when past. Plain text: stateCell() escapes it.
+     */
+    function quoteMeta(opp) {
+        var when = dates.formatMonthYear(opp && opp.delDateKey);
+        return [opp && opp.buildStageText, when ? 'Starting around ' + when : '']
+            .filter(function (x) { return !!x; }).join(' \u00b7 ');
+    }
+
     function stateCell(badgeHtml, meta) {
         return '<div class="cell">' + badgeHtml + (meta ? '<span class="meta">' + esc(meta) + '</span>' : '') + '</div>';
     }
@@ -663,7 +675,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             for (i = 0; i < g.toOrder.length; i++) {
                 // 2.1: "Tell us where you're up to" on every open quote (Main.dc.html's outline button),
                 // only while the update action is available.
-                html += '<div class="row">' + projectCell(g.toOrder[i]) + stateCell(badge('quote', 'Quote sent'), '') +
+                html += '<div class="row">' + projectCell(g.toOrder[i]) + stateCell(badge('quote', 'Quote sent'), quoteMeta(g.toOrder[i])) +
                     '<div class="acts">' + (m.updateUrl ? '<a class="out" href="' + esc(m.updateUrl(g.toOrder[i].id)) +
                         '">' + esc(UPDATE_TEXT.BUTTON) + '</a>' : '') + '</div></div>';
             }
@@ -1072,14 +1084,15 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         BUTTON: 'Tell us where you\u2019re up to',
         TITLE: 'Tell us where you\u2019re up to',
         Q_STAGE: 'What stage is your project at?',
-        Q_DATE: 'When do you expect to need the goods?',
+        Q_DATE: 'When do you expect to begin work?',
         DATE_LABEL: 'Approximate date',
-        DATE_HINT: 'Approximate is fine.',
-        Q_NOTE: 'Anything else we should know?',
+        DATE_HINT: 'Approximate is fine. It helps us know when you may need us.',
+        Q_NOTE: 'Anything else we should know, or is there any information you need from us?',
         Q_CALL: 'Would you like us to call you?',
         CALL_BOX: 'Yes, please call me',
         CALL_PHONE: 'Phone',
         CALL_TIME: 'Best time to call',
+        GOES_TO_LEAD: 'Keeping your project details up to date means we can be ready whenever you need us.',
         SEND: 'Send update',
         NOT_GOING: 'Not going ahead? Let us know',
         WHY_NOT: 'Why not?',
@@ -1211,8 +1224,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
             '<aside class="card" aria-label="Who gets your update"><div class="goes"><span class="cap">Goes to</span>' +
             '<span class="amn">' + esc((m.assignee && m.assignee.name) || 'Your account manager') + '</span></div>' +
-            '<p class="q-help">A quick update means we can have your system designed and ready when your build ' +
-            'needs it, and saves you chasing calls.</p>' +
+            '<p class="q-help">' + esc(UPDATE_TEXT.GOES_TO_LEAD) + '</p>' +
             '<p class="q-help">It takes about a minute. Every question is optional.</p></aside></div>';
 
         return page({ title: t.TITLE, logoUrl: m.logoUrl, am: m.am, header: 'questions', width: 'w1120', body: body });
@@ -2172,6 +2184,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         INVALID_LINK_TEXT: INVALID_LINK_TEXT,
         esc: esc,
         orderTitle: orderTitle,
+        quoteMeta: quoteMeta,
         contactParts: contactParts,
         questionsLine: questionsLine,
         formatMoney: formatMoney,

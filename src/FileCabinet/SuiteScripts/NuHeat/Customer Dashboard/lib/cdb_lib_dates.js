@@ -25,13 +25,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 1.3.3
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '1.3.3';
 
     var DAY_MS = 86400000;
 
@@ -307,6 +307,17 @@ define([], function () {
     }
 
     /**
+     * 1.3.3 (PR #7 amendment 1): an APPROXIMATE date as the customer sees it — month and year only,
+     * "Mar 2027", whatever the year. '' for a blank or invalid key. A past date is shown as stored.
+     * @param {string} key
+     * @returns {string}
+     */
+    function formatMonthYear(key) {
+        var p = parseKey(key);
+        return p ? MONTH_NAMES[p.m - 1].slice(0, 3) + ' ' + p.y : '';
+    }
+
+    /**
      * The day of a JavaScript Date as NetSuite returned it (format.parse on the server), read in
      * the server's own zone, which is the zone format.parse built it in.
      * @param {Date} date
@@ -349,6 +360,7 @@ define([], function () {
         calendarMonths: calendarMonths,
         formatLong: formatLong,
         formatDisplay: formatDisplay,
+        formatMonthYear: formatMonthYear,
         keyFromLocalDate: keyFromLocalDate,
         localDateForWrite: localDateForWrite
     };

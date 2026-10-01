@@ -73,14 +73,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.0
+ * @version 2.1.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.1.0';
+    var VERSION = '2.1.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -1290,8 +1290,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
 
     /**
      * The customer's opportunities that are not Lost.
+     * 2.1.1 (PR #7 amendment 1): also the build stage's text and the start date, for the "Projects to
+     * order" meta line — in this one search, never a lookup per row. Both fields are confirmed on the
+     * opportunity (the Online-quote library writes them).
      * @returns {Object[]} { id, tranId, title, siteAddress, status, subStatus, salesRep, pe,
-     *                       valueProposition }
+     *                       valueProposition, buildStageText, delDateKey }
      */
     function getOpportunities(customerId, cfg) {
         var s = search.create({
@@ -1305,7 +1308,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             columns: [
                 search.createColumn({ name: 'trandate', sort: search.Sort.DESC }),
                 'tranid', 'title', OPP.STATUS, OPP.SUB_STATUS, OPP.SITE_ADDRESS, 'salesrep', OPP.PE,
-                OPP.VALUE_PROPOSITION
+                OPP.VALUE_PROPOSITION, OPP.BUILD_STAGE, OPP.DEL_DATE
             ]
         });
         return collect(s, function (r) {
@@ -1318,7 +1321,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
                 subStatus: trim(r.getValue(OPP.SUB_STATUS)),
                 salesRep: trim(r.getValue('salesrep')),
                 pe: trim(r.getValue(OPP.PE)),
-                valueProposition: trim(r.getValue(OPP.VALUE_PROPOSITION))
+                valueProposition: trim(r.getValue(OPP.VALUE_PROPOSITION)),
+                buildStageText: trim(r.getText(OPP.BUILD_STAGE)),
+                delDateKey: dateKey(r.getValue(OPP.DEL_DATE))
             };
         });
     }

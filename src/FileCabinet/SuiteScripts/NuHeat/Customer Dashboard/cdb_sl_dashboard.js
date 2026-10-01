@@ -55,7 +55,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.1.0
+ * @version 2.1.1
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
@@ -63,7 +63,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.1.0';
+    var VERSION = '2.1.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -808,7 +808,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         }
         if (check.changes.delDate) {
             values[OPP.DEL_DATE] = check.changes.delDate;
-            attempted.push({ key: 'del_date', label: 'Goods needed around',
+            // Amendment 1: the label the account manager reads (Task, CDB OPP_UPDATED) says what the
+            // customer was asked; the field is still custbody_opp_del_date.
+            attempted.push({ key: 'del_date', label: 'Expected to begin work',
                 oldText: dates.formatLong(opp.delDateKey), newText: dates.formatLong(check.changes.delDate) });
         }
 

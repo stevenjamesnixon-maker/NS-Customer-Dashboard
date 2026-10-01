@@ -9,6 +9,11 @@ on. It does not describe the wider NetSuite account.
 **Last updated:** 1 Oct 2026 (release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
+**2.1.1 (PR #7 amendment 1, Steve's first look in Production):** *Projects to order* shows each project's
+build stage and start month under *Quote sent* (*First fix · Starting around Mar 2027*); the update page's
+date question becomes *When do you expect to begin work?*, with new hint, note and *Goes to* wording; the
+Task and `CDB OPP_UPDATED` label the date *Expected to begin work*.
+
 **Release 2.1 part B (1 Oct 2026, new PR; config 3.1):** *"Tell us where you're up to"* — on every open
 quote in *Projects to order*, the customer can update the build stage and the date the goods are needed,
 add a note, ask for a call, or say they are not going ahead (an objection, Lost by the customer's stage,
@@ -133,15 +138,15 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.1.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Dashboard Suitelet | 2.1.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
 | Config library | 3.1.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
-| Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 2.1.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data | Not deployed |
-| Render library | 2.1.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
+| Data library | 2.1.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data | Not deployed |
+| Render library | 2.1.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
 | Task library | 1.3.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option | Not deployed |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
@@ -233,12 +238,21 @@ a bad ID: *can't be updated online*; Won: *has been ordered*; Lost: *is closed*)
 |---|---|---|---|
 | — | Header | the opportunity | title · QR number · site address |
 | 1 | *What stage is your project at?* | `optlib.fieldOptions('custbody_build_stage', oppId)` ∩ `UPD_BUILD_STAGES`, **in the setting's order** (`data.stageOptions`) | Radio cards; the current value preselected. **Empty setting → hidden** (and `fieldOptions` not called). A failed read → hidden, `CDB BUILD_STAGES_FAILED`; setting IDs not offered → `CDB LIST_VALUE_MISSING` |
-| 2 | *When do you expect to need the goods?* | `custbody_opp_del_date` | `<input type="date">`, prefilled, hint *Approximate is fine.* **Only while the opportunity is not Won** (never Won here; the rule is in the code because after Won the sync copies this date to the sales orders' ship dates). A changed date must be today to five years ahead; an unchanged past date is accepted |
-| 3 | *Anything else we should know?* | — | Up to 1,000 characters; goes into the Task only |
+| 2 | *When do you expect to begin work?* (2.1.1; was *…need the goods?*) | `custbody_opp_del_date` | `<input type="date">`, prefilled, hint *Approximate is fine. It helps us know when you may need us.* The Task and `CDB OPP_UPDATED` call it *Expected to begin work*. **Only while the opportunity is not Won** (never Won here; the rule is in the code because after Won the sync copies this date to the sales orders' ship dates). A changed date must be today to five years ahead; an unchanged past date is accepted |
+| 3 | *Anything else we should know, or is there any information you need from us?* (2.1.1) | — | Up to 1,000 characters; goes into the Task only |
 | 4 | *Would you like us to call you?* | phone: the dashboard contact's, else the customer's | A checkbox; ticked, the phone (required, phone-shaped) and the best time (morning / afternoon / any time) show by a CSS sibling rule — no script. **A Task only, never a phone call record** |
 | — | *Not going ahead? Let us know* | `UPD_OBJECTION_TYPES`, names from `customrecord_nh_objection_type` | A closed `<details>` panel holding **its own form**: *Why not?* (radio; empty setting → no list; a failed read → no list, `CDB OBJECTION_TYPES_FAILED`), an optional comment, and the button **Yes, we're not going ahead** (`name="confirm" value="yes"`). Two steps: open the panel, press the button. The server requires `mode=notgoing` **and** `confirm=yes`; the update form never carries either |
 
-The aside *Goes to* names the Task's assignee (C6). The header is the customer's own AM, as on the delivery form.
+The aside *Goes to* names the Task's assignee (C6), then *Keeping your project details up to date means we
+can be ready whenever you need us.* (2.1.1) and *It takes about a minute. Every question is optional.* The
+header is the customer's own AM, as on the delivery form.
+
+**On the dashboard (2.1.1).** Each *Projects to order* row shows, under *Quote sent*, the opportunity's
+current build stage text and its `custbody_opp_del_date` as month and year (`render.quoteMeta`,
+`dates.formatMonthYear`): *First fix · Starting around Mar 2027*, either part alone, or nothing. The stage is
+whatever the opportunity holds (not limited to `UPD_BUILD_STAGES`); a past date shows as stored. Both come
+from the one opportunity search in `getOpportunities()` (two more columns, read with `getText` /
+`getValue`), never a lookup per row. The digest uses the same search but its rows are unchanged.
 
 **The POST — one request, validate everything first** (`data.validateUpdate`, pure). Any error re-renders
 the page with the messages and the input kept (`CDB UPDATE_REJECTED`), and **nothing is written**.

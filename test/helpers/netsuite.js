@@ -101,7 +101,9 @@ function stubs(w) {
                 Object.keys(w.opps).forEach(function (id) {
                     var o = w.opps[id];
                     if (!clause || asList(clause[2]).indexOf(o.entity) >= 0) {
-                        rows.push({ id: id, getValue: function (n) { return o[n] || ''; }, getText: function () { return ''; } });
+                        // Amendment 1 (2.1.1): a select's text from '<field>_text' when the fixture gives one.
+                        rows.push({ id: id, getValue: function (n) { return o[n] || ''; },
+                            getText: function (n) { return o[n + '_text'] || ''; } });
                     }
                 });
             } else if (def.type === 'salesorder') {
