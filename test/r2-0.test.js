@@ -143,8 +143,7 @@ function sendParams() {
         custscript_cdbsend_logo_url: 'https://www.nu-heat.co.uk/logo.png',
         custscript_cdbsend_quote_type_labels: '',
         // 2.0.3: the delivery-link email v2.
-        custscript_cdbsend_notice_days: '3', custscript_cdbsend_prepay_terms: '', custscript_cdbsend_pay_account: '',
-        custscript_cdbsend_icon_lorry: '', custscript_cdbsend_icon_parcel: '', custscript_cdbsend_icon_people: '' };
+        custscript_cdbsend_notice_days: '3', custscript_cdbsend_prepay_terms: '', custscript_cdbsend_pay_account: '' };
 }
 
 function slSetup(tweak) {
@@ -406,7 +405,7 @@ test('10. config.load from the new Suitelet reads the cdbsend_ IDs', function ()
     assert.deepStrictEqual(asked.slice().sort(), Object.keys(sendParams()).sort());
     assert.deepStrictEqual(cfg, { EXCLUDED_STATUSES: ['90'], EXCLUDED_QUOTE_TYPES: ['7', '8'], FALLBACK_EMPLOYEE: '500',
         RELEASED_STATUSES: ['2'], LOGO_URL: 'https://www.nu-heat.co.uk/logo.png', QUOTE_TYPE_LABELS: '',
-        NOTICE_DAYS: 3, PREPAY_TERMS: [], PAY_ACCOUNT: '', ICON_LORRY: '', ICON_PARCEL: '', ICON_PEOPLE: '' });
+        NOTICE_DAYS: 3, PREPAY_TERMS: [], PAY_ACCOUNT: '' });
 });
 
 test('10. cdbsend_: empty means what it means on the dashboard', function () {

@@ -32,13 +32,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.3
+ * @version 2.0.4
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.0.3';
+    var VERSION = '2.0.4';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -1548,8 +1548,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      *     order       decorated: id, tranId, description, uniqueRef, typeLabel, quoteTypeText, prepay, amount
      *     earliestKey the form's first allowed date ('' -> no row)
      *     noticeDays  for step 1
-     *     icons       { LORRY, PARCEL, PEOPLE } https URLs ('' -> no icon)
-     *     heroUrl     defaults to config.EMAIL_HERO_URL; used only when https
      *     link        the direct delivery link;  dashboardLink
      *     am          { name, phone, email, firstName, photoUrl } }
      * @returns {string}
@@ -1558,12 +1556,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var t = m.text || config.DELIVERY_LINK_EMAIL;
         var o = m.order;
         var std = config.EMAIL_STANDARD;
-        var hero = m.heroUrl === undefined ? config.EMAIL_HERO_URL : m.heroUrl;
+        var hero = config.EMAIL_HERO_URL;
         var name = m.greetingName || m.customerName || '';
         var project = [m.opp && m.opp.tranId, m.opp && m.opp.siteAddress].filter(function (x) { return !!x; }).join(' · ');
         var amount = amountToPayText(t, o);
         var earliest = m.earliestKey ? shortDate(m.earliestKey) : '';
-        var icons = m.icons || {};
+        var icons = config.EMAIL_ICONS;
         var html = '';
         var facts = '';
 
@@ -1619,15 +1617,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             stepRow(3, t.STEP3_TITLE, o.prepay === false ? t.STEP3_ACCOUNT : t.STEP3_PREPAY) +
             '</table>\n</td></tr>\n';
 
-        // Before you book: the grey panel with three tips, three across (stacked on phones).
+        // Before you book: the grey panel with three tips, three across (stacked on phones). 2.0.4: each
+        // icon is a config.EMAIL_ICONS constant, 48 x 48 above its tip; blank or not https -> text only.
         html += '<tr><td align="center" valign="top" bgcolor="' + std.PANEL + '" class="pad" style="background-color:' + std.PANEL +
             ';padding:28px 30px;">\n' + emailH2(t.TIPS_HEADING, std.MAGENTA, '0 0 18px 0') +
             '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n<tr>\n' +
             t.TIPS.map(function (tip) {
                 var icon = icons[tip[2]];
                 return '<td class="stack" width="33%" align="center" valign="top" style="padding:0 10px 12px 10px;">\n' +
-                    (isHttpsUrl(icon) ? '<img src="' + esc(icon) + '" width="52" height="52" alt="" border="0" ' +
-                        'style="display:block;margin:0 auto 8px auto;width:52px;height:52px;">\n' : '') +
+                    (isHttpsUrl(icon) ? '<img src="' + esc(icon) + '" width="48" height="48" alt="" border="0" ' +
+                        'style="display:block;margin:0 auto 8px auto;width:48px;height:48px;">\n' : '') +
                     emailP('0 0 6px 0', 16, COLORS.TEXT, tip[0], true, 'center') +
                     emailP('0', 14, '#4a4650', tip[1], false, 'center') + '</td>\n';
             }).join('') +

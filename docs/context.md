@@ -9,6 +9,9 @@ on. It does not describe the wider NetSuite account.
 **Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
+**2.0.4 (PR #5 amendment 4):** the delivery-link email's hero and "Before you book" icons are
+constants in `cdb_lib_config.js`, not parameters (Steve, 1 Oct: fixed branding images are constants).
+
 **2.0.3 (PR #5 amendment 3):** customer emails v2 — both emails built to the approved designs
 `docs/design/canvas/EmailDeliveryLink.dc.html` and `EmailDigestV2.dc.html` (section 4, *Customer emails v2*).
 
@@ -111,12 +114,12 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Dashboard Suitelet | 2.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
-| Send link Suitelet (2.0) | 2.0.3 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 2.0.3 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Send link Suitelet (2.0) | 2.0.4 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.4 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
 | Data library | 2.0.3 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
-| Render library | 2.0.3 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Render library | 2.0.4 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -132,6 +135,13 @@ Production.
 |---|---|
 | Script IDs — `custbody_*`, `custentity_*`, `custrecord_*`, `customrecord_*`, `customlist_*`, `customscript_*`, `customdeploy_*`, `custscript_*`, `custsecret_*` | Internal IDs — list option IDs, status IDs, employee IDs, quote type record IDs, customer IDs |
 | NetSuite's standard status codes (`SalesOrd:B`) and text values (`NOTSTART`, `HIGH`) | Account numbers, account-specific URLs, bank details |
+
+**Fixed branding images are constants, not parameters (Steve, 1 Oct 2026, amendment 4).** Parameters
+are for values that differ by account or that the business changes (internal IDs). The public image
+addresses in `cdb_lib_config.js` — `EMAIL_STANDARD` (Send Quote's image host, footer logo and social
+icons), `EMAIL_HERO_URL` and `EMAIL_ICONS` (File Cabinet `media.nl?id=…&c=472052&h=…` URLs) — are a
+**stated exception to "no numeric IDs in code"**: the numbers in them are part of a public URL, not
+record IDs the code reads or writes.
 
 Everything variable is a script parameter set on the deployment, so each account carries its
 own values. The bank details are parameters too: they are not secret, but they are not code.
@@ -287,8 +297,10 @@ text and buttons and the "need it sooner" line (`EMAIL_STANDARD.FALLBACK_PHONE` 
 the card always shows both buttons. The personal-link line now sits under the card, as drawn.
 
 **"Book your delivery"** (`render.deliveryLinkEmail`): logo; band *READY TO DELIVER / Your order is
-ready, {name} / Choose a delivery date…*; **hero** — `config.EMAIL_HERO_URL` (a constant, Steve 1 Oct),
-full width, `width`/`height` attributes (`EMAIL_HERO_WIDTH` / `_HEIGHT`), `alt=""`, only for an https
+ready, {name} / Choose a delivery date…*; **hero** — `config.EMAIL_HERO_URL`, a constant: 2.0.4 uses
+Send Quote 2.2.0's hero (*Order conformation.jpg*), its URL and `width="600" height="337"` copied
+exactly from 2026.03-Online-quote `nuheat_send_quote_sl.js` **line 1278** (commit `4463cfa`; the image
+host is `EMAIL_IMG`, `nuheat_opp_update_lib.js` line 858), full width, `alt=""`, only for an https
 address; **Your order** — the label, the order title, then the facts: *Order* (SO… · UFH), *Project*
 (QR… · site address, `guardOrder()` now reads `custbody_opp_site_adress`), *This order* (the split
 reference, only when set), *Earliest delivery* (the delivery form's own first allowed date —
@@ -298,8 +310,10 @@ to pay* (`£x inc VAT`, only when the amount is known and the order pays up fron
 dashboard from `custscript_cdbsend_prepay_terms` and `_pay_account`; 0 reads *Nothing left to pay*);
 **CHOOSE MY DELIVERY DATE** and *Or view all your projects*; **How it works** — three numbered steps,
 step 1 with *Need it sooner? … call {first} on {phone}* (`tel:`), step 3 worded for pay-up-front or
-account; **Before you book** — the grey panel, three tips, each with an icon only when its
-`custscript_cdbsend_icon_*` parameter is an https URL; **Questions?** and the AM card; the personal
+account; **Before you book** — the grey panel, three tips, each with its icon from `config.EMAIL_ICONS`
+(2.0.4: LORRY, PARCEL, PEOPLE — square teal-on-transparent PNGs in the File Cabinet), `width="48"
+height="48"`, `alt=""`, URL escaped (`&` → `&amp;`), centred above the tip; a blank or non-https
+constant shows the tip as text only; **Questions?** and the AM card; the personal
 line; the footer.
 
 **The projects update** (`render.digestEmail`): logo and band as before; **summary tiles**, one equal
@@ -642,7 +656,6 @@ their `custscript_cdb_` original, and **empty means what it means on the dashboa
 | `custscript_cdbsend_notice_days` (2.0.3) | Integer | same as `custscript_cdb_notice_days` | 3; audit |
 | `custscript_cdbsend_prepay_terms` (2.0.3) | Free-Form Text, comma list of `terms` IDs | same as `custscript_cdb_prepay_terms` | everyone pays up front (the amount row shows; step 3 reads pay up front) |
 | `custscript_cdbsend_pay_account` (2.0.3) | Integer | same as `custscript_cdb_pay_account` | everyone pays up front |
-| `custscript_cdbsend_icon_lorry`, `_icon_parcel`, `_icon_people` (2.0.3) | Free-Form Text, https URL of a ~52 px PNG | new; no source exists in the Send Quote repo | no icon: that tip shows its text only |
 | `custscript_cdbsend_quote_type_labels` (2.0.1) | Long Text, JSON `{"<quote type id>": "UFH"}` | same as `custscript_cdb_quote_type_labels` | each quote type's own text; audit. Invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the send |
 
 The numeric defaults above are the values the brief gives for Production. **Read the IDs off each
@@ -668,7 +681,7 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **Almost nothing loads from a third-party host.** Inline CSS. From 1.1 the **pages** load Source
   Sans 3 from Google Fonts (the email does not); otherwise the only external resource is the logo
   from `custscript_cdb_logo_url`. **The emails (2.0.2)** also load Send Quote's footer logo and social
-  icons from its image host (`config.EMAIL_STANDARD.IMG_BASE`) and, when set, the AM's https photo. The delivery form carries a small inline script (month switching,
+  icons from its image host (`config.EMAIL_STANDARD.IMG_BASE`), the delivery-link email's hero (same host) and its three icons (`EMAIL_ICONS`, the File Cabinet), and, when set, the AM's https photo. The delivery form carries a small inline script (month switching,
   the live summary); the form works and submits without it.
 - Responses carry `Cache-Control: no-store`, `X-Frame-Options: DENY`, `robots noindex` and
   `referrer no-referrer` so the token is not cached, framed, indexed or leaked in a Referer.
@@ -822,7 +835,7 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 17 (2.0) | Press it | One email from the rep to the dashboard contact / customer, on the customer's and the order's Communication tabs; the green banner; `CDB SEND_LINK` names you; the button opens the delivery form directly; the secondary link opens the dashboard |
 | 18 (2.0) | A released order with the box ticked; a customer with no email | The button shows; pressing gives the warning banner and no email; `CDB SEND_REFUSED` / `SEND_NO_RECIPIENT` |
 | 19 (2.0) | Reload the order after 5 minutes | No banner |
-| 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the green footer with five social icons |
+| 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
 
@@ -906,12 +919,10 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    `custscript_cdbsend_prepay_terms` / `_pay_account` (without them every order counts as pay up front,
    so account customers would see an amount and the pay-up-front step 3). Empty means what it means on
    the dashboard.
-2. **Icons**: the Send Quote repo has no lorry, parcel or people images (only its *Why choose Nu-Heat?*
-   tiles, the social icons and logos), so the three icons are the `custscript_cdbsend_icon_*`
-   parameters, https only, empty → text only.
-3. **The hero's height** is a guess: the image could not be fetched from the build session, so it
-   carries Send Quote's hero size, 600 × 337 (`EMAIL_HERO_HEIGHT`). Styled clients scale it
-   (`height:auto`); a viewer that strips styles uses the attribute. Set it to the real proportion.
+2. ~~Icons as parameters.~~ **Decided (amendment 4, 2.0.4):** constants (`EMAIL_ICONS`), File Cabinet
+   images Steve supplied; the three `custscript_cdbsend_icon_*` parameters are removed.
+3. ~~The hero's height is a guess.~~ **Decided (amendment 4, 2.0.4):** the hero is now Send Quote's own
+   image, whose 600 × 337 attributes are copied from Send Quote.
 4. **The project title is not in the delivery email**: the drawing shows *Project: QR… · site
    address* only, so the opportunity's name no longer appears there.
 5. **Digest badges and order lines stay as today** (the note's rule): *Action needed*, *Delivery

@@ -32,8 +32,8 @@
  *      (config.EMAIL_HERO_URL), the "Your order" facts — the earliest delivery date by the delivery
  *      form's own calculation (earliestKey(): custscript_cdbsend_notice_days, weekends, the
  *      non-delivery dates; fail-safe, CDB EARLIEST_FAILED), and the amount to pay for pay-up-front
- *      orders (custscript_cdbsend_prepay_terms / _pay_account, as the dashboard decides it) — and the
- *      "Before you book" icons (custscript_cdbsend_icon_*).
+ *      orders (custscript_cdbsend_prepay_terms / _pay_account, as the dashboard decides it). 2.0.4:
+ *      the hero and the "Before you book" icons are constants (config.EMAIL_HERO_URL, EMAIL_ICONS).
  *   6. email.send with relatedRecords { entityId: customer, transactionId: order }, so it shows on
  *      both Communication tabs. Any failure -> cdbsl=failed; CDB SEND_FAILED.
  *   7. CDB SEND_LINK: the order, the customer, the recipient, the author and the user who pressed.
@@ -50,7 +50,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.3
+ * @version 2.0.4
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -58,7 +58,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
     'use strict';
 
-    var VERSION = '2.0.3';
+    var VERSION = '2.0.4';
 
     /** The banner codes cdb_ue_salesorder.js shows (config.SEND_LINK_BANNERS). */
     var OUTCOME = { SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' };
@@ -184,7 +184,6 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
                 order: order,
                 earliestKey: earliestKey(orderId, cfg),
                 noticeDays: cfg.NOTICE_DAYS,
-                icons: { LORRY: cfg.ICON_LORRY, PARCEL: cfg.ICON_PARCEL, PEOPLE: cfg.ICON_PEOPLE },
                 link: token.buildLink(owner.customerId, { a: 'delivery', so: order.id }),
                 dashboardLink: token.buildLink(owner.customerId),
                 am: data.emailAm(from, 'Delivery link, sales order ' + orderId)

@@ -95,27 +95,46 @@ test('"Need it sooner?": the AM\'s number as a tel: link; without one, 01404 540
     assert.ok(html.indexOf('just call us on <a href="tel:01404540604"') > 0, 'no name: "us"');
 });
 
-test('hero image: https -> full width with attributes and alt=""; http or empty -> no image row', function () {
+/** 2.0.4: render and config sharing one config instance, so a test can blank a constant. */
+function withConfig(change) {
+    var cache = {};
+    var c = amd.load('lib/cdb_lib_config', { 'N/runtime': {} }, cache);
+    change(c);
+    return amd.load('lib/cdb_lib_render', {}, cache);
+}
+
+test('hero image: the Send Quote 2.2.0 hero constant, full width, 600 x 337, alt=""; http or blank -> no image row', function () {
     var html = render.deliveryLinkEmail(deliveryModel());
-    assert.ok(html.indexOf('<img src="' + config.EMAIL_HERO_URL + '" width="600" height="' + config.EMAIL_HERO_HEIGHT +
-        '" alt="" border="0" class="fluid"') > 0, 'the config constant by default');
-    html = render.deliveryLinkEmail(deliveryModel({}, { heroUrl: 'https://cdn.example.com/hero.jpg' }));
-    assert.ok(html.indexOf('<img src="https://cdn.example.com/hero.jpg" width="600"') > 0);
+    assert.strictEqual(config.EMAIL_HERO_URL,
+        'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1613738610524_Order%20conformation.jpg');
+    assert.ok(html.indexOf('<img src="' + config.EMAIL_HERO_URL + '" width="600" height="337" alt="" border="0" class="fluid"') > 0);
     ['http://cdn.example.com/hero.jpg', '', 'javascript:alert(1)'].forEach(function (u) {
-        var h = render.deliveryLinkEmail(deliveryModel({}, { heroUrl: u }));
+        var h = withConfig(function (c) { c.EMAIL_HERO_URL = u; }).deliveryLinkEmail(deliveryModel());
         assert.strictEqual(h.indexOf('class="fluid"'), -1, u);
         assert.strictEqual(/<tr><td align="center" valign="top"><\/td><\/tr>/.test(h), false, 'no empty row: ' + u);
     });
 });
 
-test('"Before you book": three tips; an icon only for an https parameter', function () {
-    var html = render.deliveryLinkEmail(deliveryModel({}, { icons: { LORRY: 'https://cdn.example.com/lorry.png', PARCEL: 'http://x/p.png', PEOPLE: '' } }));
-    assert.ok(html.indexOf('>Before you book</font>') > 0 && html.indexOf('color="#a3155f"') > 0, 'magenta heading');
-    ['Lorry access', 'Where it’s left', 'People on site'].forEach(function (t) { assert.ok(html.indexOf('<b>' + t + '</b>') > 0, t); });
-    assert.ok(html.indexOf('<img src="https://cdn.example.com/lorry.png" width="52" height="52" alt=""') > 0);
-    assert.strictEqual(html.indexOf('http://x/p.png'), -1);
-    assert.strictEqual((html.match(/width="52"/g) || []).length, 1);
+test('"Before you book": three tips, each with its constant icon, escaped, 48 x 48; a blank constant -> text only', function () {
+    var html = render.deliveryLinkEmail(deliveryModel());
+    var tips = html.slice(html.indexOf('>Before you book</font>'), html.indexOf('>Questions?</font>'));
+    assert.ok(html.indexOf('color="#a3155f"') > 0, 'magenta heading');
+    ['LORRY', 'PARCEL', 'PEOPLE'].forEach(function (k, i) {
+        var src = config.EMAIL_ICONS[k].replace(/&/g, '&amp;');
+        var at = tips.indexOf('<img src="' + src + '" width="48" height="48" alt=""');
+        var title = tips.indexOf('<b>' + ['Lorry access', 'Where it’s left', 'People on site'][i] + '</b>');
+        assert.ok(at > 0 && title > at, k + ': its icon, escaped, above its tip');
+        assert.strictEqual(tips.indexOf(config.EMAIL_ICONS[k]), -1, k + ': never unescaped');
+    });
+    assert.strictEqual((tips.match(/width="48" height="48"/g) || []).length, 3);
     assert.ok(html.indexOf('bgcolor="#f4f4f4"') > 0, 'the grey panel');
+
+    html = withConfig(function (c) { c.EMAIL_ICONS.PARCEL = ''; c.EMAIL_ICONS.PEOPLE = 'http://x/p.png'; })
+        .deliveryLinkEmail(deliveryModel());
+    tips = html.slice(html.indexOf('>Before you book</font>'), html.indexOf('>Questions?</font>'));
+    assert.strictEqual((tips.match(/<img /g) || []).length, 1, 'only the lorry keeps its icon');
+    assert.ok(tips.indexOf('<b>Where it’s left</b>') > 0 && tips.indexOf('<b>People on site</b>') > 0, 'the tips stay, as text');
+    assert.strictEqual(tips.indexOf('http://x/p.png'), -1);
 });
 
 // ---------------------------------------------------------------- the projects update

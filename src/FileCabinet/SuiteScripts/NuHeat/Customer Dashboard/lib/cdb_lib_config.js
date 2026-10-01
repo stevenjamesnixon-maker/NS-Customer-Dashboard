@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.3
+ * @version 2.0.4
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '2.0.3';
+    var VERSION = '2.0.4';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -221,7 +221,7 @@ define(['N/runtime'], function (runtime) {
         STEP3_ACCOUNT: 'Choose how you’d like to pay, or add it to your account. We book your delivery and ' +
             'email you the confirmed date.',
         TIPS_HEADING: 'Before you book',
-        // [title, text, icon key (custscript_cdbsend_icon_<key>)]
+        // [title, text, icon key (EMAIL_ICONS)]
         TIPS: [
             ['Lorry access', 'Most deliveries come on an articulated lorry up to 16 m long. Narrow lanes or low ' +
                 'branches? Tell us and we’ll send a smaller one.', 'LORRY'],
@@ -257,14 +257,28 @@ define(['N/runtime'], function (runtime) {
     };
 
     /**
-     * 2.0.3: the delivery-link email's hero image, full width. Steve, 1 Oct: a constant, not a
-     * parameter. Used only when it starts with https://, so a blank value just leaves the image out.
-     * WIDTH and HEIGHT are the img attributes: the height is Send Quote's hero (600 x 337) because the
-     * image could not be measured from the build session; correct it to the image's real proportions.
+     * FIXED BRANDING IMAGES ARE CONSTANTS, NOT PARAMETERS (Steve, 1 Oct 2026, amendment 4). Parameters are
+     * for values that differ by account or that the business changes; these are public image
+     * addresses — a stated exception to "no numeric IDs in code" (docs/context.md section 3).
+     *
+     * 2.0.4: the delivery-link email's hero is Send Quote 2.2.0's hero ("Order conformation.jpg"), its
+     * URL and width/height attributes copied exactly from 2026.03-Online-quote nuheat_send_quote_sl.js
+     * line 1278 (commit 4463cfa; the image host is EMAIL_IMG, nuheat_opp_update_lib.js line 858). Used
+     * only when it starts with https://, so a blank value just leaves the image out.
      */
-    var EMAIL_HERO_URL = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1615391816509_Nu-Heat%20vans.jpg';
+    var EMAIL_HERO_URL = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1613738610524_Order%20conformation.jpg';
     var EMAIL_HERO_WIDTH = 600;
     var EMAIL_HERO_HEIGHT = 337;
+
+    /**
+     * 2.0.4: the "Before you book" icons — square PNGs, teal on transparent, in the File Cabinet.
+     * Rendered 48 x 48, alt="". https only; a blank value shows that tip as text only.
+     */
+    var EMAIL_ICONS = {
+        LORRY: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288884&c=472052&h=YG3D77A_OOKzKO9LzdSh8qCBM_Qr_En-TPwnaNAj05uNwXTt',
+        PARCEL: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288882&c=472052&h=LYL2p04TmhzcuKyFJgXMvB494htOkdY4CtKz2NtMjNuki5Xh',
+        PEOPLE: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288883&c=472052&h=C5AaAsJ443aW4Ynf8xeMzviVQiVXnajV6qhnVZQCv8dGaTx2'
+    };
 
     /**
      * 2.0.2: THE CUSTOMER EMAIL STANDARD — Send Quote 2.2.0's email card, constants copied unchanged
@@ -399,11 +413,6 @@ define(['N/runtime'], function (runtime) {
         // 2.0.3: SEND twin for the delivery-link email's "Earliest delivery" (the form's calculation).
         NOTICE_DAYS: { kind: 'int', empty: 'default', defaultValue: 3,
             ids: { SL: 'custscript_cdb_notice_days', SEND: 'custscript_cdbsend_notice_days' } },
-        // 2.0.3: the "Before you book" icons (no source in the Send Quote repo). https only; empty or
-        // invalid -> no icon, the tip shows its text only. Send link only: the digest has no icons.
-        ICON_LORRY: { kind: 'https', empty: 'none', ids: { SEND: 'custscript_cdbsend_icon_lorry' } },
-        ICON_PARCEL: { kind: 'https', empty: 'none', ids: { SEND: 'custscript_cdbsend_icon_parcel' } },
-        ICON_PEOPLE: { kind: 'https', empty: 'none', ids: { SEND: 'custscript_cdbsend_icon_people' } },
         BANK_NAME: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_name' } },
         BANK_SORT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_sort' } },
         BANK_ACCOUNT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_account' } },
@@ -727,6 +736,7 @@ define(['N/runtime'], function (runtime) {
         EMAIL_HERO_URL: EMAIL_HERO_URL,
         EMAIL_HERO_WIDTH: EMAIL_HERO_WIDTH,
         EMAIL_HERO_HEIGHT: EMAIL_HERO_HEIGHT,
+        EMAIL_ICONS: EMAIL_ICONS,
         SEND_LINK_BANNERS: SEND_LINK_BANNERS,
         SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         parseOptionHints: parseOptionHints,
