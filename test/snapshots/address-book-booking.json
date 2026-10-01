@@ -1,0 +1,110 @@
+{
+ "html": "<!DOCTYPE html><html lang=\"en-GB\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"robots\" content=\"noindex, nofollow\"><meta name=\"referrer\" content=\"no-referrer\"><title>Delivery requested | Nu-Heat</title><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&amp;display=swap\"><style>*,*::before,*::after{box-sizing:border-box}\nhtml{-webkit-text-size-adjust:100%}\nbody{margin:0;font-family:'Source Sans 3', Calibri, sans-serif;background:#f4f2ef;color:#2b2a2e;font-size:16px;line-height:1.45;overflow-wrap:break-word}\na{color:#59315f}a:hover{color:#3d1f42}\n.wrap{width:100%;margin:0 auto;padding:0 24px}\n.w1200{max-width:1248px}.w1120{max-width:1168px}.w600{max-width:648px}\nheader.top{background:#fff;border-bottom:1px solid #e2ded9}\nheader.top .wrap{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:16px}\n.logo img{display:block;max-height:48px;max-width:180px;height:auto}\n.brand{font-weight:700;font-size:24px;color:#59315f}\n.am{display:flex;flex-direction:column;text-align:right}\n.am-label{font-size:13px;color:#5f5b66}\n.am-name{font-size:15px;font-weight:600}\n.hq{font-size:15px;color:#4a4650;text-align:right}\n.am-call{display:none;width:44px;height:44px;border:1px solid #59315f;border-radius:22px;align-items:center;justify-content:center;flex-shrink:0}\nmain.wrap{display:flex;flex-direction:column;gap:28px;padding-top:32px;padding-bottom:40px}\nh1{margin:0;font-size:32px;font-weight:700;line-height:1.2}\n.lead{margin:6px 0 0;font-size:17px;color:#4a4650}\n.notice{background:#fdf0d8;color:#6e4400;border-radius:8px;padding:12px 16px;font-size:16px}\n.muted,.meta{color:#5f5b66}\n.meta{font-size:14px}\n.sec{background:#fff;border:1px solid #e2ded9;border-radius:10px;overflow:hidden}\n.sechead{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:18px 24px;background:#59315f;color:#fff}\n.sechead h2{margin:0;font-size:20px;font-weight:700}\n.count{font-size:14px;font-weight:700;background:#fff;color:#59315f;border-radius:11px;padding:1px 9px}\n.secsub{font-size:15px;color:#e7d9ea}\n.colhead,.row,.oprow,.sorow{display:grid;grid-template-columns:minmax(0,1fr) 280px 400px;gap:20px;align-items:center}\n.colhead{padding:10px 24px;background:#f7f5f3;border-bottom:1px solid #e2ded9;font-size:13px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#5f5b66}\n.colhead span:last-child{text-align:right}\n.row{padding:16px 24px;border-bottom:1px solid #ece8e3}\n.row:last-child{border-bottom:0}\n.oprow{padding:16px 24px 10px}\n.oprow:not(:first-of-type){border-top:1px solid #ece8e3}\n.sorow{padding:12px 24px 12px 56px;background:#faf9f7;border-top:1px solid #efece8}\n.cell{display:flex;flex-direction:column;gap:3px;min-width:0}\n.name{font-size:17px;font-weight:700}\n.soname{font-size:16px;font-weight:600}\n.soref{font-size:15px;font-weight:600;color:#2b2a2e}\n.amt{font-size:16px}\n.badge{display:inline-flex;align-self:flex-start;align-items:center;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:600}\n.b-ready{background:#e6f2ec;color:#1f5c3f}\n.b-need{background:#fdf0d8;color:#6e4400}\n.b-pay{background:#e3edf7;color:#1d4f7a}\n.b-work{background:#efe9f1;color:#3d1f42}\n.b-quote{background:#ecebe9;color:#4a4650}\n.acts{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:10px;min-width:0}\n.acts .meta{text-align:right}\n.cta,.out{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 20px;border-radius:6px;font:inherit;font-size:15px;font-weight:700;text-decoration:none;cursor:pointer;text-align:center}\n.cta{background:#ffb500;color:#2b2a2e;border:0}\n.cta:hover,.cta:focus{background:#f0a800;color:#2b2a2e}\n.out{background:#fff;color:#59315f;border:1px solid #59315f;font-weight:600;padding:0 16px}\n.out:hover{color:#3d1f42;border-color:#3d1f42}\n:focus-visible{outline:3px solid #ffb500;outline-offset:2px}\ndetails.paydet{width:100%;display:flex;flex-direction:column;align-items:flex-end}\ndetails.paydet summary{list-style:none}\ndetails.paydet summary::-webkit-details-marker{display:none}\ndetails.paydet[open] summary{margin-bottom:8px}\n.panel{width:100%;background:#f4f2ef;border-radius:8px;padding:12px 14px;font-size:15px;text-align:left}\n.srow{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #ece8e3}\n.srow:last-child{border-bottom:0}\n.srow > span:first-child{color:#5f5b66}\n.srow > span:last-child{font-weight:600;text-align:right}\n.ref{background:#fffaf0;border-radius:6px;padding:10px 12px;margin:4px -12px}\n.ref > span:last-child{font-size:18px;font-weight:700}\nfooter.foot{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 24px;font-size:14px;color:#5f5b66}\n.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}\n.fcol{display:flex;flex-direction:column;gap:20px;min-width:0}\n.card{background:#fff;border:1px solid #e2ded9;border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:16px;min-width:0}\n.card h2{margin:0;font-size:21px;font-weight:700}\n.num{color:#59315f;margin-right:8px}\nfieldset{border:0;margin:0;padding:0;min-width:0}\nlegend,.lbl{display:block;font-size:14px;font-weight:600;color:#3e3b39;margin:0 0 6px;padding:0}\n.hint{font-size:14px;color:#5f5b66}\n.inp{width:100%;min-height:44px;padding:0 12px;border:1px solid #8f8996;border-radius:6px;background:#fff;font:inherit;font-size:16px;color:#2b2a2e}\ntextarea.inp{min-height:104px;padding:10px 12px;resize:vertical}\n.err{color:#a3261b;font-weight:600;font-size:15px;margin:0 0 6px}\n.g2,.g3{display:grid;gap:16px}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}\n.sr{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}\n.calnav{display:none;align-items:center;justify-content:space-between;gap:12px}\n.js .calnav{display:flex}\n.navbtn{width:44px;height:44px;border:1px solid #c9c4cf;border-radius:6px;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font:inherit;font-size:20px;color:#2b2a2e}\n.navbtn:disabled{opacity:0.4;cursor:default}\n.caltitle{font-size:18px;font-weight:700}\n.months{display:flex;flex-direction:column;gap:24px}\n.js .month{display:none}.js .month.on{display:block}\n.month h3{margin:0 0 8px;font-size:18px;font-weight:700}\n.js .month h3{display:none}\n.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}\n.wd{font-size:13px;font-weight:600;color:#5f5b66;text-align:center;padding:6px 0}\n.day{position:relative;display:block;margin:0}\n.day .d{display:flex;align-items:center;justify-content:center;height:48px;border-radius:6px;border:1px solid #d9d4ce;background:#fff;font-size:16px;color:#2b2a2e;cursor:pointer}\n.day input:checked + .d{background:#59315f;border-color:#59315f;color:#fff;font-weight:700}\n.day input:focus-visible + .d{outline:3px solid #ffb500;outline-offset:2px}\n.day-off .d{background:#f1efec;border-color:#f1efec;color:#a8a2ad;cursor:not-allowed}\n.segs{display:flex;flex-wrap:wrap}\n.seg{position:relative;flex:1 1 auto;margin:0}\n.seg .s{display:flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border:1px solid #8f8996;margin-left:-1px;background:#fff;font-size:15px;color:#3e3b39;cursor:pointer;white-space:nowrap}\n.seg:first-child .s{margin-left:0;border-radius:6px 0 0 6px}\n.seg:last-child .s{border-radius:0 6px 6px 0}\n.seg input:checked + .s{background:#59315f;border-color:#59315f;color:#fff;font-weight:600;position:relative}\n.seg input:focus-visible + .s{outline:3px solid #ffb500;outline-offset:2px}\n.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}\n.optc,.pay{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border:1px solid #c9c4cf;border-radius:8px;cursor:pointer;background:#fff;margin:0}\n.pay{padding:18px;gap:14px}\n.optc input,.pay input{width:20px;height:20px;margin:2px 0 0;flex-shrink:0;accent-color:#59315f}\n.optc:has(input:checked),.pay:has(input:checked){border:2px solid #59315f;background:#faf7fb}\n.ot{display:block;font-size:16px;font-weight:700}\n.oh{display:block;font-size:14px;color:#4a4650;line-height:1.4;margin-top:4px}\n.tip{font-size:15px;color:#3e3b39;background:#f4f1f4;border-radius:8px;padding:12px 14px}\n.tip p{margin:0}.tip p + p{margin-top:8px}\n.submitrow{display:flex;flex-wrap:wrap;align-items:center;gap:20px}\n.submitrow .cta{min-height:52px;padding:0 28px;font-size:17px}\naside.card{position:sticky;top:24px;gap:12px}\naside h2{font-size:18px}\naside h3{margin:8px 0 0;font-size:16px;font-weight:700}\nol.next{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:15px;color:#3e3b39;line-height:1.4}\n.done{align-items:center;text-align:center;padding:32px;gap:14px}\n.done h1{font-size:28px}\n.done p{margin:0;font-size:17px;color:#3e3b39;line-height:1.5}\n.tick{width:64px;height:64px;border-radius:32px;background:#e6f2ec;display:flex;align-items:center;justify-content:center}\n.bank{border:2px solid #59315f;padding:24px 28px;gap:4px}\n.bank h2{margin-bottom:8px}\n.amcard{flex-direction:row;align-items:center;gap:20px}\n.cap{font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:#5f5b66;font-weight:600}\n.amn{font-size:22px;font-weight:700}\n.back{align-self:center;font-size:16px}\n.q-help{margin:0;font-size:15px;color:#4a4650;line-height:1.45}\n.fact{display:block;min-width:0;overflow-wrap:anywhere}\n.fv{font-weight:600;color:#2b2a2e}\n.cbxrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}\n.cbxrow > input{width:20px;height:20px;margin:0;accent-color:#59315f}\n.chk{font-size:16px;font-weight:600;cursor:pointer}\n.callfields{display:none;flex-basis:100%;gap:16px;margin-top:6px}\n#f-call:checked ~ .callfields{display:grid}\ndetails.ngp{gap:0}\ndetails.ngp[open]{gap:16px}\ndetails.ngp > summary{cursor:pointer;list-style:none;color:#59315f;font-size:16px;font-weight:600;text-decoration:underline}\ndetails.ngp > summary::-webkit-details-marker{display:none}\ndetails.ngp form{display:flex;flex-direction:column;gap:16px;margin-top:16px}\n.warnbtn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:6px;background:#fff;color:#a3261b;border:2px solid #a3261b;font:inherit;font-size:16px;font-weight:700;cursor:pointer}\n.warnbtn:hover,.warnbtn:focus{background:#fbeceb}\n.saved{margin:0;padding-left:20px;text-align:left;display:flex;flex-direction:column;gap:6px;font-size:16px}\naside .goes{display:flex;flex-direction:column}\n@media (max-width:899px){.layout{grid-template-columns:minmax(0,1fr)}aside.card{position:static}}\n@media (max-width:719px){.wrap{padding:0 16px}header.top .wrap{min-height:64px}.logo img{max-height:40px;max-width:140px}.am,.hq{display:none}.am-call{display:flex}main.wrap{gap:18px;padding-top:20px;padding-bottom:28px}h1{font-size:26px}.lead{font-size:16px}.sechead{padding:14px 16px}.sechead h2{font-size:18px}.secsub{flex-basis:100%}.colhead{display:none}.row,.oprow,.sorow{display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:14px 16px}.sorow{padding-left:28px}.acts{flex-direction:column;align-items:stretch;justify-content:flex-start}.acts .meta{text-align:left}.cta,.out{display:flex;width:100%;min-height:48px;font-size:16px}details.paydet{align-items:stretch}.card{padding:18px 16px}.g2,.g3{grid-template-columns:minmax(0,1fr)}.cal{gap:4px}.seg{flex:1 1 30%}.seg .s{padding:0 8px}.submitrow .cta{width:100%}.warnbtn{width:100%}.amcard{flex-direction:column;align-items:flex-start}.done{padding:24px 16px}}</style></head><body><header class=\"top\"><div class=\"wrap w600\"><span class=\"logo\"><span class=\"brand\">Nu-Heat</span></span></div></header><main class=\"wrap w600\"><div class=\"card done\"><div class=\"tick\"><svg width=\"32\" height=\"32\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1f5c3f\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\"><polyline points=\"20 6 9 17 4 12\"></polyline></svg></div><h1>Delivery requested</h1><p>Thanks. We’ve noted Wed 7 Oct, PM delivery, for Underfloor heating system (order SO100). We’ll book it as soon as your payment reaches us.</p></div><div class=\"card bank\"><h2>Pay by bank transfer</h2><div class=\"srow\"><span>Bank name</span><span>Test Bank</span></div><div class=\"srow\"><span>Sort code</span><span>11-22-33</span></div><div class=\"srow\"><span>Account number</span><span>87654321</span></div><div class=\"srow ref\"><span>Reference</span><span>SO100</span></div><p style=\"margin:8px 0 0;font-size:15px;color:#4a4650\">Please use the reference exactly as shown so we can match your payment. We’ll book your delivery once payment reaches us.</p></div><div class=\"card\"><h2 style=\"font-size:18px\">What happens next</h2><ol class=\"next\" style=\"font-size:16px\"><li>Your account manager has your request.</li><li>When your payment arrives, we book the delivery.</li><li>We email you to confirm the date.</li></ol></div><a class=\"back\" href=\"https://acct.extforms.netsuite.com/sl?t=TOKEN\">Back to your projects</a></main></body></html>",
+ "saves": [
+  {
+   "id": "100",
+   "values": {
+    "custbody_defaultshipdate": "ISO",
+    "custbody_del_time_per": "5",
+    "shipaddresslist": "900",
+    "custbody_delivery_veh": "2",
+    "custbody_unload_req": "3",
+    "custbody_del_contact": "Sam Site",
+    "custbody_delivery_con_num": "07700 900000",
+    "custbody_delivery_con_email": "sam@example.com",
+    "custbody_special_requests": "Ring first",
+    "custbody_cust_pay_intent": "1",
+    "custbody_cust_booking_req": "ISO",
+    "custbody_cdb_awaiting_payment": true,
+    "custbody_edd_certainty": "3"
+   },
+   "opts": {
+    "ignoreMandatoryFields": true
+   }
+  }
+ ],
+ "submits": [],
+ "tasks": [
+  {
+   "values": {
+    "title": "Delivery requested: SO100 · Underfloor heating system",
+    "assigned": "77",
+    "company": "42",
+    "transaction": "4",
+    "message": "The customer requested a delivery through the customer dashboard.\n\nOrder: Underfloor heating system\nPayment choice: BACS\n\nChanged on the sales order (old → new):\n- Delivery date: (empty) → Wed 7 October 2026\n- Delivery time: (empty) → PM delivery\n- Delivery address: 901 → 1 Home Rd, Town\n- Vehicle: (empty) → Rigid\n- Unloading: (empty) → By hand\n- Site contact: Old Name → Sam Site\n- Site contact phone: 0111 → 07700 900000\n- Site contact email: (empty) → sam@example.com\n- Payment intent: (empty) → BACS\n- Booking requested: (empty) → ISO\n- Awaiting customer payment: No → Yes\n- EDD certainty: (empty) → Customer Definite\n\nPayment: BACS: the customer has been shown the bank details, reference SO100\nSpecial requests: Ring first\n\nConfirm the delivery date (custbody_del_date) once payment is in hand. The dashboard never sets it.",
+    "status": "NOTSTART",
+    "priority": "HIGH",
+    "startdate": "ISO",
+    "duedate": "ISO",
+    "sendemail": true
+   }
+  }
+ ],
+ "logs": [
+  [
+   "audit",
+   "CDB SETTINGS_SOURCE",
+   "WON_STATUSES=parameter, LOST_STATUSES=parameter, DESIGN_SUBSTATUS=parameter, NEEDINFO_SUBSTATUS=parameter, DELIVERY_SUBSTATUS=parameter, EXCLUDED_STATUSES=parameter, EXCLUDED_QUOTE_TYPES=parameter, PAY_BACS=parameter, PAY_CARD=parameter, FALLBACK_EMPLOYEE=parameter, PREPAY_TERMS=none, PAY_ACCOUNT=none, RELEASED_STATUSES=none, RECENT_DAYS=default, RECENT_HIDDEN_STATUSES=none, QUOTE_TYPE_LABELS=none, LOGO_URL=none, TIME_VALUES=parameter, VEHICLE_VALUES=parameter, UNLOAD_VALUES=parameter, PE_VALUEPROPS=parameter, NOTICE_DAYS=parameter, BANK_NAME=parameter, BANK_SORT=parameter, BANK_ACCOUNT=parameter, OPTION_HINTS=parameter, EDD_DEFINITE=parameter, UPD_LOST_STATUS_MAP=none, UPD_BUILD_STAGES=none, UPD_OBJECTION_TYPES=none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_prepay_terms is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_pay_account is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_released_statuses is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_recent_days is empty: using the default 7"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_recent_hidden_statuses is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_quote_type_labels is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "custscript_cdb_logo_url is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "setting UPD_LOST_STATUS_MAP is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "setting UPD_BUILD_STAGES is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB PARAMETER_DEFAULT",
+   "setting UPD_OBJECTION_TYPES is empty: treated as none"
+  ],
+  [
+   "audit",
+   "CDB SO_UPDATED",
+   "Sales order 100 (SO100), customer 42, terms: customer (blank), order (blank) -> pay up front: [{\"label\":\"Delivery date\",\"fieldId\":\"custbody_defaultshipdate\",\"oldValue\":\"\",\"newValue\":\"ISO\",\"oldText\":\"\",\"newText\":\"Wed 7 October 2026\",\"changed\":true},{\"label\":\"Delivery time\",\"fieldId\":\"custbody_del_time_per\",\"oldValue\":\"\",\"newValue\":\"5\",\"oldText\":\"\",\"newText\":\"PM delivery\",\"changed\":true},{\"label\":\"Delivery address\",\"fieldId\":\"shipaddresslist\",\"oldValue\":\"901\",\"newValue\":\"900\",\"oldText\":\"901\",\"newText\":\"1 Home Rd, Town\",\"changed\":true},{\"label\":\"Vehicle\",\"fieldId\":\"custbody_delivery_veh\",\"oldValue\":\"\",\"newValue\":\"2\",\"oldText\":\"\",\"newText\":\"Rigid\",\"changed\":true},{\"label\":\"Unloading\",\"fieldId\":\"custbody_unload_req\",\"oldValue\":\"\",\"newValue\":\"3\",\"oldText\":\"\",\"newText\":\"By hand\",\"changed\":true},{\"label\":\"Site contact\",\"fieldId\":\"custbody_del_contact\",\"oldValue\":\"Old Name\",\"newValue\":\"Sam Site\",\"oldText\":\"Old Name\",\"newText\":\"Sam Site\",\"changed\":true},{\"label\":\"Site contact phone\",\"fieldId\":\"custbody_delivery_con_num\",\"oldValue\":\"0111\",\"newValue\":\"07700 900000\",\"oldText\":\"0111\",\"newText\":\"07700 900000\",\"changed\":true},{\"label\":\"Site contact email\",\"fieldId\":\"custbody_delivery_con_email\",\"oldValue\":\"\",\"newValue\":\"sam@example.com\",\"oldText\":\"\",\"newText\":\"sam@example.com\",\"changed\":true},{\"label\":\"Special requests\",\"fieldId\":\"custbody_special_requests\",\"oldValue\":\"\",\"newValue\":\"Ring first\",\"oldText\":\"\",\"newText\":\"Ring first\",\"changed\":true},{\"label\":\"Payment intent\",\"fieldId\":\"custbody_cust_pay_intent\",\"oldValue\":\"\",\"newValue\":\"1\",\"oldText\":\"\",\"newText\":\"BACS\",\"changed\":true},{\"label\":\"Booking requested\",\"fieldId\":\"custbody_cust_booking_req\",\"oldValue\":\"\",\"newValue\":\"ISO\",\"oldText\":\"\",\"newText\":\"ISO\",\"changed\":true},{\"label\":\"Awaiting customer payment\",\"fieldId\":\"custbody_cdb_awaiting_payment\",\"oldValue\":\"\",\"newValue\":\"true\",\"oldText\":\"No\",\"newText\":\"Yes\",\"changed\":true},{\"label\":\"EDD certainty\",\"fieldId\":\"custbody_edd_certainty\",\"oldValue\":\"\",\"newValue\":\"3\",\"oldText\":\"\",\"newText\":\"Customer Definite\",\"changed\":true}]"
+  ],
+  [
+   "audit",
+   "CDB TASK_CREATED",
+   "Task 555 for sales order 100, assigned to 77 (pe), sendemail set, payment BACS, terms: customer (blank), order (blank) -> pay up front"
+  ]
+ ]
+}

@@ -35,17 +35,24 @@
  * not-going-ahead panel is a closed <details> holding its own form — opening it is one step, its confirm
  * button the second, and the main form never carries the confirm value.
  *
+ * RELEASE 2.2: the update page asks first "What do you call this project?" (the opportunity title,
+ * prefilled, maxlength 60); the delivery form's address list ends with "Add a new address…", whose five
+ * inputs (ids and names addr1, addr2, city, county, zip, with standard autocomplete tokens, so an address
+ * lookup can fill them later) show only when it is chosen — and, without script, always, with a hint;
+ * the confirmation says a new address is checked first; the digest explains itself, shows the QR number
+ * once, and gives quote cards the dashboard's labelled lines.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.2
+ * @version 2.2.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.1.2';
+    var VERSION = '2.2.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -490,7 +497,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     /**
      * The whole page.
      * @param {Object} opts - { title, logoUrl, am, header ('am'|'questions'|'none'), width
-     *                          ('w1200'|'w1120'|'w600'), body, script }
+     *                          ('w1200'|'w1120'|'w600'), body, script, css (2.2: rules for this page only,
+     *                          after the shared ones, so every other page stays byte-identical) }
      */
     function page(opts) {
         var width = opts.width || 'w1200';
@@ -500,7 +508,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<meta name="referrer" content="no-referrer">' +
             '<title>' + esc(opts.title || 'Your projects') + ' | Nu-Heat</title>' +
             FONT_LINKS +
-            '<style>' + css() + '</style>' +
+            '<style>' + css() + (opts.css || '') + '</style>' +
             (opts.script ? '<script>document.documentElement.className+=" js";</script>' : '') +
             '</head><body>' +
             '<header class="top"><div class="wrap ' + width + '">' + logoHtml(opts.logoUrl) +
@@ -915,11 +923,20 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<li>We book your delivery and confirm the date by email.</li>';
     }
 
-    /** The inline script for the form: month switching and the live summary. ES5, no library. */
+    /**
+     * The inline script for the form: month switching and the live summary. ES5, no library. 2.2: the
+     * new address's fields show, and line 1, town and postcode become required, only while "Add a new
+     * address…" is chosen.
+     */
     var FORM_SCRIPT = [
         '(function(){',
         'var d=document;',
         'function init(){',
+        'var sel=d.getElementById("f-address"),box=d.getElementById("newaddr");',
+        'function addr(){var on=sel.value==="' + config.NEW_ADDRESS.VALUE + '",req=["addr1","city","zip"],k,el;',
+        'box.className="newaddr"+(on?" on":"");',
+        'for(k=0;k<req.length;k++){el=d.getElementById(req[k]);if(el){el.required=on;}}}',
+        'if(sel&&box){sel.addEventListener("change",addr);addr();}',
         'var months=d.querySelectorAll(".month"),title=d.getElementById("cal-title"),',
         'prev=d.getElementById("cal-prev"),next=d.getElementById("cal-next"),cur=0,i;',
         'function show(n){var j;cur=n;for(j=0;j<months.length;j++){',
@@ -943,6 +960,38 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         'if(d.readyState==="loading"){d.addEventListener("DOMContentLoaded",init);}else{init();}',
         '})();'
     ].join('');
+
+    /**
+     * 2.2: one input of the new address. The id and name are the plain field name and never change: an
+     * address lookup will fill them later. Never `required` in the markup (the script adds it while the
+     * option is chosen; the server requires them only when address=new was posted).
+     */
+    function addressInput(name, label, value, maxLength, errors, optional, autocomplete) {
+        return '<div><label class="lbl" for="' + name + '">' + esc(label) + (optional ? ' (optional)' : '') + '</label>' +
+            fieldError(errors, name) + '<input class="inp" type="text" id="' + name + '" name="' + name + '" value="' +
+            esc(value) + '" maxlength="' + maxLength + '" autocomplete="' + autocomplete + '"' + describedBy(errors, name) +
+            '></div>';
+    }
+
+    /** 2.2: "Add a new address…": its fields, the no-script hint first. */
+    function newAddressFields(v, e, limits, on) {
+        return '<div class="newaddr' + (on ? ' on' : '') + '" id="newaddr">' +
+            '<p class="hint newaddr-nojs" style="margin:0">Only if you chose \u2018Add a new address\u2019</p>' +
+            addressInput('addr1', 'Address line 1', v.addr1, limits.ADDR_LINE, e, false, 'address-line1') +
+            addressInput('addr2', 'Address line 2', v.addr2, limits.ADDR_LINE, e, true, 'address-line2') +
+            '<div class="g2">' +
+            addressInput('city', 'Town or city', v.city, limits.ADDR_CITY, e, false, 'address-level2') +
+            addressInput('county', 'County', v.county, limits.ADDR_COUNTY, e, true, 'address-level1') + '</div>' +
+            '<div class="g2">' + addressInput('zip', 'Postcode', v.zip, limits.ADDR_ZIP, e, false, 'postal-code') +
+            '<div></div></div></div>';
+    }
+
+    /**
+     * 2.2: the delivery form's own rules — the new address shows without script (with its hint); with
+     * script, only when "Add a new address…" is chosen.
+     */
+    var NEW_ADDRESS_CSS = '\n.newaddr{display:flex;flex-direction:column;gap:12px}\n' +
+        '.js .newaddr{display:none}.js .newaddr.on{display:flex}.js .newaddr-nojs{display:none}';
 
     /** One summary row; live when the script runs, static text otherwise. */
     function summaryRow(label, name, staticText) {
@@ -976,6 +1025,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 (String(v.address) === String(m.options.address[i].id) ? ' selected' : '') + '>' +
                 esc(m.options.address[i].text || m.options.address[i].label || 'Address') + '</option>';
         }
+        // 2.2: always last.
+        addressOptions += '<option value="' + esc(config.NEW_ADDRESS.VALUE) + '"' +
+            (String(v.address) === config.NEW_ADDRESS.VALUE ? ' selected' : '') + '>' + esc(config.NEW_ADDRESS.OPTION) +
+            '</option>';
         if (m.noticeDays > 0) {
             notice = 'We need at least ' + m.noticeDays + ' working day' + (m.noticeDays === 1 ? '' : 's') +
                 '’ notice. ';
@@ -1005,8 +1058,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<section class="card"><h2><span class="num">2</span>Where should we deliver?</h2><div>' +
             '<label class="lbl" for="f-address">Delivery address</label>' + fieldError(e, 'address') +
             '<select class="inp" id="f-address" name="address" required' + describedBy(e, 'address') + '>' +
-            addressOptions + '</select><p class="hint" style="margin:6px 0 0">Need it somewhere else? Tell us under ' +
-            '“Anything else” and we’ll call you to confirm.</p></div></section>' +
+            addressOptions + '</select><p class="hint" style="margin:6px 0 0">Not in the list? Choose \u201c' +
+            esc(config.NEW_ADDRESS.OPTION) + '\u201d and type it in.</p></div>' +
+            newAddressFields(v, e, m.limits, String(v.address) === config.NEW_ADDRESS.VALUE) + '</section>' +
 
             '<section class="card"><h2><span class="num">3</span>Access and unloading</h2>' +
             guidance(m.guidance) +
@@ -1054,16 +1108,28 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</div><h3>What happens next</h3><ol class="next">' + nextSteps(prepay) + '</ol></aside></div>';
 
         return page({ title: 'Arrange delivery', logoUrl: m.logoUrl, am: m.am, header: 'questions',
-            width: 'w1120', body: body, script: FORM_SCRIPT });
+            width: 'w1120', body: body, script: FORM_SCRIPT, css: NEW_ADDRESS_CSS });
     }
 
     // ---------------------------------------------------------------- confirmations
+
+    /** 2.2: the confirmation's new-address wording. Plain text: escaped when used. */
+    var CONFIRM_TEXT = {
+        NEW_ADDRESS: 'As this is a new address, we\u2019ll check access and any delivery charge before we confirm your date.',
+        AMOUNT_NOTE: 'This may change if delivery to the new address costs more. We\u2019ll tell you before you pay.'
+    };
+
+    /** 2.2: the note that goes with the amount to pay, with a new address only. */
+    function amountNote() {
+        return '<p class="hint" style="margin:8px 0 0">' + esc(CONFIRM_TEXT.AMOUNT_NOTE) + '</p>';
+    }
 
     /**
      * The page after a successful request (ConfirmBacs / ConfirmCard, and 1.2's account page styled
      * like the card one).
      * @param {Object} m - { logoUrl, am, payment ('BACS'|'CARD'|'ACCOUNT'), bank, tranId, orderTitle,
-     *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only) }
+     *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only), newAddress
+     *                       (2.2: true when the customer added a new delivery address) }
      */
     function confirmation(m) {
         var noted = (m.dateKey ? shortDate(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
@@ -1075,10 +1141,15 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 esc('Thanks. We’ve noted ' + noted + ', for ' + what + '. ') +
                 (m.payment === 'BACS' ? 'We’ll book it as soon as your payment reaches us.' :
                     cardPaymentText(amountShown) + ' Once payment is taken, we’ll book your delivery.')) +
-            '</p></div>';
+            '</p>' +
+            // 2.2: only with a new delivery address; the same page whether or not it reached the address book.
+            (m.newAddress ? '<p>' + esc(CONFIRM_TEXT.NEW_ADDRESS) + '</p>' +
+                (amountShown && m.payment !== 'BACS' ? amountNote() : '') : '') +
+            '</div>';
 
         if (m.payment === 'BACS') {
             body += '<div class="card bank"><h2>Pay by bank transfer</h2>' + bankRows(m.bank, m.tranId, amountShown) +
+                (m.newAddress && amountShown ? amountNote() : '') +
                 '<p style="margin:8px 0 0;font-size:15px;color:#4a4650">Please use the reference exactly as shown so ' +
                 'we can match your payment. We’ll book your delivery once payment reaches us.</p></div>' +
                 '<div class="card"><h2 style="font-size:18px">What happens next</h2><ol class="next" style="font-size:16px">' +
@@ -1113,6 +1184,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     var UPDATE_TEXT = {
         BUTTON: 'Give us an update',
         TITLE: 'Give us an update',
+        // 2.2: the first question, the opportunity's title.
+        Q_NAME: 'What do you call this project?',
+        NAME_LABEL: 'Project name',
+        NAME_HINT: 'For example, \u2018Barn conversion\u2019 or \u2018Smith kitchen extension\u2019.',
         Q_STAGE: 'What stage is your project at?',
         Q_DATE: 'When do you expect to begin work?',
         DATE_LABEL: 'Approximate date',
@@ -1127,7 +1202,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NOT_GOING: 'Not going ahead? Let us know',
         WHY_NOT: 'Why not?',
         COMMENT: 'Anything you\u2019d like to add? (optional)',
-        CONFIRM: 'Yes, we\u2019re not going ahead',
+        // 2.2: was "Yes, we're not going ahead". The posted value is still confirm=yes.
+        CONFIRM: 'Confirm: we\u2019ve decided not to go ahead',
         CONFIRM_HELP: 'This tells us you\u2019ve decided not to go ahead with this project. It will no longer show on ' +
             'your projects page.',
         NOTHING: 'Nothing to update: you haven\u2019t changed anything, added a note or asked for a call.',
@@ -1158,7 +1234,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     /**
      * The "Tell us where you're up to" page (Update.dc.html, with the questions of release 2.1 part B).
      * @param {Object} m - { logoUrl, am (header), assignee ({ name }, the "Goes to" card), opp,
-     *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values,
+     *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values (2.2:
+     *   projectName, prefilled with the title),
      *   errors, notice, reasons ([{id, text}]; [] no list), notGoingOpen, limits, callTimes
      *   ([{id, text}]) }
      */
@@ -1202,6 +1279,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<div class="layout"><div class="fcol">' +
             '<form class="fcol" id="uform" method="post" action="' + esc(m.actionUrl) + '" accept-charset="utf-8">' +
             hidden('update');
+
+        // 2.2: always first. Optional like the rest: blank or unchanged writes nothing.
+        body += '<section class="card"><h2>' + num() + esc(t.Q_NAME) + '</h2><div>' +
+            '<label class="lbl" for="f-projectName">' + esc(t.NAME_LABEL) + '</label>' + fieldError(e, 'projectName') +
+            '<input class="inp" type="text" id="f-projectName" name="projectName" value="' + esc(v.projectName) +
+            '" maxlength="' + m.limits.PROJECT_NAME + '"' + describedBy(e, 'projectName') + '>' +
+            '<p class="hint" style="margin:6px 0 0">' + esc(t.NAME_HINT) + '</p></div></section>';
 
         if ((m.stages || []).length) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
@@ -2130,13 +2214,37 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</tr>\n</table>\n';
     }
 
-    /** A project card: the name, the sub-line, the progress bar, then its order rows. */
+    /**
+     * 2.2: a quote card's labelled lines — the dashboard's quoteFacts() in email markup: "Project stage: …"
+     * (stageLabel) and "Expected start: …" (formatMonthYear), only the ones with a value. '' with neither.
+     */
+    function emailQuoteFacts(opp) {
+        var D = config.DIGEST_EMAIL;
+        var lines = [];
+        var stage = stageLabel(opp && opp.buildStageText);
+        var when = dates.formatMonthYear(opp && opp.delDateKey);
+        if (stage) {
+            lines.push([D.FACT_STAGE, stage]);
+        }
+        if (when) {
+            lines.push([D.FACT_START, when]);
+        }
+        return lines.map(function (l) {
+            return '<p style="margin:2px 0 0 0;' + EF + 'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">' +
+                fontHtml(COLORS.MUTED, esc(l[0] + ': ')) + fontHtml(COLORS.TEXT, '<b>' + esc(l[1]) + '</b>') + '</p>';
+        }).join('');
+    }
+
+    /**
+     * A project card: the name, the sub-line, the progress bar, then its order rows. 2.2: with no title the
+     * heading is the QR number, so the sub-line leaves it out; a quote card adds its labelled lines.
+     */
     function projectCard(p, payBacs) {
         var D = config.DIGEST_EMAIL;
         var opp = p.opp;
         var stageText = p.kind === 'design' ? (p.needsInfo ? D.NEEDS_INFO : D.DESIGNING) : p.kind === 'quote' ? D.QUOTE_SENT :
             opp.siteAddress;
-        var sub = [opp.tranId, stageText].filter(function (x) { return !!x; }).join(' · ');
+        var sub = [opp.title ? opp.tranId : '', stageText].filter(function (x) { return !!x; }).join(' · ');
         var rows = p.orders.map(function (st) {
             var r = emailOrderRow(opp, st, payBacs);
             return '<tr><td align="left" valign="top" bgcolor="#faf9f7" style="background-color:#faf9f7;padding:12px 20px;' +
@@ -2151,9 +2259,22 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
             '<tr><td align="left" valign="top" style="padding:16px 20px 12px 20px;">' +
             emailP('0', 18, COLORS.TEXT, opp.title || opp.tranId, true) +
-            (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + '</td></tr>\n' +
+            (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + (p.kind === 'quote' ? emailQuoteFacts(opp) : '') +
+            '</td></tr>\n' +
             '<tr><td align="center" valign="top" style="padding:4px 18px 16px 18px;">\n' + progressBar(p) + '</td></tr>\n' +
             rows + '</table>\n';
+    }
+
+    /**
+     * 2.2: the explainer paragraph — what the digest is, and, with at least one open quote, where to tell
+     * us if a quoted project has changed (the button name in bold).
+     */
+    function digestExplainer(groups) {
+        var D = config.DIGEST_EMAIL;
+        var q = D.EXPLAINER_QUOTES;
+        return '<p style="margin:0;' + EF + 'font-size:16px;line-height:23px;color:' + COLORS.TEXT + ';">' +
+            fontHtml(COLORS.TEXT, esc(D.EXPLAINER) + ((groups.toOrder || []).length ?
+                ' ' + esc(q[0]) + '<b>' + esc(q[1]) + '</b>' + esc(q[2]) : '')) + '</p>';
     }
 
     /**
@@ -2175,6 +2296,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         html += emailLogo(m.logoUrl);
         html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
 
+        // 2.2: what this email is, before the tiles; the update button named when there is an open quote.
+        body += '<tr><td align="left" valign="top" style="padding:0 0 22px 0;">' + digestExplainer(groups) + '</td></tr>\n';
         if (tiles) {
             body += '<tr><td align="center" valign="top" style="padding:0 0 22px 0;">\n' + tiles + '</td></tr>\n';
         }
@@ -2228,6 +2351,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         dashboard: dashboard,
         deliveryForm: deliveryForm,
         confirmation: confirmation,
+        CONFIRM_TEXT: CONFIRM_TEXT,
         UPDATE_TEXT: UPDATE_TEXT,
         updatePage: updatePage,
         updateDone: updateDone,
@@ -2236,6 +2360,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         digestRows: digestRows,
         digestCallout: digestCallout,
         digestEmail: digestEmail,
+        digestExplainer: digestExplainer,
         emailOrderRow: emailOrderRow,
         emailShell: emailShell,
         emailLogo: emailLogo,

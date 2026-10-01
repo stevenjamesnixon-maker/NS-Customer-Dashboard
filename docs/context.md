@@ -6,8 +6,21 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 1 Oct 2026 (release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**Release plan (Steve, 1 Oct 2026):** **2.2** is this release (project name, new delivery address, polish).
+**Design information and changes** moves to **2.3**, and **Place order** to **2.4**.
+
+**Release 2.2 (1 Oct 2026, new PR; config 3.2):** the customer can **rename the project** (the opportunity
+`title`) on *Give us an update* — written by the dashboard itself, one `submitFields` of `{ title }`, never
+through the Online-quote library; the delivery form's address list ends with **Add a new address…**, which
+adds the address to the customer's address book, sets it as the order's ship-to address, keeps it on the
+opportunity in the new optional field `custbody_cdb_delivery_address`, and sends a *NEW ADDRESS –* Task for
+the rep to check access and any delivery charge; and polish — the not-going-ahead button reads *Confirm:
+we've decided not to go ahead*, the digest explains itself, shows the QR number once and gives quote cards
+the dashboard's labelled lines (section 4, *The project name*, *A new delivery address*, *Digest polish*).
+Not merged, not deployed.
 
 **2.1.2 (PR #7 amendment 2):** the customer sees the action as **Give us an update** (button, page heading and
 title; the feature keeps its internal name). *Projects to order* labels the two facts on their own lines —
@@ -78,8 +91,11 @@ every file it changes. Steve tells deployed copies apart by version.
    confirms the date after payment; a workflow runs from it. The customer's requested date goes
    in `custbody_defaultshipdate`. **2.1:** nor the opportunity sub-status
    (`custbody_opportunity_sub_status`). The only opportunity fields it writes are
-   `custbody_build_stage`, `custbody_opp_del_date` and `entitystatus` (Lost), and only through the
-   Online-quote Update Opportunity library.
+   `custbody_build_stage`, `custbody_opp_del_date` and `entitystatus` (Lost), through the
+   Online-quote Update Opportunity library, and (**2.2**) the `title` (the project name) and
+   `custbody_cdb_delivery_address`, each by its own one-field `submitFields` in `cdb_lib_data.js` — never by
+   extending the library, whose `FIELDS` feed the Send Quote and Update Opportunity pages. The only customer
+   write is (2.2) one new address book line.
 
 5. **Field IDs are used exactly as they exist in the account.** `custbody_opp_site_adress` has
    one `d`. It is the real ID. Do not correct it.
@@ -144,16 +160,16 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.1.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Dashboard Suitelet | 2.2.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.1.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.2.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.1.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data | Not deployed |
-| Render library | 2.1.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
-| Task library | 1.3.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option | Not deployed |
+| Data library | 2.2.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectName`, `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
+| Render library | 2.2.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Task library | 1.4.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name | Not deployed |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -243,11 +259,12 @@ a bad ID: *can't be updated online*; Won: *has been ordered*; Lost: *is closed*)
 | # | Question | Source | Rules |
 |---|---|---|---|
 | — | Header | the opportunity | title · QR number · site address |
-| 1 | *What stage is your project at?* | `optlib.fieldOptions('custbody_build_stage', oppId)` ∩ `UPD_BUILD_STAGES`, **in the setting's order** (`data.stageOptions`) | Radio cards; the current value preselected. **Empty setting → hidden** (and `fieldOptions` not called). A failed read → hidden, `CDB BUILD_STAGES_FAILED`; setting IDs not offered → `CDB LIST_VALUE_MISSING` |
-| 2 | *When do you expect to begin work?* (2.1.1; was *…need the goods?*) | `custbody_opp_del_date` | `<input type="date">`, prefilled, hint *Approximate is fine. It helps us know when you may need us.* The Task and `CDB OPP_UPDATED` call it *Expected to begin work*. **Only while the opportunity is not Won** (never Won here; the rule is in the code because after Won the sync copies this date to the sales orders' ship dates). A changed date must be today to five years ahead; an unchanged past date is accepted |
-| 3 | *Anything else we should know, or is there any information you need from us?* (2.1.1) | — | Up to 1,000 characters; goes into the Task only |
-| 4 | *Would you like us to call you?* | phone: the dashboard contact's, else the customer's | A checkbox; ticked, the phone (required, phone-shaped) and the best time (morning / afternoon / any time) show by a CSS sibling rule — no script. **A Task only, never a phone call record** |
-| — | *Not going ahead? Let us know* | `UPD_OBJECTION_TYPES`, names from `customrecord_nh_objection_type` | A closed `<details>` panel holding **its own form**: *Why not?* (radio; empty setting → no list; a failed read → no list, `CDB OBJECTION_TYPES_FAILED`), an optional comment, and the button **Yes, we're not going ahead** (`name="confirm" value="yes"`). Two steps: open the panel, press the button. The server requires `mode=notgoing` **and** `confirm=yes`; the update form never carries either |
+| 1 (2.2) | *What do you call this project?* | the opportunity's `title` | A text input, prefilled, `maxlength` 60, hint *For example, 'Barn conversion' or 'Smith kitchen extension'.* See *The project name* below |
+| 2 | *What stage is your project at?* | `optlib.fieldOptions('custbody_build_stage', oppId)` ∩ `UPD_BUILD_STAGES`, **in the setting's order** (`data.stageOptions`) | Radio cards; the current value preselected. **Empty setting → hidden** (and `fieldOptions` not called). A failed read → hidden, `CDB BUILD_STAGES_FAILED`; setting IDs not offered → `CDB LIST_VALUE_MISSING` |
+| 3 | *When do you expect to begin work?* (2.1.1; was *…need the goods?*) | `custbody_opp_del_date` | `<input type="date">`, prefilled, hint *Approximate is fine. It helps us know when you may need us.* The Task and `CDB OPP_UPDATED` call it *Expected to begin work*. **Only while the opportunity is not Won** (never Won here; the rule is in the code because after Won the sync copies this date to the sales orders' ship dates). A changed date must be today to five years ahead; an unchanged past date is accepted |
+| 4 | *Anything else we should know, or is there any information you need from us?* (2.1.1) | — | Up to 1,000 characters; goes into the Task only |
+| 5 | *Would you like us to call you?* | phone: the dashboard contact's, else the customer's | A checkbox; ticked, the phone (required, phone-shaped) and the best time (morning / afternoon / any time) show by a CSS sibling rule — no script. **A Task only, never a phone call record** |
+| — | *Not going ahead? Let us know* | `UPD_OBJECTION_TYPES`, names from `customrecord_nh_objection_type` | A closed `<details>` panel holding **its own form**: *Why not?* (radio; empty setting → no list; a failed read → no list, `CDB OBJECTION_TYPES_FAILED`), an optional comment, and the button **Confirm: we've decided not to go ahead** (2.2; was *Yes, we're not going ahead*; still `name="confirm" value="yes"`; without it: *Please press "Confirm: we've decided not to go ahead".*). Two steps: open the panel, press the button. The server requires `mode=notgoing` **and** `confirm=yes`; the update form never carries either |
 
 **Customers never see the stage numbering (2.1.2).** `render.stageLabel()` is applied wherever a customer
 sees a stage: the dashboard line, the page's stage choices and the confirmation's list. The Task (old → new)
@@ -324,6 +341,117 @@ works as before** (the delivery pages never load it). Library errors are plain `
 **Governance.** A GET: guard 1 + `fieldOptions` 10 + objection types 10, about 60 in all. An update POST
 adds `writeOppUpdate` (≤ 21) and the Task; a not-going-ahead POST adds the objection (6), the stage lookup,
 the status write (≤ 21), the estimates search (10) and the Task — well under 1,000.
+
+### The project name (2.2)
+
+The opportunity `title` (e.g. *testing dashboard*) is the project name on the dashboard, the digest, the
+delivery form, the delivery-link email and the update page. *Give us an update* asks for it first.
+
+- **Validation** (`data.validateUpdate`, update mode): `cleanLine()` — every control character becomes a
+  space, then trimmed; over 60 characters is an error and **nothing** is written; **blank never clears**; a
+  change only when it differs from the current title. A name alone is enough to send the update.
+- **The write is the dashboard's own**, `data.writeProjectName(oppId, title)`: one `record.submitFields` on
+  the opportunity, `{ title }` only, `enableSourcing: false`, `ignoreMandatoryFields: true`; it re-checks
+  the value and throws `CDB_BAD_PROJECT_NAME` rather than write a bad one. `title` is not one of the
+  library's `FIELDS` (so `writeOppUpdate` refuses it), and the library is **not** extended: the Send Quote
+  and Update Opportunity pages build their field lists from `FIELDS`, and the title would appear on them.
+- **Order:** after `guardOpportunity()` and validation; the library's write (stage, date) first, then the
+  title. Each failure is separate: `CDB OPP_UPDATE_FAILED` / `CDB OPP_NAME_FAILED`, and the Task says
+  *NOT saved on the opportunity (…)* for the library's values and *Project name NOT saved: …* for the name.
+- **Task, log, page:** *Project name: old → new* first in the Task's list (both escaped); `CDB OPP_UPDATED`
+  includes *Project name old -> new* and *title written*; the confirmation lists *Project name: …*.
+- **Readers** (grep of this repo): `getOpportunities()` (the dashboard and the digest), `guardOrder()` (the
+  delivery form, the delivery-link email), `guardOpportunity()` (the update page and the update /
+  not-going-ahead Task titles), and the recently-delivered fallback (the order's opportunity text). All read
+  the record afresh on every request and simply show the new name. **Other repos** — Send Quote, the
+  proposal PDF, any Estimate workflow — may read the opportunity title too: Steve checks those in testing.
+
+### A new delivery address (2.2)
+
+**Steve's decisions (1 Oct 2026):** a new address is added to the customer's **address book** and set as
+**this order's ship-to address**; it is also **kept on the opportunity**; the rep still **checks it** (access,
+vehicle, delivery charge) before confirming the date.
+
+**The form.** The address dropdown lists the address book, then **Add a new address…** (`address=new`;
+book IDs are numbers, so it is never one). Five inputs follow — `addr1`, `addr2`, `city`, `county`, `zip`,
+each with that `id` and `name` and the `autocomplete` tokens `address-line1`, `address-line2`,
+`address-level2`, `address-level1`, `postal-code`. **Without script** they show under the select with the
+hint *Only if you chose 'Add a new address'*; with script (the page's own CSS, not the shared stylesheet, so
+every other page is byte-identical) they show, and line 1, town and postcode become `required`, only while
+that option is chosen. The server requires them **only** when `address=new` was posted.
+
+| Field | Rule |
+|---|---|
+| Address line 1 | Required, ≤ 100 |
+| Address line 2 | Optional, ≤ 100 |
+| Town / city | Required, ≤ 60 |
+| County | Optional, ≤ 60 |
+| Postcode | Required; `data.normalisePostcode()`: spaces and case ignored, `^(GIR0AA|[A-Z]{1,2}[0-9][0-9A-Z]?[0-9][A-Z]{2})$`, stored upper case with one space (`me14  1xx` → `ME14 1XX`) |
+
+Control characters become spaces and each field is trimmed (`cleanLine`) before it is counted.
+
+**On a valid booking**, after every check has passed:
+
+1. **Duplicate check** — `data.matchAddress()` against the address book already loaded (`getAddressBook`
+   now also reads each line's `addr1` and `zip` from its subrecord): line 1 and postcode, lower case,
+   letters and digits only. A match: that line is used, none added, `CDB ADDRESS_MATCHED`. A line whose
+   parts cannot be read never matches (the worst case is a second line, never the wrong one).
+2. **Add** — `data.addToAddressBook()`: `record.load` the customer (standard mode), insert an `addressbook`
+   line, `label` = *Added by customer (dashboard) dd/mm/yyyy*, `defaultshipping` and `defaultbilling` false;
+   on its `addressbookaddress` subrecord set `country` = `GB` **first** (it chooses the address form), then
+   `addr1`, `addr2`, `city`, `zip`, and the county (below). Save with `ignoreMandatoryFields: true`, load
+   again and find the line by label + postcode (the last such line). `CDB ADDRESS_ADDED` with the customer
+   and the address ID. **Steps 1–2 run before the order is loaded**, so the order is read with the new line in
+   its ship-to list.
+3. **The booking**, as before, with `shipaddresslist` = the new or matched address ID.
+4. **The opportunity** — `data.writeDeliveryAddress()`: `record.load` the order's opportunity; only when
+   `getField()` finds `custbody_cdb_delivery_address`, one `submitFields` of that field alone (the lines
+   joined with newlines, overwriting any earlier one). Missing: `CDB FIELD_MISSING`, the booking stands, the
+   Task says *Opportunity NOT updated: the field … is not on the opportunity*. A throw: `CDB OPP_ADDRESS_FAILED`.
+   Written whether or not step 2 worked.
+5. **The Task** — title *NEW ADDRESS – Delivery requested: …* (new or matched alike); first line *The
+   customer gave a new delivery address. It has been added to their address book (labelled 'Added by
+   customer (dashboard)') and set as this order's ship-to address. Check access, the vehicle and any delivery
+   charge, correct the address if needed, then confirm the date.*; then the address (escaped) and one line
+   each for the address book, the ship-to and the opportunity; then the usual delivery message.
+
+**The county field.** `countyFieldOf()` checks **the subrecord itself**, after the country is set:
+`state` when the form has it as a non-select field, else `dispstate` when it has that, else none (the Task
+says *County NOT saved … Add it by hand*). A refused `setValue` is the same: county skipped, address kept.
+`CDB ADDRESS_ADDED` names the field used (*county in state*). Not verified in the account — see section 10.
+
+**If step 2 fails** (permission, a script on the customer, anything; or the line cannot be found again):
+the booking **still goes through, without changing the ship-to address**; the Task says *New address NOT
+added to the address book (<error>). Add it and set it as the ship-to address by hand.*;
+`CDB ADDRESS_ADD_FAILED` at error. The save is inside a `try/catch` in the Suitelet that only records the
+failure: nothing in it can stop the booking.
+
+**The customer** sees the same confirmation either way, plus *As this is a new address, we'll check access
+and any delivery charge before we confirm your date.*, and, under the amount to pay (BACS bank details or
+the card sentence), *This may change if delivery to the new address costs more. We'll tell you before you
+pay.* — both only with a new address. **An address-book booking is byte-identical to 2.1.2** (page, writes,
+Task, logs; `test/snapshots/address-book-booking.json`).
+
+**Governance.** Up to 40 more units: customer load 5 + save 10 + reload 5, opportunity load 10 +
+`submitFields` 10. A matched address costs only the opportunity's 20.
+
+**Later, not in this release: an address lookup.** Steve's address form has a type-ahead
+(`custrecordpca_search`, Loqate / PCA Predict). That widget runs inside NetSuite's own form and cannot be
+reused here; the lookup **service** could fill the five inputs later, once Steve confirms the account and a
+key that allows the dashboard's domain. The inputs' ids, names and `autocomplete` tokens are kept stable
+for it.
+
+### Digest polish (2.2)
+
+- **An explainer** under the purple band, before the tiles: *Every couple of weeks we send you a summary of
+  your projects with Nu-Heat: where each one is up to, and anything you can do next.*, plus, with at least one
+  open quote, *If anything has changed on a quoted project, press **Give us an update** on your projects
+  page.* The band is unchanged.
+- **The QR number once.** With no title the card's heading is the QR number, so the sub-line leaves it out
+  (*Quote sent* alone); with a title, *QR… · Quote sent* as before. The same rule on every card.
+- **Quote cards** get the dashboard's labelled lines, *Project stage: …* (`stageLabel`) and *Expected
+  start: …* (`formatMonthYear`), only those with a value, in table-safe markup.
+- Otherwise the email is unchanged (`test/r2-2.test.js` compares it with the 2.1 snapshot).
 
 ### Send delivery link (2.0)
 
@@ -1065,7 +1193,7 @@ Every title starts `CDB `.
 | `CDB EARLIEST_FAILED` (2.0.3) | audit | The non-delivery dates could not be read for the delivery-link email; it was sent without the earliest date | Check `customrecord_cdb_nondelivery` |
 | `CDB AM_PHOTO` (2.0.2) | audit | Once per customer email: the AM's photo used, or skipped and why | Set `custentity_employee_photo_link` to an https URL if a photo is wanted |
 | `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR or SEND twin) is not a JSON object; each type shows its own text | Fix the JSON |
-| `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
+| `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order (or, 2.2, `custbody_cdb_delivery_address` on the opportunity); it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
 | `CDB DIGEST_INPUT` | audit | Mode, and in LIVE how many are due, sent and left over | — |
 | `CDB DIGEST_SENT` / `DIGEST_SKIPPED` | audit | Per customer | — |
@@ -1087,6 +1215,11 @@ Every title starts `CDB `.
 | `CDB OPP_WRITE` (2.1) | audit / error | The library's own `writeOppUpdate` log line (its log key) | — |
 | `CDB UPDATE_TASK` (2.1) | audit | The customer update or not-going-ahead Task, its assignee and `sendemail` | — |
 | `CDB UPDATE_REJECTED` (2.1) | audit | The update POST failed validation; nothing written | — |
+| `CDB OPP_NAME_FAILED` (2.2) | error | The project name (`title`) was not written; the Task says *Project name NOT saved* | Rename the opportunity by hand |
+| `CDB ADDRESS_MATCHED` (2.2) | audit | The new address is already in the address book (line 1 + postcode); that line is used | — |
+| `CDB ADDRESS_ADDED` (2.2) | audit | A new address book line: the customer, the address ID, and the county field used | — |
+| `CDB ADDRESS_ADD_FAILED` (2.2) | error | The address was not added (or not found again); the booking went ahead with the ship-to unchanged | Add it and set it as the ship-to by hand (the Task says so) |
+| `CDB OPP_ADDRESS_SAVED` / `OPP_ADDRESS_FAILED` (2.2) | audit / error | `custbody_cdb_delivery_address` written / not written | Copy the address from the Task if wanted |
 | `CDB BUILD_STAGES_FAILED` / `OBJECTION_TYPES_FAILED` / `OPEN_QUOTES_FAILED` (2.1) | audit | A read for the update page or Task failed; the question or list is left out / the Task says the quotes could not be listed | Check the field or record type |
 
 ---
@@ -1207,6 +1340,27 @@ In order. Nothing changes for customers at any step.
    (2.1.0). The digest, the Send link Suitelet and the User Event are unchanged.
 4. Test (section 9, scenarios 24–31).
 
+### 8.5 Release 2.2: project name, new delivery address, polish (after 2.1)
+
+1. **One field, before testing** (*Customization › Lists, Records & Fields › Transaction Body Fields › New*):
+
+   | Record | ID | Type | Label |
+   |---|---|---|---|
+   | Opportunity | `custbody_cdb_delivery_address` | Text Area | Customer-added delivery address |
+
+   Applies To: **Opportunity**; on the opportunity form(s) the reps use. Type `_cdb_delivery_address` in the
+   ID box. It is optional to the code: without it, bookings work and the Task says the opportunity was not
+   updated.
+2. **No settings, no parameters.**
+3. **Upload**, overwriting, libraries first: `lib/cdb_lib_config.js` (3.2.0), `lib/cdb_lib_data.js`
+   (2.2.0), `lib/cdb_lib_render.js` (2.2.0), `lib/cdb_lib_task.js` (1.4.0), then `cdb_sl_dashboard.js`
+   (2.2.0). The digest Map/Reduce, the Send link Suitelet and the User Event files are unchanged (the digest
+   picks up the render library's changes).
+4. **Permissions:** the Suitelet runs as Administrator, so the customer and opportunity writes need nothing
+   new. Check that no User Event or workflow on the **customer** refuses a script save (it would show as
+   `CDB ADDRESS_ADD_FAILED`).
+5. Test (section 9, scenarios 32–41).
+
 ### 8.2 First install on a new account (reference — not for 2.0)
 
 For an account with no customer dashboard at all. On the existing account these all exist already.
@@ -1245,7 +1399,7 @@ the C6 recipient, validation, configuration (every throw case; 3.0: the settings
 parameter, blank, inactive, duplicate, unknown, no search, one search, the source line, the seed file,
 and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
-step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm.
+step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm. 2.2 (`test/r2-2.test.js`): the project name (prefill, the one-field write and its order, blank / unchanged / 61 characters, a failed write, escaping), the new address (the dropdown, each validation failure writing nothing, postcodes, the line added, the duplicate, a failed save, the missing opportunity field, the county field, escaping) and an address-book booking compared byte for byte with 2.1.2; the digest polish against the 2.1 snapshot.
 
 **Sandbox / Production, digest in TEST mode:**
 
@@ -1281,6 +1435,16 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 | 29 (2.1) | Not going ahead with a reason — for a customer, a prospect and a lead | A Customer Objection (*Customer, via dashboard (date)*), the status 14 / 35 / 54, the customer's **stage unchanged**, a HIGH Task listing the open quotes (estimates untouched); the project gone from the dashboard |
 | 30 (2.1) | Clear `UPD_LOST_STATUS_MAP`, then not going ahead | No status change; `CDB LOST_NOT_SET` with the stage; the Task says *NOT set to Lost: setting empty* |
 | 31 (2.1) | Rename the library file (or upload 1.1.0) | No button; the direct link says to call the AM; `CDB OPPLIB_VERSION` once; delivery booking still works |
+| 32 (2.2) | *Give us an update*: change the project name only | The opportunity's title changed and nothing else (System Notes); the dashboard and the next digest show it; Task *Project name: old → new*. **Then check Send Quote, the proposal PDF and any Estimate workflow** show the new name as expected |
+| 33 (2.2) | Blank the name, or 61 characters | Blank: nothing written. 61: an error, nothing written |
+| 34 (2.2) | Book a delivery with **Add a new address…** (a new address, with a county) | A new address book line *Added by customer (dashboard) dd/mm/yyyy*, **not** default shipping or billing, **county in the County box** (`CDB ADDRESS_ADDED` names the field); the order's ship-to is that address; `custbody_cdb_delivery_address` on the opportunity; Task *NEW ADDRESS – …*; the confirmation's two new sentences |
+| 35 (2.2) | Book again with the same line 1 and postcode, typed differently | No new line (`CDB ADDRESS_MATCHED`); that line is the ship-to |
+| 36 (2.2) | The new address with JavaScript off | The five fields show under the select with the hint; the booking works |
+| 37 (2.2) | A blank postcode / `ABC 123` / an existing address chosen with the new fields filled | Error, nothing written / error / the fields ignored |
+| 38 (2.2) | Before the field exists (or on a role/form without it) | The booking works; Task *Opportunity NOT updated: the field … is not on the opportunity* |
+| 39 (2.2) | Make the customer save fail (e.g. a temporary UE that throws on the customer) | The booking saves, ship-to unchanged; Task *New address NOT added …*; `CDB ADDRESS_ADD_FAILED` |
+| 40 (2.2) | An address-book booking | Exactly as 2.1: no *NEW ADDRESS*, no new sentences |
+| 41 (2.2) | The digest (TEST) for a customer with an open quote with and without a title | The explainer; the QR number once; *Project stage* / *Expected start* lines |
 | 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
@@ -1306,6 +1470,40 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### Release 2.2 — unverified, decisions and notes for Steve
+
+**Unverified in the account:**
+
+| API | What the code assumes |
+|---|---|
+| The address subrecord's county field for `country` = `GB` | Checked at run time on the subrecord: `state` when it is a non-select field, else `dispstate`; logged in `CDB ADDRESS_ADDED`. Expected: `state` (free text outside countries with a state list). **Not verified — scenario 34 confirms it** |
+| `insertLine` + `getSublistSubrecord` on a new `addressbook` line, standard mode | Supported in standard mode; the line's `id` is only known after the save, hence the reload |
+| `getSublistSubrecord(...).getValue('addr1' / 'zip')` on a loaded customer | Readable; a failure only means no duplicate match |
+| `submitFields` of `title` on an opportunity | Accepted for the native title (an inline-editable body field) |
+| `getField({ fieldId: 'custbody_cdb_delivery_address' })` on a loaded opportunity | `null` when the field does not apply |
+
+**Decisions (the brief left these open):**
+
+1. **Steps 1–2 before the order is loaded.** The address is matched or added before the order is read, so the
+   order's ship-to list includes the new line. If the order changed in that moment (the belt-and-braces
+   check), the address stays in the book and nothing else is written.
+2. **The opportunity keeps the address even when the address-book add failed** — it is still where the
+   customer wants the delivery.
+3. **The Task's first line** is the brief's for an added address. A matched address says it *matches a
+   line already in their address book*; a failed add leads with the *NOT added* instruction instead of
+   claiming it was added.
+4. **"Saved but not found again"** (the line cannot be found by label + postcode after the save) is handled
+   as a failed add: ship-to unchanged, the Task says so.
+5. **The amount note** shows on the confirmation, under the amount (BACS bank details or the card sentence);
+   the delivery form cannot know the choice before it is posted.
+6. **Control characters** in the name and the address become spaces (not removed), so *Barn⇥conversion*
+   stays two words.
+7. **The update Task's title** still shows the name the opportunity had when the update arrived; the message
+   shows old → new.
+8. **The form's hint under the address** was *Need it somewhere else? Tell us under "Anything else"…*; now
+   *Not in the list? Choose "Add a new address…" and type it in.*
+9. **`cdb_lib_data.js` is no longer read-only:** its header names the three writes.
 
 ### Release 2.1 part B — unverified, decisions and notes for Steve
 

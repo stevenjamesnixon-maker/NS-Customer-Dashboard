@@ -373,6 +373,6 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
             c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? recordOnly : []).sort(), scriptId);
     });
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 34, 'the 2.0.5 keys and the three 3.1 keys, no more');
-    assert.strictEqual(c.VERSION, '3.1.0');
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 34, 'the 2.0.5 keys and the three 3.1 keys, no more (3.2 adds none)');
+    assert.strictEqual(c.VERSION, '3.2.0');
 });

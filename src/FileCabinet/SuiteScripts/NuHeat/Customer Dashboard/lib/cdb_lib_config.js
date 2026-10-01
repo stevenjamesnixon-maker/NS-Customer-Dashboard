@@ -41,15 +41,20 @@
  * UPD_LOST_STATUS_MAP, UPD_BUILD_STAGES and UPD_OBJECTION_TYPES. They have NO script parameter
  * (ids: {}): a missing row means the key's empty rule, "none". parseLostStatusMap() reads the map.
  *
+ * 3.2 (release 2.2): the project name (the opportunity's own `title`, written by the dashboard itself,
+ * never through the library: the library's FIELDS feed the Send Quote and Update Opportunity pages);
+ * the optional opportunity field custbody_cdb_delivery_address (Steve creates it; a missing field never
+ * costs a booking); the new-address limits, NEW_ADDRESS and ADDRESS_LABEL; the digest explainer.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 3.1.0
+ * @version 3.2.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.1.0';
+    var VERSION = '3.2.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -115,7 +120,13 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             // 3.1 (release 2.1 part B): the two fields the customer can change, through the Online-quote
             // Update Opportunity library only (OPPLIB below). Read by guardOpportunity(); never written here.
             BUILD_STAGE: 'custbody_build_stage',
-            DEL_DATE: 'custbody_opp_del_date'
+            DEL_DATE: 'custbody_opp_del_date',
+            // 3.2 (release 2.2): the project name the customer sees. Native; written ONLY by
+            // cdb_lib_data.writeProjectName(), one submitFields of { title } after guardOpportunity().
+            TITLE: 'title',
+            // 3.2: the customer-added delivery address (Text Area; Steve creates it). OPTIONAL: written
+            // only when getField() finds it on the loaded opportunity; missing, the booking still works.
+            DELIVERY_ADDRESS: 'custbody_cdb_delivery_address'
         },
         SALES_ORDER: {
             OPPORTUNITY: 'opportunity',
@@ -202,12 +213,34 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SPECIAL_REQUESTS: 1000,
         // 3.1: "Tell us where you're up to": the note and the not-going-ahead comment.
         UPDATE_NOTE: 1000,
-        UPDATE_COMMENT: 1000
+        UPDATE_COMMENT: 1000,
+        // 3.2 (release 2.2): the project name, and the new delivery address's fields. ADDR_ZIP is the
+        // input's maxlength only: the postcode's real rule is its format (data.normalisePostcode).
+        PROJECT_NAME: 60,
+        ADDR_LINE: 100,
+        ADDR_CITY: 60,
+        ADDR_COUNTY: 60,
+        ADDR_ZIP: 10
     };
 
     /**
-     * 3.1 (release 2.1 part B): the Online-quote Update Opportunity library — the ONLY way the dashboard
-     * writes an opportunity or creates an objection. Required by ABSOLUTE path at request time (not in
+     * 3.2 (release 2.2): the delivery form's "Add a new address…" choice, posted as address=new (address
+     * book IDs are numbers, so it can never be one), and what a customer-added address is called.
+     * ADDRESS_LABEL is the address book line's label, followed by " dd/mm/yyyy"; the line is found again
+     * after the save by this label and the postcode. COUNTRY is the only country the form takes.
+     */
+    var NEW_ADDRESS = {
+        VALUE: 'new',
+        OPTION: 'Add a new address\u2026',
+        LABEL: 'Added by customer (dashboard)',
+        COUNTRY: 'GB'
+    };
+
+    /**
+     * 3.1 (release 2.1 part B): the Online-quote Update Opportunity library — the way the dashboard writes
+     * the opportunity's stage, date and status and creates an objection. (3.2: the two exceptions, each one
+     * field, are the title — data.writeProjectName() — and custbody_cdb_delivery_address; neither is one of
+     * the library's FIELDS, and the library is not extended for them.) Required by ABSOLUTE path at request time (not in
      * define()), so a missing or old library costs the update action only, never the dashboard. The
      * folder name has a space; AMD module IDs allow it. MIN_VERSION: fieldOptions, writeOppUpdate and
      * createObjections arrived in 1.2.0.
@@ -316,7 +349,16 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         DESIGNING: 'Our design team is working on it. Nothing needed from you.',
         NEEDS_INFO: 'We need some information from you for the design.',
         QUOTE_SENT: 'Quote sent',
-        BUTTON: 'VIEW ALL YOUR PROJECTS'
+        BUTTON: 'VIEW ALL YOUR PROJECTS',
+        // 3.2 (release 2.2): the explainer under the band, before the tiles. EXPLAINER_QUOTES only when
+        // there is at least one open quote: [before, the bold button name, after].
+        EXPLAINER: 'Every couple of weeks we send you a summary of your projects with Nu-Heat: where each one is ' +
+            'up to, and anything you can do next.',
+        EXPLAINER_QUOTES: ['If anything has changed on a quoted project, press ', 'Give us an update',
+            ' on your projects page.'],
+        // 3.2: the labels of a quote card's facts, as the dashboard shows them.
+        FACT_STAGE: 'Project stage',
+        FACT_START: 'Expected start'
     };
 
     /**
@@ -1078,6 +1120,7 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SHIPPABLE_STATUSES: SHIPPABLE_STATUSES,
         DELIVERED_STATUSES: DELIVERED_STATUSES,
         TEXT_LIMITS: TEXT_LIMITS,
+        NEW_ADDRESS: NEW_ADDRESS,
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
