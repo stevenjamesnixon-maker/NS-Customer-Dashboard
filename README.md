@@ -7,7 +7,7 @@ ship. A Map/Reduce emails each customer a digest of the same information every 1
 ## Canonical reference
 
 **[`docs/context.md`](docs/context.md) is the single source of truth for this project.** Read it
-before changing anything. It records the design, the parameters and what an empty one means, the
+before changing anything. It records the design, the settings (one record, 3.0) and what an empty one means, the
 NetSuite objects the scripts assume, the security rules, the audit log key and the deployment
 sequence.
 
@@ -53,7 +53,8 @@ behaviour: everything that touches NetSuite is still tested in Sandbox, per `doc
 ## Three rules for contributors
 
 1. **Never commit internal IDs.** List values, statuses, employees and quote types come from
-   script parameters. Script IDs (`custbody_*`, `customscript_*` and the rest) are fine.
+   settings — the `customrecord_cdb_setting` record (3.0), or until a row is set the script
+   parameters. Script IDs (`custbody_*`, `customscript_*` and the rest) are fine.
 2. **The dashboard never writes the confirmed delivery date or the Record Status.**
    `custbody_del_date` and `custbody_finance_status` belong to people and workflows.
 3. **Never merge or deploy without Steve's explicit instruction.** Work goes on a branch with a
