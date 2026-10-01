@@ -140,7 +140,8 @@ test('8. the banner: whitelisted text only, an unknown code shows nothing, 300 s
 function sendParams() {
     return { custscript_cdbsend_excluded_statuses: '90', custscript_cdbsend_excluded_quote_types: '7,8',
         custscript_cdbsend_released_statuses: '2', custscript_cdbsend_fallback_employee: '500',
-        custscript_cdbsend_logo_url: 'https://www.nu-heat.co.uk/logo.png' };
+        custscript_cdbsend_logo_url: 'https://www.nu-heat.co.uk/logo.png',
+        custscript_cdbsend_quote_type_labels: '' };
 }
 
 function slSetup(tweak) {
@@ -269,6 +270,44 @@ test('7. email.send throws: redirect failed, logged', function () {
     assert.strictEqual(logs(s.w, 'SEND_LINK').length, 0);
 });
 
+// 2.0.1 (amendment 1): custscript_cdbsend_quote_type_labels, the dashboard's parser and fallback.
+
+function metaLine(s) {
+    return /Order SO100[^<]*/.exec(s.w.emails[0].body)[0];
+}
+
+test('2.0.1 type labels: mapped -> "UFH"', function () {
+    var s = slSetup(function (w) { w.params.custscript_cdbsend_quote_type_labels = '{"1": "UFH", "2": "HP"}'; });
+    press(s);
+    assert.strictEqual(metaLine(s), 'Order SO100 · UFH');
+    assert.strictEqual(logs(s.w, 'TYPE_LABELS_INVALID').length, 0);
+    landed(s.w, 'sent');
+});
+
+test('2.0.1 type labels: empty -> the quote type text', function () {
+    var s = slSetup();
+    press(s);
+    assert.strictEqual(metaLine(s), 'Order SO100 · Underfloor heating system');
+    assert.strictEqual(logs(s.w, 'TYPE_LABELS_INVALID').length, 0);
+    assert.strictEqual(logs(s.w, 'PARAMETER_DEFAULT').filter(function (l) {
+        return l[2].indexOf('custscript_cdbsend_quote_type_labels') === 0;
+    }).length, 1, 'the empty value logged once');
+    landed(s.w, 'sent');
+});
+
+test('2.0.1 type labels: invalid JSON -> the quote type text plus one log line; the send goes ahead', function () {
+    ['{"1": "UFH"', '["UFH"]'].forEach(function (bad) {
+        var s = slSetup(function (w) { w.params.custscript_cdbsend_quote_type_labels = bad; });
+        press(s);
+        assert.strictEqual(s.w.emails.length, 1, bad);
+        assert.strictEqual(metaLine(s), 'Order SO100 · Underfloor heating system', bad);
+        var lines = logs(s.w, 'TYPE_LABELS_INVALID');
+        assert.strictEqual(lines.length, 1, bad);
+        assert.ok(lines[0][2].indexOf('custscript_cdbsend_quote_type_labels ignored') === 0, bad);
+        landed(s.w, 'sent');
+    });
+});
+
 test('GET only, an order ID required, a missing parameter fails', function () {
     var s = slSetup();
     assert.strictEqual(press(s, '100', 'POST'), 'GET only.');
@@ -354,7 +393,7 @@ test('10. config.load from the new Suitelet reads the cdbsend_ IDs', function ()
     var cfg = c.load({ audit: function () {}, error: function () {} });
     assert.deepStrictEqual(asked.slice().sort(), Object.keys(sendParams()).sort());
     assert.deepStrictEqual(cfg, { EXCLUDED_STATUSES: ['90'], EXCLUDED_QUOTE_TYPES: ['7', '8'], FALLBACK_EMPLOYEE: '500',
-        RELEASED_STATUSES: ['2'], LOGO_URL: 'https://www.nu-heat.co.uk/logo.png' });
+        RELEASED_STATUSES: ['2'], LOGO_URL: 'https://www.nu-heat.co.uk/logo.png', QUOTE_TYPE_LABELS: '' });
 });
 
 test('10. cdbsend_: empty means what it means on the dashboard', function () {

@@ -9,6 +9,9 @@ on. It does not describe the wider NetSuite account.
 **Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
+**2.0.1 (PR #5 amendment 1):** `custscript_cdbsend_quote_type_labels` added; the delivery-link email
+shows the short type label (*Order SO… · UFH*).
+
 **Versions:** every amendment to an open release PR bumps the patch version (1.3.1, 1.3.2…) of
 every file it changes. Steve tells deployed copies apart by version.
 
@@ -102,8 +105,8 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Dashboard Suitelet | 2.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
-| Send link Suitelet (2.0) | 2.0.0 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 2.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording | Not deployed |
+| Send link Suitelet (2.0) | 2.0.1 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.1 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
 | Data library | 2.0.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient and author rules | Not deployed |
@@ -206,7 +209,10 @@ on the Communication tab.
    digest's rule, moved to the data library and shared). **Not the user who pressed the button.**
 5. The email: `render.deliveryLinkEmail()` with the direct link
    `buildLink(oppCustomer, { a: 'delivery', so })` and the dashboard link `buildLink(oppCustomer)`;
-   the extras (description, split reference, type label) as the dashboard reads them.
+   the extras (description, split reference, type label) as the dashboard reads them. The short type
+   label comes from `custscript_cdbsend_quote_type_labels` (2.0.1) with the dashboard's parser and
+   fallback: empty or invalid → the quote type's own text, logged once (`CDB PARAMETER_DEFAULT` /
+   `CDB TYPE_LABELS_INVALID`), never failing the send.
 6. `email.send` with `relatedRecords: { entityId: customer, transactionId: so }` — on both
    Communication tabs. Any failure → `cdbsl=failed`; `CDB SEND_FAILED`.
 7. `CDB SEND_LINK`: the order, the customer, the recipient, the author and **the user who pressed**.
@@ -536,6 +542,7 @@ their `custscript_cdb_` original, and **empty means what it means on the dashboa
 | `custscript_cdbsend_released_statuses` | Free-Form Text, comma list | same as `custscript_cdb_released_statuses` | none: released orders count as excluded, so are refused as not open (the guard refuses them as released when it is set) |
 | `custscript_cdbsend_fallback_employee` | List/Record → Employee | same as `custscript_cdb_fallback_employee` | throw |
 | `custscript_cdbsend_logo_url` | Free-Form Text, https | same as `custscript_cdb_logo_url` | no logo; audit |
+| `custscript_cdbsend_quote_type_labels` (2.0.1) | Long Text, JSON `{"<quote type id>": "UFH"}` | same as `custscript_cdb_quote_type_labels` | each quote type's own text; audit. Invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the send |
 
 The numeric defaults above are the values the brief gives for Production. **Read the IDs off each
 account's lists before setting them**; they are not guaranteed to match between accounts.
@@ -622,7 +629,7 @@ Every title starts `CDB `.
 | `CDB RECENT_FAILED` | audit | The 1.3 recently delivered search threw; the page or digest carries on without the section | Check the search in `getRecentlyDelivered()` |
 | `CDB EXTRAS_FAILED` | audit | The 1.2 extras search threw; the page shows no amounts or split references and treats every order as pay up front | Check the field IDs in `getOrderExtras()` against the account |
 | `CDB AMOUNT_ODD` | audit | An amount to pay came out negative, so it is not shown | Check the order's balance, total and deposit |
-| `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR twin) is not a JSON object; each type shows its own text | Fix the JSON |
+| `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR or SEND twin) is not a JSON object; each type shows its own text | Fix the JSON |
 | `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
 | `CDB DIGEST_INPUT` | audit | Mode, and in LIVE how many are due, sent and left over | — |
@@ -772,10 +779,8 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    pressed. The rule exists for the no-login page, so it is kept there and everywhere else; the
    login-required Send link Suitelet reads the user once, for the log only. The style test allows it in
    that one file and checks it is read exactly once.
-2. **The type label needs a parameter the brief does not list.** *Order SO… · UFH* uses
-   `custscript_cdb_quote_type_labels` on the dashboard. The brief's five `cdbsend_` parameters leave it
-   out, so the email shows each quote type's own text (e.g. *Underfloor heating system*) in that place.
-   Adding `custscript_cdbsend_quote_type_labels` would make it *UFH*. Not done: say if you want it.
+2. ~~The type label needs a parameter the brief does not list.~~ **Decided (amendment 1, 2.0.1):**
+   `custscript_cdbsend_quote_type_labels` added, with the dashboard's parser and fallback.
 3. **The recipient's email is not in the banner.** No record holds it and reading the log costs a
    search; the brief allowed leaving it out.
 4. **The AM block "contact fallback".** The brief describes phone, then email, then the name; the

@@ -21,7 +21,10 @@
  *   5. The email: render.deliveryLinkEmail() with the direct link
  *      token.buildLink(customer, { a: 'delivery', so }) and the dashboard link
  *      token.buildLink(customer); the order's extras (split reference, type label) as the dashboard
- *      reads them.
+ *      reads them. 2.0.1: the short type label ("Order SO… · UFH") comes from
+ *      custscript_cdbsend_quote_type_labels, with the dashboard's parser and fallback: empty or
+ *      invalid -> the quote type's own text, logged once (CDB PARAMETER_DEFAULT when empty,
+ *      CDB TYPE_LABELS_INVALID when invalid), never failing the send.
  *   6. email.send with relatedRecords { entityId: customer, transactionId: order }, so it shows on
  *      both Communication tabs. Any failure -> cdbsl=failed; CDB SEND_FAILED.
  *   7. CDB SEND_LINK: the order, the customer, the recipient, the author and the user who pressed.
@@ -38,7 +41,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.1
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -46,7 +49,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.1';
 
     /** The banner codes cdb_ue_salesorder.js shows (config.SEND_LINK_BANNERS). */
     var OUTCOME = { SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' };
@@ -83,6 +86,19 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
         } catch (e) {
             return '(unknown)';
         }
+    }
+
+    /**
+     * 2.0.1: the short quote type labels, as the dashboard reads them. Never throws: an invalid value
+     * logs CDB TYPE_LABELS_INVALID once and gives {}, so each type shows its own text.
+     */
+    function typeLabels(cfg) {
+        var parsed = config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS);
+        if (parsed.status === 'invalid') {
+            log.audit({ title: title('TYPE_LABELS_INVALID'), details: 'custscript_cdbsend_quote_type_labels ignored: ' +
+                parsed.detail });
+        }
+        return parsed.labels || {};
     }
 
     /** A plain answer when there is no order to go back to. */
@@ -126,7 +142,8 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
         try {
             from = data.emailAuthor(customer, cfg);
-            order = data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), {}, cfg, customer.termsId);
+            order = data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), typeLabels(cfg), cfg,
+                customer.termsId);
             subject = render.deliveryLinkSubject(config.DELIVERY_LINK_EMAIL, order.tranId);
             body = render.deliveryLinkEmail({
                 text: config.DELIVERY_LINK_EMAIL,

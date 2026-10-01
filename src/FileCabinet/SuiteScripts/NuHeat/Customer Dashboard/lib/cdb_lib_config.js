@@ -13,7 +13,7 @@
  * unique across the account, so the Map/Reduce cannot define a parameter with the Suitelet's ID.
  * (NS-Opportunity-SO-Sync tried it and NetSuite refused.) The Map/Reduce therefore carries twins
  * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original, and
- * (2.0) the internal Send delivery link Suitelet carries five more prefixed custscript_cdbsend_.
+ * (2.0) the internal Send delivery link Suitelet carries six more prefixed custscript_cdbsend_.
  * PARAMETERS below names each, explicitly, per script: no derivation and no fallback, because a
  * fallback reads the wrong script's value and hides the misconfiguration. See docs/context.md
  * section 4.
@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.1
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.1';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -253,9 +253,9 @@ define(['N/runtime'], function (runtime) {
         EXCLUDED_QUOTE_TYPES: { kind: 'idlist', empty: 'throw',
             ids: { SL: 'custscript_cdb_excluded_quote_types', MR: 'custscript_cdbmr_excluded_quote_types',
                 SEND: 'custscript_cdbsend_excluded_quote_types' } },
-        // 2.0: the Send delivery link Suitelet (SEND) reads five of these, as custscript_cdbsend_ twins:
-        // the guard's three lists, the fallback author and the logo. Empty means what it means on
-        // the dashboard Suitelet.
+        // 2.0: the Send delivery link Suitelet (SEND) reads six of these, as custscript_cdbsend_ twins:
+        // the guard's three lists, the fallback author, the logo and (2.0.1) the type labels. Empty
+        // means what it means on the dashboard Suitelet.
         PAY_BACS: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_pay_bacs', MR: 'custscript_cdbmr_pay_bacs' } },
         PAY_CARD: { kind: 'id', empty: 'throw',
@@ -281,7 +281,8 @@ define(['N/runtime'], function (runtime) {
             ids: { SL: 'custscript_cdb_recent_hidden_statuses', MR: 'custscript_cdbmr_recent_hidden_statuses' } },
         // 1.2. JSON {"<quote type id>": "UFH", ...}. Parsed by parseTypeLabels(); never fails the page.
         QUOTE_TYPE_LABELS: { kind: 'text', empty: 'none',
-            ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels' } },
+            ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels',
+                SEND: 'custscript_cdbsend_quote_type_labels' } },
         LOGO_URL: { kind: 'https', empty: 'none',
             ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url',
                 SEND: 'custscript_cdbsend_logo_url' } },
