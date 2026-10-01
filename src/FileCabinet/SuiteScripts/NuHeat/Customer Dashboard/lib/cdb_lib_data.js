@@ -23,7 +23,7 @@
  * confirmed on the Estimate only; an unjoined sales order column could make the search throw.
  * cleanDescription() turns the stored HTML-ish value into plain text; render escapes it once.
  *
- * THE EXTRAS (1.2) — terms, the split reference, the balance, the total and the deposit — come
+ * THE EXTRAS (1.2) — terms, the split reference, and (2.0.5) the two system balances — come
  * from ONE SEPARATE search, getOrderExtras(), run once per request for every order on the page.
  * The main order searches never gain these columns: a custom field that does not apply to sales
  * orders makes a search throw, and that must not take the dashboard down. If the extras search
@@ -68,14 +68,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.3
+ * @version 2.0.4
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.0.3';
+    var VERSION = '2.0.4';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -518,43 +518,36 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
-     * Pure: what the customer has to pay on an order.
-     *   1. balance set (0 is a real value)   -> balance,                 basis 'balance'
-     *   2. else total set                    -> total - (deposit || 0),  basis 'total_less_deposit'
-     *   3. else                              -> null
-     * A negative result is null; onOdd, if given, is told why (the caller logs CDB AMOUNT_ODD).
+     * Pure (2.0.5): what the customer has to pay on an order — the SYSTEM BALANCES ONLY (Steve, 1 Oct):
+     *   incVat  custbodycustbody_sys_bal_incvat, the amount to pay including VAT, after any deposits
+     *   exVat   custbody_sys_bal_exvat, the same excluding VAT; null when blank
+     * The inc-VAT balance blank (or not a number) -> null: NO FALLBACK (the old total - deposit sum gave
+     * wrong figures). 0 is a real value ("Nothing left to pay on this order"). A negative inc-VAT
+     * balance is null and onOdd, if given, is told why (the caller logs CDB AMOUNT_ODD); a negative
+     * ex-VAT balance alone is dropped (exVat null).
      *
-     * @param {Object} extras - { balance, total, deposit } as the search returned them
+     * @param {Object} extras - { balance, balanceEx } as the extras search returned them
      * @param {function(string)} [onOdd]
-     * @returns {{amount: number, basis: string}|null}
+     * @returns {{incVat: number, exVat: (number|null)}|null}
      */
     function amountToPay(extras, onOdd) {
-        var balance;
-        var total;
-        var amount;
-        var basis;
+        var inc;
+        var ex;
         if (!extras) {
             return null;
         }
-        balance = toAmount(extras.balance);
-        total = toAmount(extras.total);
-        if (balance !== null) {
-            amount = balance;
-            basis = 'balance';
-        } else if (total !== null) {
-            amount = Math.round((total - (toAmount(extras.deposit) || 0)) * 100) / 100;
-            basis = 'total_less_deposit';
-        } else {
+        inc = toAmount(extras.balance);
+        if (inc === null) {
             return null;
         }
-        if (amount < 0) {
+        if (inc < 0) {
             if (onOdd) {
-                onOdd('negative amount ' + amount + ' (' + basis + '; balance "' + trim(extras.balance) +
-                    '", total "' + trim(extras.total) + '", deposit "' + trim(extras.deposit) + '")');
+                onOdd('negative balance: inc VAT "' + trim(extras.balance) + '", ex VAT "' + trim(extras.balanceEx) + '"');
             }
             return null;
         }
-        return { amount: amount, basis: basis };
+        ex = toAmount(extras.balanceEx);
+        return { incVat: inc, exVat: ex !== null && ex >= 0 ? ex : null };
     }
 
     /**
@@ -1244,7 +1237,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * renders as in 1.1 and every order is treated as pay up front. Call it once per request.
      *
      * @param {string[]} orderIds
-     * @returns {Object} soId -> { termsId, uniqueRef, balance, total, deposit }
+     * @returns {Object} soId -> { termsId, uniqueRef, balance, balanceEx }
      */
     function getOrderExtras(orderIds) {
         var result = {};
@@ -1255,14 +1248,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             collect(search.create({
                 type: search.Type.SALES_ORDER,
                 filters: [['mainline', 'is', 'T'], 'AND', ['internalid', 'anyof', orderIds]],
-                columns: [SO.TERMS, SO.UNIQUE_REF, SO.BALANCE, SO.TOTAL, SO.DEPOSIT]
+                columns: [SO.TERMS, SO.UNIQUE_REF, SO.BALANCE, SO.BALANCE_EX]
             }), function (r) {
                 result[String(r.id)] = {
                     termsId: trim(r.getValue(SO.TERMS)),
                     uniqueRef: trim(r.getValue(SO.UNIQUE_REF)),
                     balance: trim(r.getValue(SO.BALANCE)),
-                    total: trim(r.getValue(SO.TOTAL)),
-                    deposit: trim(r.getValue(SO.DEPOSIT))
+                    balanceEx: trim(r.getValue(SO.BALANCE_EX))
                 };
             });
         } catch (e) {

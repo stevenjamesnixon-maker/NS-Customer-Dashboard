@@ -40,7 +40,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.0.1
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -48,7 +48,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.0.1';
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -518,8 +518,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                         paymentChoice: PAYMENT_CHOICE[check.values.payment],
                         account: check.values.payment === data.PAYMENT.ACCOUNT,
                         // Amendment 1: whenever the choice is BACS or Card; never for Add to account.
-                        amountText: check.values.payment !== data.PAYMENT.ACCOUNT && render.amountText(guard.order.amount) ?
-                            render.amountText(guard.order.amount) + ' (' + render.amountBasisText(guard.order.amount) + ')' : ''
+                        // 2.0.5: both balances, as the customer sees them; no "basis" wording.
+                        amountText: check.values.payment !== data.PAYMENT.ACCOUNT ? render.amountText(guard.order.amount) : ''
                     }),
                 todayKey: fc.todayKey
             });

@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.4
+ * @version 2.0.5
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '2.0.4';
+    var VERSION = '2.0.5';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -110,9 +110,11 @@ define(['N/runtime'], function (runtime) {
             // account. It is the real ID: do not "fix" it.
             TERMS: 'terms',
             UNIQUE_REF: 'custbody_unique_so_ref',
+            // 2.0.5 (Steve, 1 Oct): the system balances are THE amount to pay, after any deposits —
+            // BALANCE including VAT, BALANCE_EX excluding VAT. Nothing else is read for the amount: the
+            // old total - custbody_deposit_total fallback gave inconsistent, wrong figures.
             BALANCE: 'custbodycustbody_sys_bal_incvat',
-            TOTAL: 'total',
-            DEPOSIT: 'custbody_deposit_total'
+            BALANCE_EX: 'custbody_sys_bal_exvat'
         },
         /**
          * Read from the sales order's ORIGINATING QUOTE through the createdFrom join. Confirmed
@@ -204,8 +206,6 @@ define(['N/runtime'], function (runtime) {
         FACT_EARLIEST: 'Earliest delivery',
         EARLIEST_SOONER: '(sooner? call us)',
         FACT_AMOUNT: 'Amount to pay',
-        AMOUNT_SUFFIX: ' inc VAT',
-        NOTHING_TO_PAY: 'Nothing left to pay',
         BUTTON: 'CHOOSE MY DELIVERY DATE',
         DASHBOARD_LINK: 'Or view all your projects',
         HOW_HEADING: 'How it works',

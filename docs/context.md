@@ -9,6 +9,9 @@ on. It does not describe the wider NetSuite account.
 **Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
+**2.0.5 (PR #5 amendment 5):** the amount to pay is the system balances only, shown everywhere as
+*£x inc VAT (£y ex VAT)*; the `total − deposit` fallback is removed (section 4, *Amount to pay*).
+
 **2.0.4 (PR #5 amendment 4):** the delivery-link email's hero and "Before you book" icons are
 constants in `cdb_lib_config.js`, not parameters (Steve, 1 Oct: fixed branding images are constants).
 
@@ -111,16 +114,16 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Dashboard Suitelet | 2.0.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
-| Send link Suitelet (2.0) | 2.0.4 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 2.0.4 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.5 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 2.0.3 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
-| Render library | 2.0.4 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
-| Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
+| Data library | 2.0.4 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
+| Render library | 2.0.5 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Task library | 1.2.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
 
@@ -375,18 +378,37 @@ are hidden.
 
 `getOrderExtras(orderIds)` is **one** sales order search, run **once per request** for every order
 already on the page (`mainline T`, `internalid anyof`), reading `terms`, `custbody_unique_so_ref`,
-`custbodycustbody_sys_bal_incvat`, `total` and `custbody_deposit_total`. **The main order searches
+`custbodycustbody_sys_bal_incvat` and (2.0.5) `custbody_sys_bal_exvat`. **The main order searches
 never gain these columns.** It exists because a custom field that does not apply to sales orders
 makes a search throw: here that is caught, logged once as `CDB EXTRAS_FAILED`, and `{}` comes back —
 the page renders as in 1.1, with no amount, no split reference and **every order treated as pay up
 front**.
 
-### Amount to pay (1.2)
+### Amount to pay (2.0.5 — the system balances only)
 
-`amountToPay(extras)` (pure): `balance` when set (0 is real) → basis `balance`; else `total −
-(deposit || 0)` → basis `total_less_deposit`; else `null`. A negative result is `null` and logs
-`CDB AMOUNT_ODD`. Shown as `£1,234.50` (`render.formatMoney`), or *Nothing left to pay on this order*
-at 0, and left out entirely when `null`. **Steve's rule: the amount is always shown when a delivery is
+**Field meanings (Steve, 1 Oct 2026):**
+
+| Field | Meaning |
+|---|---|
+| `custbodycustbody_sys_bal_incvat` | **The amount to pay, including VAT, after any deposits** (doubled prefix: the real ID) |
+| `custbody_sys_bal_exvat` | The amount to pay, **excluding VAT**, after deposits |
+| `subtotal` | The order total before VAT, discounts and deposits — not read |
+| discount, VAT | Separate amounts — not read |
+
+`amountToPay(extras)` (pure) returns `{ incVat, exVat }` or `null`:
+
+- the inc-VAT balance blank (or not a number) → `null` — **no fallback**. The old fallback,
+  `total − custbody_deposit_total`, gave inconsistent, wrong figures and is removed; neither field is
+  read any more;
+- `exVat` is `null` when its field is blank (or negative);
+- **0** is a real balance: *Nothing left to pay on this order*;
+- **negative** inc VAT → `null`, logged once as `CDB AMOUNT_ODD` (dashboard and send link).
+
+**One text, everywhere an amount shows** (`render.amountText()`): *£1,234.50 inc VAT*, followed by
+*(£1,028.75 ex VAT)* when the ex-VAT balance is known; nothing when `null`. The Task shows the same
+text (no "basis" wording since 2.0.5).
+
+**Steve's rule: the amount is always shown when a delivery is
 being arranged** (PR #3 amendment 1). It is shown to **every** customer, whatever the terms, in:
 
 - section 6 and the aside of the form (an account customer also gets the hint *"Only if you're
@@ -394,13 +416,14 @@ being arranged** (PR #3 amendment 1). It is shown to **every** customer, whateve
 - the bank panel of the BACS confirmation;
 - the card confirmation;
 - the *Payment details* panel of an order awaiting payment;
-- the Task, whenever the choice is BACS or Card.
+- the Task, whenever the choice is BACS or Card;
+- (2.0.3) the delivery-link email's *Amount to pay* row, for pay-up-front orders only.
 
 **An Add-to-account booking shows no amount anywhere** and does not tick *Awaiting customer
 payment*; a BACS or Card booking ticks it, whatever the terms. **The digest shows no amounts.**
 
-**The card wording names nobody**: *"We'll call you to take £x. We never ask for card details
-online."* (or *"We'll call you to take payment."* with no amount). Whoever gets the Task makes the
+**The card wording names nobody**: *"We'll call you to take £x inc VAT (£y ex VAT). We never ask for
+card details online."* (or *"We'll call you to take payment."* with no amount). Whoever gets the Task makes the
 call, and on a PE-case opportunity that is not the rep in the header.
 
 ### Pay up front or add to account (1.2)
@@ -1077,8 +1100,8 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 - Add *Add to account* to `customlist_cust_pay_intent` and set its ID on both scripts
   (`custscript_cdb_pay_account`, `custscript_cdbmr_pay_account`).
 - Replace `custscript_cdb_logo_url` / `custscript_cdbmr_logo_url` with the **coloured** logo.
-- Confirm in Sandbox that `terms`, `total`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat`
-  and `custbody_deposit_total` are valid **sales order** search columns (a failure only logs
+- Confirm in Sandbox that `terms`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat` and
+  (2.0.5) `custbody_sys_bal_exvat` are valid **sales order** search columns (a failure only logs
   `CDB EXTRAS_FAILED`, but then nobody is offered the account option).
 
 ### Release 1.1 — contradictions and decisions for Steve

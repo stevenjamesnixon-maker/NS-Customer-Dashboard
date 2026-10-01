@@ -50,7 +50,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.4
+ * @version 2.0.5
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -58,7 +58,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
     'use strict';
 
-    var VERSION = '2.0.4';
+    var VERSION = '2.0.5';
 
     /** The banner codes cdb_ue_salesorder.js shows (config.SEND_LINK_BANNERS). */
     var OUTCOME = { SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' };
@@ -172,8 +172,11 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
 
         try {
             from = data.emailAuthor(customer, cfg);
+            // 2.0.5: a negative balance is no amount, logged once as CDB AMOUNT_ODD (as on the dashboard).
             order = data.decorateOrder(guard.order, data.getOrderExtras([guard.order.id]), typeLabels(cfg), cfg,
-                customer.termsId);
+                customer.termsId, function (why) {
+                    log.audit({ title: title('AMOUNT_ODD'), details: why });
+                });
             subject = render.deliveryLinkSubject(config.DELIVERY_LINK_EMAIL, order.tranId);
             body = render.deliveryLinkEmail({
                 text: config.DELIVERY_LINK_EMAIL,

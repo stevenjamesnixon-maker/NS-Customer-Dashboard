@@ -32,13 +32,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.4
+ * @version 2.0.5
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.0.4';
+    var VERSION = '2.0.5';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -158,21 +158,21 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     var NOTHING_TO_PAY = 'Nothing left to pay on this order';
 
     /**
-     * Pure: an order's amount as the customer sees it — '' when there is none to show (unknown, or
-     * an account order), "Nothing left to pay on this order" at 0, else "£1,234.50".
-     * @param {{amount: number}|null} amount
+     * Pure (2.0.5): THE ONE amount text, used everywhere an amount shows — the dashboard's payment panel,
+     * the delivery form and its aside, the BACS and card confirmations, the delivery-link email and the
+     * Task. '' when there is none to show (unknown); "Nothing left to pay on this order" at 0; else
+     * "£1,234.50 inc VAT", followed by " (£1,028.75 ex VAT)" when the ex-VAT balance is known.
+     * @param {{incVat: number, exVat: (number|null)}|null} amount - from data.amountToPay()
      */
     function amountText(amount) {
-        if (!amount || typeof amount.amount !== 'number') {
+        if (!amount || typeof amount.incVat !== 'number') {
             return '';
         }
-        return amount.amount === 0 ? NOTHING_TO_PAY : formatMoney(amount.amount);
-    }
-
-    /** Pure: the basis of an amount, for staff. */
-    function amountBasisText(amount) {
-        return amount && amount.basis === 'balance' ? 'balance inc VAT' :
-            amount && amount.basis === 'total_less_deposit' ? 'total inc VAT less deposit' : '';
+        if (amount.incVat === 0) {
+            return NOTHING_TO_PAY;
+        }
+        return formatMoney(amount.incVat) + ' inc VAT' +
+            (typeof amount.exVat === 'number' ? ' (' + formatMoney(amount.exVat) + ' ex VAT)' : '');
     }
 
     /** A phone number as a tel: href value. */
@@ -958,7 +958,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
             '<section class="card"><h2><span class="num">6</span>How would you like to pay?</h2>' +
             (amountShown ? '<p class="amt" style="margin:0">' + (amountShown === NOTHING_TO_PAY ? esc(amountShown) + '.' :
-                'Amount to pay: <strong>' + esc(amountShown) + '</strong> including VAT') + '</p>' +
+                'Amount to pay: <strong>' + esc(amountShown) + '</strong>') + '</p>' +
                 (prepay ? '' : '<p class="hint" style="margin:0">Only if you\u2019re paying by bank transfer. Choose ' +
                     '\u2018Add to my account\u2019 and nothing is due now.</p>') : '') +
             '<fieldset><legend class="sr" style="position:absolute">Payment</legend>' + fieldError(e, 'payment') +
@@ -1518,14 +1518,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     }
 
     /**
-     * Pure (2.0.3): what the "Amount to pay" row shows — '' when it is left out: unknown amount, or not a
-     * pay-up-front order (account customers). 0 reads "Nothing left to pay".
+     * Pure (2.0.3): what the email's "Amount to pay" row shows — '' when it is left out: unknown amount,
+     * or not a pay-up-front order (account customers). 2.0.5: the one amountText(), as everywhere else.
      */
-    function amountToPayText(t, order) {
-        if (!order || !order.prepay || !order.amount || typeof order.amount.amount !== 'number') {
-            return '';
-        }
-        return order.amount.amount === 0 ? t.NOTHING_TO_PAY : formatMoney(order.amount.amount) + t.AMOUNT_SUFFIX;
+    function amountToPayText(order) {
+        return order && order.prepay ? amountText(order.amount) : '';
     }
 
     /**
@@ -1559,7 +1556,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var hero = config.EMAIL_HERO_URL;
         var name = m.greetingName || m.customerName || '';
         var project = [m.opp && m.opp.tranId, m.opp && m.opp.siteAddress].filter(function (x) { return !!x; }).join(' · ');
-        var amount = amountToPayText(t, o);
+        var amount = amountToPayText(o);
         var earliest = m.earliestKey ? shortDate(m.earliestKey) : '';
         var icons = config.EMAIL_ICONS;
         var html = '';
@@ -1936,7 +1933,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         questionsLine: questionsLine,
         formatMoney: formatMoney,
         amountText: amountText,
-        amountBasisText: amountBasisText,
         NOTHING_TO_PAY: NOTHING_TO_PAY,
         css: css,
         page: page,

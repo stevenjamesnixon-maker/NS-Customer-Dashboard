@@ -42,8 +42,8 @@ function setup(opts) {
     w.customers[42].terms = o.customerTerms === undefined ? so.terms : o.customerTerms;
     so.custbody_unique_so_ref = o.ref || '';
     so.custbodycustbody_sys_bal_incvat = o.balance === undefined ? '1234.5' : o.balance;
-    so.total = o.total || '';
-    so.custbody_deposit_total = o.deposit || '';
+    // 2.0.5: the two system balances are the only amount fields.
+    so.custbody_sys_bal_exvat = o.balanceEx || '';
     w.paramOverrides = {
         custscript_cdb_prepay_terms: o.prepayTerms === undefined ? '9' : o.prepayTerms,
         custscript_cdb_pay_account: o.payAccount === undefined ? ACCOUNT_ID : o.payAccount,
@@ -74,25 +74,20 @@ function paymentValues(html) {
 
 // ---------------------------------------------------------------- 1-2 money
 
-test('1. amountToPay: balance, zero balance, total less deposit, nothing, negative', function () {
+test('1. amountToPay (2.0.5): the system balances only — inc and ex, zero, no fallback, negative', function () {
     var odd = [];
     var onOdd = function (why) { odd.push(why); };
-    assert.deepStrictEqual(data.amountToPay({ balance: '1234.5' }, onOdd), { amount: 1234.5, basis: 'balance' });
-    assert.deepStrictEqual(data.amountToPay({ balance: '0', total: '2000' }, onOdd), { amount: 0, basis: 'balance' },
-        '0 is a real balance');
-    assert.strictEqual(render.amountText({ amount: 0, basis: 'balance' }), 'Nothing left to pay on this order');
-    assert.deepStrictEqual(data.amountToPay({ balance: '', total: '2000', deposit: '500' }, onOdd),
-        { amount: 1500, basis: 'total_less_deposit' });
-    assert.deepStrictEqual(data.amountToPay({ balance: '', total: '2000', deposit: '' }, onOdd),
-        { amount: 2000, basis: 'total_less_deposit' });
-    assert.strictEqual(data.amountToPay({ balance: '', total: '', deposit: '500' }, onOdd), null);
+    assert.deepStrictEqual(data.amountToPay({ balance: '1234.5', balanceEx: '1028.75' }, onOdd), { incVat: 1234.5, exVat: 1028.75 });
+    assert.deepStrictEqual(data.amountToPay({ balance: '1234.5', balanceEx: '' }, onOdd), { incVat: 1234.5, exVat: null });
+    assert.deepStrictEqual(data.amountToPay({ balance: '0', balanceEx: '0' }, onOdd), { incVat: 0, exVat: 0 }, '0 is a real balance');
+    assert.strictEqual(render.amountText({ incVat: 0, exVat: 0 }), 'Nothing left to pay on this order');
+    assert.strictEqual(data.amountToPay({ balance: '', balanceEx: '1028.75' }, onOdd), null, 'no inc-VAT balance, no amount');
+    assert.strictEqual(data.amountToPay({ balance: '', total: '2000', deposit: '500' }, onOdd), null, 'no total - deposit fallback');
+    assert.strictEqual(data.amountToPay({ balance: 'n/a' }, onOdd), null, 'a non-numeric balance is unset');
     assert.strictEqual(data.amountToPay(null, onOdd), null);
     assert.strictEqual(odd.length, 0);
-    assert.strictEqual(data.amountToPay({ balance: '-25' }, onOdd), null);
-    assert.strictEqual(data.amountToPay({ total: '100', deposit: '250' }, onOdd), null);
-    assert.strictEqual(odd.length, 2);
-    assert.deepStrictEqual(data.amountToPay({ balance: 'n/a', total: '10' }), { amount: 10, basis: 'total_less_deposit' },
-        'a non-numeric balance is treated as unset');
+    assert.strictEqual(data.amountToPay({ balance: '-25', balanceEx: '-20' }, onOdd), null);
+    assert.strictEqual(odd.length, 1, 'a negative balance is reported once');
 });
 
 test('1b. a negative amount is logged as CDB AMOUNT_ODD and not shown', function () {
@@ -181,15 +176,15 @@ test('5. an account customer\'s form: BACS and Add to my account, no Card; the a
     assert.ok(html.indexOf('>Add to my account<') > 0);
     assert.ok(html.indexOf('We’ll add this order to your account. No payment is needed now.') > 0);
     // Amendment 1: the amount is always shown when a delivery is being arranged, with a hint.
-    assert.ok(html.indexOf('Amount to pay: <strong>£1,234.50</strong> including VAT') > 0);
+    assert.ok(html.indexOf('Amount to pay: <strong>£1,234.50 inc VAT</strong>') > 0);
     assert.ok(html.indexOf('Only if you’re paying by bank transfer. Choose ‘Add to my account’ and nothing is due now.') > 0);
     assert.strictEqual(html.indexOf('You pay by bank transfer, or we call you'), -1, 'no payment step');
     // And the pay-up-front form shows the amount in section 6 and the aside.
     s = setup();
     html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
     assert.deepStrictEqual(paymentValues(html), ['BACS', 'CARD']);
-    assert.ok(html.indexOf('Amount to pay: <strong>£1,234.50</strong> including VAT') > 0);
-    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50</span>') > 0);
+    assert.ok(html.indexOf('Amount to pay: <strong>£1,234.50 inc VAT</strong>') > 0);
+    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50 inc VAT</span>') > 0);
 });
 
 test('6. tampered payment: CARD from account, ACCOUNT from pay up front — field error, nothing written', function () {
@@ -333,7 +328,7 @@ test('14. Task: description, split ref, payment choice, amount for pay up front;
     assert.ok(t.message.indexOf('Order: Underfloor heating for the whole of the ground floor and the new kitchen extension') >= 0);
     assert.ok(t.message.indexOf('Split reference: Manifolds only') >= 0);
     assert.ok(t.message.indexOf('Payment choice: BACS') >= 0);
-    assert.ok(t.message.indexOf('Amount to pay: £1,234.50 (balance inc VAT)') >= 0);
+    assert.ok(t.message.indexOf('Amount to pay: £1,234.50 inc VAT') >= 0);
     s = setup({ terms: '10' });
     run(s.sl, 'POST', form(s.tok, { payment: 'ACCOUNT' }));
     t = s.w.tasks[0].values;
@@ -347,7 +342,7 @@ test('15. the main order searches carry none of the extras columns', function ()
     var s = setup();
     run(s.sl, 'GET', { t: s.tok });
     run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
-    var extrasCols = ['terms', 'custbody_unique_so_ref', 'custbodycustbody_sys_bal_incvat', 'total', 'custbody_deposit_total'];
+    var extrasCols = ['terms', 'custbody_unique_so_ref', 'custbodycustbody_sys_bal_incvat', 'custbody_sys_bal_exvat'];
     var so = s.w.searches.filter(function (d) { return d.type === 'salesorder'; });
     var extras = so.filter(function (d) { return d.columns.indexOf('terms') >= 0; });
     var main = so.filter(function (d) { return d.columns.indexOf('terms') < 0; });
@@ -391,15 +386,15 @@ test('16. digest: split reference and short label in the email, no amounts; labe
 test('A1. account customer choosing BACS: the amount on the form and confirmation, and the box ticked', function () {
     var s = setup({ terms: '10' });
     var html = run(s.sl, 'GET', { t: s.tok, a: 'delivery', so: '100' });
-    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50</span>') > 0, 'the aside');
+    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50 inc VAT</span>') > 0, 'the aside');
     html = run(s.sl, 'POST', form(s.tok, { payment: 'BACS' }));
-    assert.ok(html.indexOf('<div class="srow"><span>Amount to pay</span><span>£1,234.50</span></div>') > 0, 'the bank panel');
+    assert.ok(html.indexOf('<div class="srow"><span>Amount to pay</span><span>£1,234.50 inc VAT</span></div>') > 0, 'the bank panel');
     assert.strictEqual(s.w.saves[0].values.custbody_cdb_awaiting_payment, true);
-    assert.ok(s.w.tasks[0].values.message.indexOf('Amount to pay: £1,234.50 (balance inc VAT)') >= 0, 'the Task');
+    assert.ok(s.w.tasks[0].values.message.indexOf('Amount to pay: £1,234.50 inc VAT') >= 0, 'the Task');
     // And the awaiting-payment panel on the dashboard.
     html = run(s.sl, 'GET', { t: s.tok });
     assert.ok(html.indexOf('Payment details') > 0);
-    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50</span>') > 0);
+    assert.ok(html.indexOf('<span>Amount to pay</span><span>£1,234.50 inc VAT</span>') > 0);
 });
 
 test('A2. account customer choosing Add to account: no amount anywhere, the box not ticked', function () {
@@ -416,7 +411,7 @@ test('A2. account customer choosing Add to account: no amount anywhere, the box 
 test('A3. the card confirmation names no employee', function () {
     var s = setup();
     var html = run(s.sl, 'POST', form(s.tok, { payment: 'CARD' }));
-    assert.ok(html.indexOf('We’ll call you to take <strong>£1,234.50</strong>. We never ask for card details online.') > 0);
+    assert.ok(html.indexOf('We’ll call you to take <strong>£1,234.50 inc VAT</strong>. We never ask for card details online.') > 0);
     Object.keys(s.w.employees).forEach(function (id) {
         var e = s.w.employees[id];
         [e.firstname + ' ' + e.lastname, e.firstname, e.email, e.phone].forEach(function (t) {

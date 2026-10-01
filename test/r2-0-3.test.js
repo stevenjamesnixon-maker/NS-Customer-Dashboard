@@ -41,16 +41,16 @@ test('"This order": present when the split reference is set, escaped; absent whe
 });
 
 test('"Amount to pay": pay up front with an amount -> shown; account or unknown -> absent', function () {
-    var html = render.deliveryLinkEmail(deliveryModel({ prepay: true, amount: { amount: 1722.44, basis: 'balance' } }));
+    var html = render.deliveryLinkEmail(deliveryModel({ prepay: true, amount: { incVat: 1722.44, exVat: null } }));
     assert.ok(html.indexOf('>Amount to pay</font>') > 0 && html.indexOf('<b>£1,722.44 inc VAT</b>') > 0);
     assert.ok(html.indexOf('Pay by bank transfer or card.') > 0, 'step 3: pay up front');
-    html = render.deliveryLinkEmail(deliveryModel({ prepay: false, amount: { amount: 1722.44, basis: 'balance' } }));
+    html = render.deliveryLinkEmail(deliveryModel({ prepay: false, amount: { incVat: 1722.44, exVat: null } }));
     assert.strictEqual(html.indexOf('Amount to pay'), -1, 'account');
     assert.ok(html.indexOf('Choose how you’d like to pay, or add it to your account.') > 0, 'step 3: account');
     html = render.deliveryLinkEmail(deliveryModel({ prepay: true, amount: null }));
     assert.strictEqual(html.indexOf('Amount to pay'), -1, 'unknown');
-    html = render.deliveryLinkEmail(deliveryModel({ prepay: true, amount: { amount: 0, basis: 'balance' } }));
-    assert.ok(html.indexOf('<b>Nothing left to pay</b>') > 0, '0 is a known amount');
+    html = render.deliveryLinkEmail(deliveryModel({ prepay: true, amount: { incVat: 0, exVat: 0 } }));
+    assert.ok(html.indexOf('<b>Nothing left to pay on this order</b>') > 0, '0 is a known amount (2.0.5: the one wording)');
 });
 
 test('the earliest date is the delivery form\'s first allowed day (weekend and a non-delivery date)', function () {
