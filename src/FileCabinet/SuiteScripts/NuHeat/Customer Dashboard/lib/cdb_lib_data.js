@@ -64,18 +64,23 @@
  * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
  *
+ * "TELL US WHERE YOU'RE UP TO" (2.1, release 2.1 part B): guardOpportunity() — the opportunity is
+ * the token's customer's and neither Won nor Lost — and the pure parts of the update action:
+ * validateUpdate(), stageOptions(), lostStatusFor(), versionAtLeast(). Still read-only: the writes go
+ * through the Online-quote Update Opportunity library, called from the Suitelet.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.4
+ * @version 2.1.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.0.4';
+    var VERSION = '2.1.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -108,6 +113,17 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         NOT_READY: 'order is not ready for delivery',
         RELEASED: 'order is released to the warehouse (Record Status in custscript_cdb_released_statuses)'
     };
+
+    /** 2.1: why guardOpportunity() refused. The customer sees a short notice, never these. */
+    var GUARD_OPP = {
+        NOT_FOUND: 'opportunity not found',
+        NOT_YOURS: 'opportunity belongs to another customer',
+        WON: 'opportunity is Won (WON_STATUSES)',
+        LOST: 'opportunity is Lost (LOST_STATUSES)'
+    };
+
+    /** 2.1: the two update-page modes posted as `mode`. */
+    var UPDATE_MODE = { UPDATE: 'update', NOT_GOING: 'notgoing' };
 
     // ---------------------------------------------------------------- pure
 
@@ -439,6 +455,212 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             }
         }
         return { ok: true, errors: errors, values: values };
+    }
+
+    // ---------------------------------------------------------------- 2.1: tell us where you're up to
+
+    /**
+     * Pure (2.1): is version at least min? Both 'x.y.z' (more or fewer parts are compared part by part,
+     * a missing part counting 0). Anything that is not dot-separated whole numbers is false.
+     * @returns {boolean}
+     */
+    function versionAtLeast(version, min) {
+        var a = trim(version);
+        var b = trim(min);
+        var pa;
+        var pb;
+        var i;
+        var x;
+        var y;
+        if (!/^\d+(\.\d+)*$/.test(a) || !/^\d+(\.\d+)*$/.test(b)) {
+            return false;
+        }
+        pa = a.split('.');
+        pb = b.split('.');
+        for (i = 0; i < Math.max(pa.length, pb.length); i++) {
+            x = i < pa.length ? parseInt(pa[i], 10) : 0;
+            y = i < pb.length ? parseInt(pb[i], 10) : 0;
+            if (x !== y) {
+                return x > y;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Pure (2.1): the options to offer, in the order of ids — the field's own options (from the
+     * library's fieldOptions) that are in the setting. An id the field does not offer is missing.
+     * @param {Array<{id: string, text: string}>} options
+     * @param {string[]} ids - the setting, in display order; [] hides the question
+     * @returns {{options: Array<{id: string, text: string}>, missing: string[]}}
+     */
+    function stageOptions(options, ids) {
+        var byId = {};
+        var result = { options: [], missing: [] };
+        var i;
+        for (i = 0; i < (options || []).length; i++) {
+            byId[String(options[i].id)] = options[i];
+        }
+        for (i = 0; i < (ids || []).length; i++) {
+            if (byId.hasOwnProperty(String(ids[i])) && String(ids[i]) !== '') {
+                result.options.push({ id: String(ids[i]), text: String(byId[String(ids[i])].text) });
+            } else {
+                result.missing.push(String(ids[i]));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Pure (2.1): a customer's stage as UPD_LOST_STATUS_MAP keys it — 'LEAD', 'PROSPECT' or 'CUSTOMER'
+     * — from the raw lookup value ('CUSTOMER', '_customer', 'Customer'…). '' when it is none of them.
+     */
+    function normaliseStage(raw) {
+        var text = trim(raw).replace(/^_+/, '').toUpperCase();
+        return config.CUSTOMER_STAGES.indexOf(text) >= 0 ? text : '';
+    }
+
+    /**
+     * Pure (2.1): the Lost status to set for a customer at this stage, or why none is set. FAIL CLOSED:
+     * never another stage's status (an opportunity status belongs to a stage, and setting a Customer-stage
+     * status on a prospect's opportunity can move the prospect to Customer).
+     *
+     * @param {string} stage - normaliseStage()'s result ('' unknown)
+     * @param {{status: string, map: Object}} parsed - config.parseLostStatusMap()
+     * @param {Object} cfg - LOST_STATUSES
+     * @returns {{statusId: string, why: string}} statusId '' with why when not set
+     */
+    function lostStatusFor(stage, parsed, cfg) {
+        var id;
+        if (!parsed || parsed.status === 'empty') {
+            return { statusId: '', why: 'setting empty' };
+        }
+        if (parsed.status !== 'ok') {
+            return { statusId: '', why: 'setting invalid' };
+        }
+        if (!stage) {
+            return { statusId: '', why: 'customer stage unknown' };
+        }
+        id = parsed.map[stage];
+        if (!id) {
+            return { statusId: '', why: 'no status set for stage ' + stage };
+        }
+        // A mapped status that the dashboard does not count as Lost would neither hide the project nor
+        // be a Lost status: a typo, so nothing is written.
+        if (!contains(cfg.LOST_STATUSES, id)) {
+            return { statusId: '', why: 'status ' + id + ' for stage ' + stage + ' is not in LOST_STATUSES' };
+        }
+        return { statusId: id, why: '' };
+    }
+
+    /** Pure (2.1): a yyyy-mm-dd key as dd/mm/yyyy (the objection's context line). */
+    function slashDate(key) {
+        var k = trim(key);
+        return /^\d{4}-\d{2}-\d{2}$/.test(k) ? k.slice(8, 10) + '/' + k.slice(5, 7) + '/' + k.slice(0, 4) : '';
+    }
+
+    /** Pure: text with newlines normalised and trimmed, the way the limits are counted. */
+    function longText(value) {
+        return String(value === null || value === undefined ? '' : value).replace(/\r\n?/g, '\n')
+            .replace(/^\s+|\s+$/g, '');
+    }
+
+    /** Pure: the delivery form's phone rule. */
+    function phoneOk(value) {
+        return value.length <= config.TEXT_LIMITS.CONTACT_PHONE && /^[0-9+() \-]{6,}$/.test(value);
+    }
+
+    /**
+     * Validates the "Tell us where you're up to" POST. Pure. NOTHING IS WRITTEN unless ok.
+     *
+     * Update mode: the stage (blank or one of the offered IDs), the date (blank, or a real date — when it
+     * differs from the current one, from today to five years ahead), the note (<= 1,000), and the call
+     * request (phone required and phone-shaped, best time one of CALL_TIMES) — the phone and time only
+     * when the box is ticked. changes holds only the values that differ from the current ones; blank never
+     * clears. nothing is true when there is no change, no note and no call.
+     *
+     * Not-going-ahead mode: confirm must be 'yes' (the confirm button's own value: the two-step rule), the
+     * reason blank or one of the offered IDs, the comment <= 1,000.
+     *
+     * @param {Object} input - raw strings: mode, buildStage, delDate, note, call, phone, callTime, reason,
+     *                         comment, confirm
+     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, current: { buildStage, delDateKey },
+     *                         reasonIds (offered; [] none), todayKey }
+     * @returns {{ok: boolean, mode: string, errors: Object, values: Object, changes: Object, nothing: boolean}}
+     */
+    function validateUpdate(input, ctx) {
+        var errors = {};
+        var values = {};
+        var changes = {};
+        var current = ctx.current || {};
+        var limits = config.TEXT_LIMITS;
+        var mode = trim(input.mode) === UPDATE_MODE.NOT_GOING ? UPDATE_MODE.NOT_GOING : UPDATE_MODE.UPDATE;
+        var lastKey;
+        var key;
+
+        if (mode === UPDATE_MODE.NOT_GOING) {
+            values.reason = trim(input.reason);
+            if (values.reason !== '' && !contains(ctx.reasonIds, values.reason)) {
+                errors.reason = 'Please choose one of the reasons shown.';
+            }
+            values.comment = longText(input.comment);
+            if (values.comment.length > limits.UPDATE_COMMENT) {
+                errors.comment = 'Please keep this under ' + limits.UPDATE_COMMENT + ' characters.';
+            }
+            values.confirm = trim(input.confirm) === 'yes';
+            if (!values.confirm) {
+                errors.confirm = 'Please press “Yes, we’re not going ahead” to confirm.';
+            }
+        } else {
+            values.buildStage = (ctx.stageIds || []).length ? trim(input.buildStage) : '';
+            if (values.buildStage !== '' && !contains(ctx.stageIds, values.buildStage)) {
+                errors.buildStage = 'Please choose one of the stages shown.';
+            } else if (values.buildStage !== '' && values.buildStage !== trim(current.buildStage)) {
+                changes.buildStage = values.buildStage;
+            }
+
+            values.delDate = ctx.showDate ? trim(input.delDate) : '';
+            if (values.delDate !== '' && values.delDate !== trim(current.delDateKey)) {
+                lastKey = dates.addMonths(ctx.todayKey, 60);
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(values.delDate) || !dates.isValidKey(values.delDate)) {
+                    errors.delDate = 'Please enter a date, for example 15/03/2027.';
+                } else if (values.delDate < ctx.todayKey || values.delDate > lastKey) {
+                    errors.delDate = 'Please choose a date from today onwards, within five years.';
+                } else {
+                    changes.delDate = values.delDate;
+                }
+            }
+
+            values.note = longText(input.note);
+            if (values.note.length > limits.UPDATE_NOTE) {
+                errors.note = 'Please keep this under ' + limits.UPDATE_NOTE + ' characters.';
+            }
+
+            values.call = trim(input.call) === 'T';
+            values.phone = trim(input.phone);
+            values.callTime = trim(input.callTime).toUpperCase();
+            if (values.call) {
+                if (values.phone === '') {
+                    errors.phone = 'Please give a phone number we can call.';
+                } else if (!phoneOk(values.phone)) {
+                    errors.phone = 'Please check the phone number.';
+                }
+                if (!config.CALL_TIMES.hasOwnProperty(values.callTime)) {
+                    errors.callTime = 'Please choose the best time to call.';
+                }
+            }
+        }
+
+        for (key in errors) {
+            if (errors.hasOwnProperty(key)) {
+                return { ok: false, mode: mode, errors: errors, values: values, changes: {}, nothing: false };
+            }
+        }
+        return {
+            ok: true, mode: mode, errors: errors, values: values, changes: changes,
+            nothing: mode === UPDATE_MODE.UPDATE && !changes.buildStage && !changes.delDate && values.note === '' &&
+                !values.call
+        };
     }
 
     // ---------------------------------------------------------------- 1.3: released and delivered
@@ -833,7 +1055,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
                 type: search.Type.CUSTOMER,
                 id: customerId,
                 // terms: standard field, safe in lookupFields (amendment 2).
-                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email', 'terms',
+                // 2.1: phone, the call request's default when the dashboard contact has none.
+                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email', 'phone', 'terms',
                     'salesrep', 'isinactive', CUST.DASHBOARD_CONTACT]
             });
         } catch (e) {
@@ -849,6 +1072,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             name: name || trim(r.entityid),
             greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
             email: trim(r.email),
+            phone: trim(r.phone),
             salesRep: lookupSelect(r.salesrep).value,
             termsId: lookupSelect(r.terms).value,
             dashboardContact: lookupSelect(r[CUST.DASHBOARD_CONTACT]).value,
@@ -958,6 +1182,43 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * 2.1: the contact's phone (else mobile), or ''. Never throws.
+     * @param {string} contactId
+     * @returns {string}
+     */
+    function getContactPhone(contactId) {
+        var r;
+        if (trim(contactId) === '') {
+            return '';
+        }
+        try {
+            r = search.lookupFields({ type: search.Type.CONTACT, id: contactId, columns: ['phone', 'mobilephone'] });
+        } catch (e) {
+            return '';
+        }
+        return trim(r.phone) || trim(r.mobilephone);
+    }
+
+    /**
+     * 2.1: the customer's stage, one lookup: the raw value and normaliseStage()'s result. Leads and
+     * prospects are customer records at another stage, so search.Type.CUSTOMER reads them too. Never
+     * throws: a failed lookup gives stage '' and raw the error.
+     * @param {string} customerId
+     * @returns {{stage: string, raw: string}}
+     */
+    function getCustomerStage(customerId) {
+        var r;
+        var v;
+        try {
+            r = search.lookupFields({ type: search.Type.CUSTOMER, id: customerId, columns: ['stage'] });
+        } catch (e) {
+            return { stage: '', raw: 'lookup failed: ' + (e && e.message ? e.message : String(e)) };
+        }
+        v = lookupSelect(r.stage).value || trim(r.stage);
+        return { stage: normaliseStage(v), raw: v };
+    }
+
+    /**
      * 2.0, the digest's rule: who a customer email goes to — the dashboard contact's email, else the
      * customer's own. The caller decides what an unusable result means.
      * @param {Object} customer - from getCustomer()
@@ -1029,8 +1290,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
 
     /**
      * The customer's opportunities that are not Lost.
+     * 2.1.1 (PR #7 amendment 1): also the build stage's text and the start date, for the "Projects to
+     * order" meta line — in this one search, never a lookup per row. Both fields are confirmed on the
+     * opportunity (the Online-quote library writes them).
      * @returns {Object[]} { id, tranId, title, siteAddress, status, subStatus, salesRep, pe,
-     *                       valueProposition }
+     *                       valueProposition, buildStageText, delDateKey }
      */
     function getOpportunities(customerId, cfg) {
         var s = search.create({
@@ -1044,7 +1308,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             columns: [
                 search.createColumn({ name: 'trandate', sort: search.Sort.DESC }),
                 'tranid', 'title', OPP.STATUS, OPP.SUB_STATUS, OPP.SITE_ADDRESS, 'salesrep', OPP.PE,
-                OPP.VALUE_PROPOSITION
+                OPP.VALUE_PROPOSITION, OPP.BUILD_STAGE, OPP.DEL_DATE
             ]
         });
         return collect(s, function (r) {
@@ -1057,7 +1321,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
                 subStatus: trim(r.getValue(OPP.SUB_STATUS)),
                 salesRep: trim(r.getValue('salesrep')),
                 pe: trim(r.getValue(OPP.PE)),
-                valueProposition: trim(r.getValue(OPP.VALUE_PROPOSITION))
+                valueProposition: trim(r.getValue(OPP.VALUE_PROPOSITION)),
+                buildStageText: trim(r.getText(OPP.BUILD_STAGE)),
+                delDateKey: dateKey(r.getValue(OPP.DEL_DATE))
             };
         });
     }
@@ -1232,6 +1498,112 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * 2.1: the guard for "Tell us where you're up to", for GET and POST alike. Refuses unless the
+     * opportunity's entity is THIS customer and its status is neither Won nor Lost — the "Projects to
+     * order" rule (groupProjects()).
+     *
+     * @param {string} customerId - from the verified token, never from the request
+     * @param {string} oppId - from the request
+     * @param {Object} cfg - WON_STATUSES, LOST_STATUSES
+     * @returns {{ok: boolean, reason: string, opportunity: Object}} opportunity: { id, title, tranId,
+     *   siteAddress, status, salesRep, pe, valueProposition, buildStage, buildStageText, delDateKey }
+     */
+    function guardOpportunity(customerId, oppId, cfg) {
+        var result = { ok: false, reason: '', opportunity: null };
+        var opp;
+        var stage;
+        if (!/^\d+$/.test(trim(oppId))) {
+            result.reason = GUARD_OPP.NOT_FOUND;
+            return result;
+        }
+        try {
+            opp = search.lookupFields({
+                type: search.Type.OPPORTUNITY,
+                id: trim(oppId),
+                columns: ['entity', 'title', 'tranid', 'salesrep', OPP.PE, OPP.VALUE_PROPOSITION, OPP.STATUS,
+                    OPP.SITE_ADDRESS, OPP.BUILD_STAGE, OPP.DEL_DATE]
+            });
+        } catch (e) {
+            result.reason = GUARD_OPP.NOT_FOUND;
+            return result;
+        }
+        if (lookupSelect(opp.entity).value !== String(customerId)) {
+            result.reason = GUARD_OPP.NOT_YOURS;
+            return result;
+        }
+        stage = lookupSelect(opp[OPP.BUILD_STAGE]);
+        result.opportunity = {
+            id: trim(oppId),
+            title: trim(opp.title),
+            tranId: trim(opp.tranid),
+            siteAddress: trim(opp[OPP.SITE_ADDRESS]),
+            status: lookupSelect(opp[OPP.STATUS]).value,
+            salesRep: lookupSelect(opp.salesrep).value,
+            pe: lookupSelect(opp[OPP.PE]).value,
+            valueProposition: lookupSelect(opp[OPP.VALUE_PROPOSITION]).value,
+            buildStage: stage.value,
+            buildStageText: stage.text,
+            delDateKey: dateKey(opp[OPP.DEL_DATE])
+        };
+        if (contains(cfg.LOST_STATUSES, result.opportunity.status)) {
+            result.reason = GUARD_OPP.LOST;
+            return result;
+        }
+        if (contains(cfg.WON_STATUSES, result.opportunity.status)) {
+            result.reason = GUARD_OPP.WON;
+            return result;
+        }
+        result.ok = true;
+        return result;
+    }
+
+    /**
+     * 2.1: the opportunity's open quotes (native Estimate:A, Open), for the not-going-ahead Task — the
+     * account manager decides what happens to them; the dashboard never touches an estimate. FAIL-SAFE:
+     * null when the search throws (the Task says so).
+     * @param {string} oppId
+     * @returns {Array<{id: string, tranId: string, description: string}>|null}
+     */
+    function getOpenQuotes(oppId) {
+        try {
+            return collect(search.create({
+                type: search.Type.ESTIMATE,
+                filters: [['mainline', 'is', 'T'], 'AND', [SO.OPPORTUNITY, 'anyof', trim(oppId)], 'AND',
+                    ['status', 'anyof', ['Estimate:A']]],
+                // The quote description is confirmed on the Estimate (section 0, 8): unjoined here, because
+                // this IS the estimate search.
+                columns: [search.createColumn({ name: 'tranid', sort: search.Sort.ASC }), config.FIELDS.QUOTE.DESCRIPTION]
+            }), function (r) {
+                return { id: String(r.id), tranId: trim(r.getValue('tranid')),
+                    description: cleanDescription(r.getValue(config.FIELDS.QUOTE.DESCRIPTION)) };
+            });
+        } catch (e) {
+            log.audit({ title: config.logTitle('OPEN_QUOTES_FAILED'), details: 'Opportunity ' + oppId + ': ' +
+                (e && e.message ? e.message : String(e)) });
+            return null;
+        }
+    }
+
+    /**
+     * 2.1: the objection types to offer as "Why not?" — their names from customrecord_nh_objection_type,
+     * in the setting's order. FAIL-SAFE: a failed search logs CDB OBJECTION_TYPES_FAILED and offers none.
+     * @param {string[]} ids - UPD_OBJECTION_TYPES
+     * @returns {{options: Array<{id: string, text: string}>, missing: string[]}}
+     */
+    function getObjectionTypes(ids) {
+        if (!(ids || []).length) {
+            return { options: [], missing: [] };
+        }
+        try {
+            return getListOptions(config.RECORD_TYPES.OBJECTION_TYPE, ids);
+        } catch (e) {
+            log.audit({ title: config.logTitle('OBJECTION_TYPES_FAILED'), details: config.RECORD_TYPES.OBJECTION_TYPE +
+                ': ' + (e && e.message ? e.message : String(e)) + '. No reason list offered.' });
+            return { options: [], missing: [] };
+        }
+    }
+
+    /**
      * The 1.2 extras for orders ALREADY FOUND by the main searches, in one separate search.
      * FAIL-SAFE: any error is logged once as CDB EXTRAS_FAILED and {} is returned, so the page
      * renders as in 1.1 and every order is treated as pay up front. Call it once per request.
@@ -1387,7 +1759,20 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         DESIGN_BADGES: DESIGN_BADGES,
         PAYMENT: PAYMENT,
         GUARD: GUARD,
+        GUARD_OPP: GUARD_OPP,
+        UPDATE_MODE: UPDATE_MODE,
         contains: contains,
+        versionAtLeast: versionAtLeast,
+        stageOptions: stageOptions,
+        normaliseStage: normaliseStage,
+        lostStatusFor: lostStatusFor,
+        slashDate: slashDate,
+        validateUpdate: validateUpdate,
+        guardOpportunity: guardOpportunity,
+        getOpenQuotes: getOpenQuotes,
+        getObjectionTypes: getObjectionTypes,
+        getContactPhone: getContactPhone,
+        getCustomerStage: getCustomerStage,
         isOpenOrder: isOpenOrder,
         orderState: orderState,
         groupProjects: groupProjects,

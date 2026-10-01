@@ -37,15 +37,19 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
+ * 3.1 (release 2.1 part B): three record-only keys for "Tell us where you're up to" —
+ * UPD_LOST_STATUS_MAP, UPD_BUILD_STAGES and UPD_OBJECTION_TYPES. They have NO script parameter
+ * (ids: {}): a missing row means the key's empty rule, "none". parseLostStatusMap() reads the map.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 3.0.0
+ * @version 3.1.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.0.0';
+    var VERSION = '3.1.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -83,6 +87,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
 
     var RECORD_TYPES = {
         NON_DELIVERY: 'customrecord_cdb_nondelivery',
+        // 3.1: the Customer Objection types (Online-quote); names read for the "Why not?" list.
+        OBJECTION_TYPE: 'customrecord_nh_objection_type',
         LIST_TIME: 'customlist_del_time_per',
         LIST_VEHICLE: 'customlist_delivery_veh',
         LIST_UNLOAD: 'customlist_unload_req'
@@ -105,7 +111,11 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             SUB_STATUS: 'custbody_opportunity_sub_status',
             SITE_ADDRESS: 'custbody_opp_site_adress',
             PE: 'custbody_pe',
-            VALUE_PROPOSITION: 'custbody_value_proposition'
+            VALUE_PROPOSITION: 'custbody_value_proposition',
+            // 3.1 (release 2.1 part B): the two fields the customer can change, through the Online-quote
+            // Update Opportunity library only (OPPLIB below). Read by guardOpportunity(); never written here.
+            BUILD_STAGE: 'custbody_build_stage',
+            DEL_DATE: 'custbody_opp_del_date'
         },
         SALES_ORDER: {
             OPPORTUNITY: 'opportunity',
@@ -189,8 +199,37 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         CONTACT_NAME: 100,
         CONTACT_PHONE: 40,
         CONTACT_EMAIL: 254,
-        SPECIAL_REQUESTS: 1000
+        SPECIAL_REQUESTS: 1000,
+        // 3.1: "Tell us where you're up to": the note and the not-going-ahead comment.
+        UPDATE_NOTE: 1000,
+        UPDATE_COMMENT: 1000
     };
+
+    /**
+     * 3.1 (release 2.1 part B): the Online-quote Update Opportunity library — the ONLY way the dashboard
+     * writes an opportunity or creates an objection. Required by ABSOLUTE path at request time (not in
+     * define()), so a missing or old library costs the update action only, never the dashboard. The
+     * folder name has a space; AMD module IDs allow it. MIN_VERSION: fieldOptions, writeOppUpdate and
+     * createObjections arrived in 1.2.0.
+     */
+    var OPPLIB = {
+        PATH: '/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib',
+        MIN_VERSION: '1.2.0'
+    };
+
+    /**
+     * 3.1: the customer stages an opportunity's customer can be at, as UPD_LOST_STATUS_MAP keys them.
+     * NetSuite's own stage names, the same in every account.
+     */
+    var CUSTOMER_STAGES = ['LEAD', 'PROSPECT', 'CUSTOMER'];
+
+    /** 3.1: the "best time to call" choices. Customer-facing wording; the Task uses label. */
+    var CALL_TIMES = {
+        MORNING: { label: 'Morning', phrase: 'in the morning' },
+        AFTERNOON: { label: 'Afternoon', phrase: 'in the afternoon' },
+        ANY: { label: 'Any time', phrase: 'soon' }
+    };
+    var CALL_TIME_ORDER = ['MORNING', 'AFTERNOON', 'ANY'];
 
     /** How far ahead a delivery can be booked. */
     var BOOKING_HORIZON_MONTHS = 6;
@@ -454,7 +493,18 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         DIGEST_DAYS: { kind: 'int', empty: 'default', defaultValue: 14,
             ids: { MR: 'custscript_cdb_digest_days' } },
         DIGEST_CAP: { kind: 'int', empty: 'default', defaultValue: 200,
-            ids: { MR: 'custscript_cdb_digest_cap' } }
+            ids: { MR: 'custscript_cdb_digest_cap' } },
+
+        // 3.1 (release 2.1 part B): "Tell us where you're up to". RECORD ONLY — no parameter on any
+        // script (ids: {}), so a missing row is "none". Dashboard Suitelet only.
+        // JSON {"CUSTOMER": "<status id>", "PROSPECT": "...", "LEAD": "..."}: the Lost status for an
+        // opportunity whose customer is at that stage (parseLostStatusMap()). Empty or invalid: "not going
+        // ahead" sends the Task but does not set Lost. NEVER another stage's status (it can move the stage).
+        UPD_LOST_STATUS_MAP: { kind: 'text', empty: 'none', ids: {} },
+        // custbody_build_stage option IDs offered, in this order. Empty: the stage question is hidden.
+        UPD_BUILD_STAGES: { kind: 'idlist', empty: 'none', ids: {} },
+        // customrecord_nh_objection_type IDs offered as "Why not?", in this order. Empty: no reason list.
+        UPD_OBJECTION_TYPES: { kind: 'idlist', empty: 'none', ids: {} }
     };
 
     /**
@@ -467,7 +517,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'PAY_BACS', 'PAY_CARD', 'FALLBACK_EMPLOYEE',
         'PREPAY_TERMS', 'PAY_ACCOUNT', 'RELEASED_STATUSES', 'RECENT_DAYS', 'RECENT_HIDDEN_STATUSES', 'QUOTE_TYPE_LABELS',
         'LOGO_URL', 'TIME_VALUES', 'VEHICLE_VALUES', 'UNLOAD_VALUES', 'PE_VALUEPROPS', 'NOTICE_DAYS', 'BANK_NAME',
-        'BANK_SORT', 'BANK_ACCOUNT', 'OPTION_HINTS', 'EDD_DEFINITE'];
+        'BANK_SORT', 'BANK_ACCOUNT', 'OPTION_HINTS', 'EDD_DEFINITE',
+        // 3.1: record only, no parameter column entry.
+        'UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES'];
     SCRIPT_KEYS[SCRIPTS.DIGEST] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'NEEDINFO_SUBSTATUS',
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'PAY_BACS', 'PAY_CARD', 'FALLBACK_EMPLOYEE',
         'PAY_ACCOUNT', 'RELEASED_STATUSES', 'RECENT_DAYS', 'RECENT_HIDDEN_STATUSES', 'QUOTE_TYPE_LABELS', 'LOGO_URL',
@@ -822,6 +874,37 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     }
 
     /**
+     * Pure (3.1): parses UPD_LOST_STATUS_MAP, {"CUSTOMER": "14", "PROSPECT": "35", "LEAD": "54"}. Never
+     * throws. Keys are matched after trimming and upper-casing; only CUSTOMER_STAGES keys are kept. A
+     * value must be a whole number (a string or a number); any other entry is ignored, so that stage has
+     * no mapping. Anything that is not a JSON object is invalid (the caller logs it once and treats the
+     * setting as empty).
+     * @returns {{status: string, map: Object, detail: string}} status 'empty' | 'ok' | 'invalid'
+     */
+    function parseLostStatusMap(raw) {
+        var json = parseJsonObject(raw);
+        var map = {};
+        var key;
+        var stage;
+        var value;
+        if (json.status !== 'ok') {
+            return { status: json.status, map: map, detail: json.detail };
+        }
+        for (key in json.value) {
+            if (!json.value.hasOwnProperty(key)) {
+                continue;
+            }
+            stage = String(key).replace(/^\s+|\s+$/g, '').toUpperCase();
+            value = json.value[key];
+            value = typeof value === 'number' || typeof value === 'string' ? String(value).replace(/^\s+|\s+$/g, '') : '';
+            if (CUSTOMER_STAGES.indexOf(stage) >= 0 && /^\d+$/.test(value)) {
+                map[stage] = String(parseInt(value, 10));
+            }
+        }
+        return { status: 'ok', map: map, detail: '' };
+    }
+
+    /**
      * Pure: the error load() throws when a setting is missing.
      * @param {string[]} missing
      * @param {string[]} [keys] - the setting key of each entry (3.0), named in the message
@@ -1009,6 +1092,11 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
+        parseLostStatusMap: parseLostStatusMap,
+        OPPLIB: OPPLIB,
+        CUSTOMER_STAGES: CUSTOMER_STAGES,
+        CALL_TIMES: CALL_TIMES,
+        CALL_TIME_ORDER: CALL_TIME_ORDER,
         PARAMETERS: PARAMETERS,
         SCRIPT_KEYS: SCRIPT_KEYS,
         PARAMETER_COLUMNS: PARAMETER_COLUMNS,

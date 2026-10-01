@@ -6,6 +6,9 @@
  *   GET  ?t=<token>                         the dashboard
  *   GET  ?t=<token>&a=delivery&so=<id>      the delivery form
  *   POST  t, a=delivery, so, form fields    the request: SO fields, then a Task, then confirmation
+ *   GET  ?t=<token>&a=update&opp=<id>       "Tell us where you're up to" (2.1; "Give us an update" to customers)
+ *   POST  t, a=update, opp, mode, fields    update: opportunity fields, then a Task, then confirmation;
+ *                                           not going ahead: objection, then Lost, then a Task (2.1)
  *
  * THE CUSTOMER IS THE TOKEN'S. Every request verifies the token first, and the customer ID used
  * from then on comes from the verified token, never from a request parameter. The sales order ID
@@ -20,14 +23,26 @@
  * link straight to the action (the "Send delivery link" email links to ?t=…&a=delivery&so=…), and
  * the confirmation pages link back to the dashboard.
  *
+ * THE OPPORTUNITY ID ALSO COMES FROM THE REQUEST (2.1), so every update read and write goes through
+ * data.guardOpportunity(): the opportunity's entity is THIS customer, and it is neither Won nor Lost.
+ *
  * WHAT THIS SCRIPT WRITES — and nothing else:
  *   - the sales order fields in brief B5 (setOrderFields below), plus, from 1.1, two OPTIONAL
  *     fields written only when so.getField() finds them on the loaded record:
  *     custbody_cdb_awaiting_payment := true (never cleared by anything in this repo) and
  *     custbody_edd_certainty := custscript_cdb_edd_definite_value (skipped when that is empty);
- *   - one Task per request (lib/cdb_lib_task.js).
+ *   - one Task per request (lib/cdb_lib_task.js);
+ *   - 2.1, ONLY through the Online-quote Update Opportunity library (config.OPPLIB, >= 1.2.0):
+ *     custbody_build_stage and custbody_opp_del_date (writeOppUpdate, changed values only, blank never
+ *     clears), entitystatus = the Lost status for the customer's stage (writeOppUpdate), and one
+ *     Customer Objection (createObjections).
  * It NEVER writes custbody_del_date (the confirmed date: a workflow runs from it),
- * custbody_finance_status, any opportunity field or any customer field.
+ * custbody_finance_status (the Record Status), custbody_opportunity_sub_status, any other opportunity
+ * field, any estimate or any customer field.
+ *
+ * THE LIBRARY IS OPTIONAL (2.1). It is required at request time by absolute path, not in define(): if it
+ * is missing or older than 1.2.0, the update action is unavailable (no button; a direct link says to
+ * call the account manager), CDB OPPLIB_VERSION is logged once, and everything else works as before.
  *
  * ANY LINK FAILURE shows one generic page and logs the reason at audit. A failure of our own
  * (a missing parameter, a search that throws) shows a generic error page and logs at ERROR.
@@ -40,15 +55,17 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.1
+ * @version 2.1.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
-    './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
-    function (record, runtime, log, config, token, dates, data, render, task) {
+    './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
+    function (record, runtime, log, config, token, dates, data, render, task, requireModule) {
 
     'use strict';
 
-    var VERSION = '2.0.1';
+    var VERSION = '2.1.2';
+
+    var OPP = config.FIELDS.OPPORTUNITY;
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -59,7 +76,11 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     var NOTICES = {
         GENERIC: 'That order can\'t be booked online at the moment. Your account manager will be in touch.',
         BOOKED: 'Delivery for order {tranid} is already booked.',
-        ALREADY: 'You\'ve already requested delivery for order {tranid}. Your account manager will be in touch.'
+        ALREADY: 'You\'ve already requested delivery for order {tranid}. Your account manager will be in touch.',
+        // 2.1: guardOpportunity() refusals.
+        OPP_GENERIC: 'That project can\'t be updated online. Please contact your account manager.',
+        OPP_WON: 'That project has been ordered, so there\'s nothing to update here.',
+        OPP_LOST: 'That project is closed. If anything has changed, please contact your account manager.'
     };
 
     function title(name) {
@@ -121,6 +142,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             id: recipient.employeeId,
             source: recipient.source,
             name: employee ? employee.name : '',
+            firstName: employee ? employee.firstName : '',
             phone: employee ? employee.phone : '',
             email: employee ? employee.email : ''
         };
@@ -172,6 +194,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var groups = data.getProjects(ctx.customer.id, ctx.cfg);
         var am = customerManager(ctx);
         var todayKey = dates.londonTodayKey(Date.now());
+        var canUpdate;
         // 1.3: one more search per page (recently delivered; fail-safe), and still ONE extras search
         // for every order on the page, recent rows included. A failed extras search leaves them
         // pay-up-front.
@@ -179,6 +202,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             typeLabels(ctx), ctx.cfg, ctx.customer.termsId, todayKey, amountOdd);
         // 1.3.2: "Projects for delivery" keeps what needs the customer; the rest is "Booked deliveries".
         data.arrangeSections(groups);
+        // 2.1: the library is only needed (and only required) when there is an open quote to show it on.
+        canUpdate = groups.toOrder.length > 0 && !!oppLib().lib;
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,
@@ -191,7 +216,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             recentDays: ctx.cfg.RECENT_DAYS,
             deliveryUrl: function (orderId) {
                 return ctx.baseUrl + '&a=delivery&so=' + encodeURIComponent(orderId);
-            }
+            },
+            updateUrl: canUpdate ? function (oppId) {
+                return ctx.baseUrl + '&a=update&opp=' + encodeURIComponent(oppId);
+            } : null
         });
     }
 
@@ -553,6 +581,444 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         });
     }
 
+    // ---------------------------------------------------------------- 2.1: tell us where you're up to
+
+    /** The library, once per execution: { lib, reason }; lib null when unavailable. */
+    var oppLibState = null;
+
+    /**
+     * 2.1: the Online-quote Update Opportunity library (config.OPPLIB). Required here, at request time,
+     * so a missing file or a load error costs the update action only. Server-side require() runs its
+     * callback synchronously. LIB_VERSION below 1.2.0 (or missing) makes it unavailable. CDB OPPLIB_VERSION
+     * is logged once per execution when it is unavailable.
+     * @returns {{lib: Object|null, reason: string}}
+     */
+    function oppLib() {
+        var lib = null;
+        var reason = '';
+        if (oppLibState) {
+            return oppLibState;
+        }
+        try {
+            requireModule([config.OPPLIB.PATH], function (m) {
+                lib = m;
+            });
+            if (!lib) {
+                reason = 'require() returned no module';
+            }
+        } catch (e) {
+            reason = 'could not be loaded: ' + (e && e.message ? e.message : String(e));
+        }
+        if (lib && !data.versionAtLeast(lib.LIB_VERSION, config.OPPLIB.MIN_VERSION)) {
+            reason = 'LIB_VERSION ' + (lib.LIB_VERSION ? '"' + lib.LIB_VERSION + '"' : 'missing') + ', ' +
+                config.OPPLIB.MIN_VERSION + ' or later needed';
+        }
+        oppLibState = { lib: reason ? null : lib, reason: reason };
+        if (reason) {
+            log.audit({ title: title('OPPLIB_VERSION'), details: config.OPPLIB.PATH + ': ' + reason +
+                '. "Tell us where you\'re up to" is unavailable; the rest of the dashboard works.' });
+        }
+        return oppLibState;
+    }
+
+    /** An OPPLIB_* error (a plain Error whose name is the code) or any other, for logs and Tasks. */
+    function errorText(e) {
+        var message = e && e.message ? e.message : String(e);
+        // The library's messages already start "OPPLIB_CODE: ", so the name is not repeated.
+        return e && e.name && message.indexOf(e.name) !== 0 ? e.name + ': ' + message : message;
+    }
+
+    /** The notice for a guardOpportunity() refusal, and the audit line. */
+    function oppGuardNotice(ctx, guard, oppId) {
+        log.audit({ title: title('GUARD_REFUSED'), details: 'Customer ' + ctx.customer.id + ', opportunity ' +
+            oppId + ': ' + guard.reason });
+        if (guard.reason === data.GUARD_OPP.WON) {
+            return NOTICES.OPP_WON;
+        }
+        if (guard.reason === data.GUARD_OPP.LOST) {
+            return NOTICES.OPP_LOST;
+        }
+        return NOTICES.OPP_GENERIC;
+    }
+
+    /** The call-time choices, in display order. */
+    function callTimeOptions() {
+        return config.CALL_TIME_ORDER.map(function (k) {
+            return { id: k, text: config.CALL_TIMES[k].label };
+        });
+    }
+
+    /**
+     * Everything the update page needs besides the values: the offered stages and reasons, whether the
+     * date shows, the people.
+     */
+    function updateContext(ctx, guard, lib) {
+        var opp = guard.opportunity;
+        var stages = { options: [], missing: [] };
+        var reasons = data.getObjectionTypes(ctx.cfg.UPD_OBJECTION_TYPES);
+        if (ctx.cfg.UPD_BUILD_STAGES.length) {
+            try {
+                stages = data.stageOptions(lib.fieldOptions(OPP.BUILD_STAGE, opp.id), ctx.cfg.UPD_BUILD_STAGES);
+            } catch (e) {
+                // Never fails the page: the question is hidden.
+                log.audit({ title: title('BUILD_STAGES_FAILED'), details: 'Opportunity ' + opp.id + ': ' + errorText(e) +
+                    '. The stage question is hidden.' });
+            }
+        }
+        if (stages.missing.length || reasons.missing.length) {
+            log.audit({ title: title('LIST_VALUE_MISSING'), details: 'Setting IDs not found, so not offered. ' +
+                'UPD_BUILD_STAGES: [' + stages.missing.join(',') + '] UPD_OBJECTION_TYPES: [' +
+                reasons.missing.join(',') + ']' });
+        }
+        return {
+            todayKey: dates.londonTodayKey(Date.now()),
+            stages: stages.options,
+            // The goods date is asked only while the opportunity is not Won: after Won, the sync copies
+            // custbody_opp_del_date to the sales orders' ship dates, so a customer edit would move them.
+            // guardOpportunity() already refuses Won; this keeps the rule where the field is shown.
+            showDate: !data.contains(ctx.cfg.WON_STATUSES, opp.status),
+            reasons: reasons.options,
+            am: customerManager(ctx),
+            assignee: taskAssignee(opp, ctx.cfg)
+        };
+    }
+
+    /** What the page shows before the customer has typed anything. */
+    function updateDefaults(ctx, guard) {
+        return {
+            buildStage: guard.opportunity.buildStage,
+            delDate: guard.opportunity.delDateKey,
+            note: '',
+            call: false,
+            phone: data.getContactPhone(ctx.customer.dashboardContact) || ctx.customer.phone || '',
+            callTime: '',
+            reason: '',
+            comment: ''
+        };
+    }
+
+    function renderUpdate(ctx, guard, uc, values, errors, notice, notGoingOpen) {
+        return render.updatePage({
+            logoUrl: ctx.cfg.LOGO_URL,
+            am: uc.am,
+            assignee: uc.assignee,
+            opp: guard.opportunity,
+            actionUrl: ctx.baseUrl,
+            backUrl: ctx.baseUrl,
+            token: ctx.token,
+            stages: uc.stages,
+            showDate: uc.showDate,
+            values: values,
+            errors: errors || {},
+            notice: notice || '',
+            reasons: uc.reasons,
+            notGoingOpen: !!notGoingOpen,
+            limits: config.TEXT_LIMITS,
+            callTimes: callTimeOptions()
+        });
+    }
+
+    function renderUnavailable(ctx) {
+        return render.unavailablePage({ logoUrl: ctx.cfg.LOGO_URL, am: customerManager(ctx), backUrl: ctx.baseUrl });
+    }
+
+    /** GET ?a=update&opp= */
+    function handleUpdateGet(ctx, oppId) {
+        var guard = data.guardOpportunity(ctx.customer.id, oppId, ctx.cfg);
+        var lib;
+        var uc;
+        if (!guard.ok) {
+            return renderDashboard(ctx, oppGuardNotice(ctx, guard, oppId));
+        }
+        lib = oppLib().lib;
+        if (!lib) {
+            return renderUnavailable(ctx);
+        }
+        uc = updateContext(ctx, guard, lib);
+        return renderUpdate(ctx, guard, uc, updateDefaults(ctx, guard), {}, '', false);
+    }
+
+    /** The submitted update fields, raw. */
+    function updateInput(params) {
+        return {
+            mode: params.mode,
+            buildStage: params.buildStage,
+            delDate: params.delDate,
+            note: params.note,
+            call: params.call,
+            phone: params.phone,
+            callTime: params.callTime,
+            reason: params.reason,
+            comment: params.comment,
+            confirm: params.confirm
+        };
+    }
+
+    /** The values to show again after a rejected POST: the defaults, then what was posted. */
+    function mergeValues(base, posted) {
+        var out = {};
+        var k;
+        for (k in base) {
+            if (base.hasOwnProperty(k)) {
+                out[k] = base[k];
+            }
+        }
+        for (k in posted) {
+            if (posted.hasOwnProperty(k) && k !== 'confirm') {
+                out[k] = posted[k];
+            }
+        }
+        return out;
+    }
+
+    /** "Ray will call you in the morning." (the assignee makes the call), or '' with no call. */
+    function callText(uc, v) {
+        var phrase;
+        if (!v.call) {
+            return '';
+        }
+        phrase = config.CALL_TIMES[v.callTime].phrase;
+        return uc.assignee.firstName ? uc.assignee.firstName + ' will call you ' + phrase + '.' :
+            'We\u2019ll call you ' + phrase + '.';
+    }
+
+    /**
+     * The update path: the changed opportunity values through writeOppUpdate, then the Task, then the
+     * confirmation. A failed write is not the customer's problem: the Task still goes, saying the values
+     * were NOT saved, so the account manager makes the change.
+     */
+    function applyUpdate(ctx, guard, uc, check, lib) {
+        var opp = guard.opportunity;
+        var v = check.values;
+        var values = {};
+        var attempted = [];
+        var saved = [];
+        var notSaved = '';
+        var result;
+        var am = uc.assignee;
+        var call = v.call ? { phone: render.esc(v.phone), timeLabel: config.CALL_TIMES[v.callTime].label } : null;
+        var taskResult;
+        var i;
+
+        if (check.changes.buildStage) {
+            values[OPP.BUILD_STAGE] = check.changes.buildStage;
+            attempted.push({ key: 'build_stage', label: 'Project stage',
+                oldText: textOf(uc.stages, opp.buildStage) || opp.buildStageText || opp.buildStage,
+                newText: textOf(uc.stages, check.changes.buildStage) });
+        }
+        if (check.changes.delDate) {
+            values[OPP.DEL_DATE] = check.changes.delDate;
+            // Amendment 1: the label the account manager reads (Task, CDB OPP_UPDATED) says what the
+            // customer was asked; the field is still custbody_opp_del_date.
+            attempted.push({ key: 'del_date', label: 'Expected to begin work',
+                oldText: dates.formatLong(opp.delDateKey), newText: dates.formatLong(check.changes.delDate) });
+        }
+
+        if (attempted.length) {
+            try {
+                // Only the changed values; an allowed list for the select, always (the library refuses a
+                // select without one).
+                result = lib.writeOppUpdate({
+                    oppId: opp.id,
+                    values: values,
+                    allowed: { custbody_build_stage: ctx.cfg.UPD_BUILD_STAGES },
+                    logKey: title('OPP_WRITE')
+                });
+                for (i = 0; i < attempted.length; i++) {
+                    if (result && result.written && result.written.hasOwnProperty(attempted[i].key)) {
+                        saved.push(attempted[i]);
+                    }
+                }
+                log.audit({ title: title('OPP_UPDATED'), details: clip('Opportunity ' + opp.id + ' (' + opp.tranId +
+                    '), customer ' + ctx.customer.id + ': ' + (saved.length ? saved.map(function (c) {
+                        return c.label + ' ' + (c.oldText || '(empty)') + ' -> ' + c.newText;
+                    }).join('; ') : 'nothing changed on the record') + ' | written ' + JSON.stringify(result.written)) });
+            } catch (e) {
+                notSaved = errorText(e);
+                log.error({ title: title('OPP_UPDATE_FAILED'), details: 'Opportunity ' + opp.id + ', customer ' +
+                    ctx.customer.id + ': NOT updated (' + notSaved + '). Attempted: ' + JSON.stringify(values) +
+                    '. The Task says so.' });
+            }
+        }
+
+        try {
+            taskResult = task.createTask({
+                title: task.buildUpdateTitle(opp.tranId, opp.title),
+                assigneeId: am.id,
+                customerId: ctx.customer.id,
+                opportunityId: opp.id,
+                // The customer's own words are escaped (brief: escape everything, the Task included).
+                message: task.buildUpdateMessage({ changes: saved, attempted: attempted, notSaved: notSaved,
+                    note: render.esc(v.note), call: call }),
+                todayKey: uc.todayKey,
+                priority: task.PRIORITY.MEDIUM
+            });
+            log.audit({ title: title('UPDATE_TASK'), details: 'Task ' + taskResult.id + ' (customer update) for ' +
+                'opportunity ' + opp.id + ', assigned to ' + am.id + ' (' + am.source + '), sendemail ' +
+                (taskResult.sendEmailSet ? 'set' : 'NOT set') + ', call ' + (call ? 'requested' : 'not requested') });
+        } catch (e2) {
+            log.error({ title: title('TASK_FAILED'), details: 'Opportunity ' + opp.id + ': the customer update Task ' +
+                'was not created. Opportunity ' + (notSaved ? 'NOT updated' : 'updated as logged') + '. Assignee ' +
+                am.id + ' (' + am.source + '). ' + errorText(e2) });
+        }
+
+        return render.updateDone({
+            logoUrl: ctx.cfg.LOGO_URL,
+            am: uc.am,
+            // Amendment 2: the customer sees the stage without the list's numbering; the Task above keeps it.
+            saved: saved.map(function (c) {
+                return { label: c.label, text: c.key === 'build_stage' ? render.stageLabel(c.newText) : c.newText };
+            }),
+            notSaved: !!notSaved,
+            callText: callText(uc, v),
+            backUrl: ctx.baseUrl
+        });
+    }
+
+    /**
+     * The not-going-ahead path, IN THIS ORDER: the objection (if a reason was chosen) -> Lost (the status
+     * mapped from the customer's stage, else skipped and logged) -> the high-priority Task -> the
+     * confirmation. Each step's failure is carried into the Task; none stops the next. Open estimates
+     * are listed for the account manager and never touched.
+     */
+    function notGoingAhead(ctx, guard, uc, v, lib) {
+        var opp = guard.opportunity;
+        var am = uc.assignee;
+        var objectionLine = '';
+        var objectionFailed = false;
+        var lostLine;
+        var stage;
+        var parsed;
+        var lost;
+        var result;
+        var quotes;
+        var taskResult;
+
+        // 1. The objection. The reason was checked against UPD_OBJECTION_TYPES (and the names found) by
+        //    validateUpdate(): the library does not validate type IDs.
+        if (v.reason) {
+            try {
+                result = lib.createObjections({
+                    oppId: opp.id,
+                    typeIds: [v.reason],
+                    notes: v.comment,
+                    contextLine: 'Customer, via dashboard (' + data.slashDate(uc.todayKey) + ')',
+                    raisedBy: '',
+                    raisedOn: uc.todayKey,
+                    logKey: title('OBJECTION')
+                });
+                objectionFailed = !result.created.length;
+                objectionLine = !objectionFailed ? 'Customer Objection created (' + result.created.join(', ') + ').' :
+                    'Customer Objection NOT created: ' + (result.errors[v.reason] || 'unknown error') + '.';
+            } catch (e) {
+                objectionFailed = true;
+                objectionLine = 'Customer Objection NOT created: ' + errorText(e) + '.';
+            }
+            if (objectionFailed) {
+                log.error({ title: title('OBJECTION_FAILED'), details: 'Opportunity ' + opp.id + ': ' + objectionLine });
+            }
+        }
+
+        // 2. Lost — only with the status mapped for the customer's OWN stage (fail closed).
+        stage = data.getCustomerStage(ctx.customer.id);
+        parsed = config.parseLostStatusMap(ctx.cfg.UPD_LOST_STATUS_MAP);
+        if (parsed.status === 'invalid') {
+            log.audit({ title: title('LOST_MAP_INVALID'), details: 'Setting UPD_LOST_STATUS_MAP ignored: ' + parsed.detail });
+        }
+        lost = data.lostStatusFor(stage.stage, parsed, ctx.cfg);
+        if (!lost.statusId) {
+            lostLine = 'NOT set to Lost: ' + lost.why + '.';
+            log.audit({ title: title('LOST_NOT_SET'), details: 'Opportunity ' + opp.id + ', customer ' + ctx.customer.id +
+                ', stage "' + (stage.raw || '') + '" (' + (stage.stage || 'unknown') + '): ' + lost.why +
+                '. Status not written; the Task says so.' });
+        } else {
+            try {
+                lib.writeOppUpdate({
+                    oppId: opp.id,
+                    values: { entitystatus: lost.statusId },
+                    allowed: { entitystatus: [lost.statusId] },
+                    logKey: title('OPP_WRITE')
+                });
+                lostLine = 'Opportunity set to Lost (status ' + lost.statusId + ', customer stage ' + stage.stage + ').';
+                log.audit({ title: title('OPP_LOST'), details: 'Opportunity ' + opp.id + ' (' + opp.tranId + '), customer ' +
+                    ctx.customer.id + ', stage ' + stage.stage + ': entitystatus ' + opp.status + ' -> ' + lost.statusId });
+            } catch (e2) {
+                lostLine = 'NOT set to Lost: ' + errorText(e2) + '.';
+                log.error({ title: title('OPP_LOST_FAILED'), details: 'Opportunity ' + opp.id + ': ' + errorText(e2) +
+                    '. The Task says so.' });
+            }
+        }
+
+        // 3. The Task, high priority, with the open quotes for the account manager to deal with.
+        quotes = data.getOpenQuotes(opp.id);
+        try {
+            taskResult = task.createTask({
+                title: task.buildLostTitle(opp.tranId, opp.title),
+                assigneeId: am.id,
+                customerId: ctx.customer.id,
+                opportunityId: opp.id,
+                message: task.buildLostMessage({
+                    reasonText: v.reason ? textOf(uc.reasons, v.reason) : '',
+                    comment: render.esc(v.comment),
+                    lostLine: lostLine,
+                    objectionLine: objectionLine,
+                    quotes: quotes
+                }),
+                todayKey: uc.todayKey,
+                priority: task.PRIORITY.HIGH
+            });
+            log.audit({ title: title('UPDATE_TASK'), details: 'Task ' + taskResult.id + ' (not going ahead) for ' +
+                'opportunity ' + opp.id + ', assigned to ' + am.id + ' (' + am.source + '), sendemail ' +
+                (taskResult.sendEmailSet ? 'set' : 'NOT set') + '. ' + lostLine });
+        } catch (e3) {
+            log.error({ title: title('TASK_FAILED'), details: 'Opportunity ' + opp.id + ': the not-going-ahead Task ' +
+                'was not created. ' + lostLine + ' ' + objectionLine + ' Assignee ' + am.id + ' (' + am.source + '). ' +
+                errorText(e3) });
+        }
+
+        // 4. The writes have happened: the page confirms whatever the Task did.
+        return render.lostDone({ logoUrl: ctx.cfg.LOGO_URL, am: uc.am, backUrl: ctx.baseUrl });
+    }
+
+    /** POST a=update */
+    function handleUpdatePost(ctx, params) {
+        var oppId = params.opp;
+        var guard = data.guardOpportunity(ctx.customer.id, oppId, ctx.cfg);
+        var lib;
+        var uc;
+        var check;
+        if (!guard.ok) {
+            return renderDashboard(ctx, oppGuardNotice(ctx, guard, oppId));
+        }
+        lib = oppLib().lib;
+        if (!lib) {
+            return renderUnavailable(ctx);
+        }
+        uc = updateContext(ctx, guard, lib);
+        check = data.validateUpdate(updateInput(params), {
+            stageIds: ids(uc.stages),
+            showDate: uc.showDate,
+            current: { buildStage: guard.opportunity.buildStage, delDateKey: guard.opportunity.delDateKey },
+            reasonIds: ids(uc.reasons),
+            todayKey: uc.todayKey
+        });
+        // Validate everything first: any error re-renders the page and NOTHING is written.
+        if (!check.ok) {
+            log.audit({ title: title('UPDATE_REJECTED'), details: clip('Customer ' + ctx.customer.id + ', opportunity ' +
+                guard.opportunity.id + ', ' + check.mode + ': ' + JSON.stringify(check.errors)) });
+            return renderUpdate(ctx, guard, uc, mergeValues(updateDefaults(ctx, guard), check.values), check.errors, '',
+                check.mode === data.UPDATE_MODE.NOT_GOING);
+        }
+        if (check.mode === data.UPDATE_MODE.NOT_GOING) {
+            return notGoingAhead(ctx, guard, uc, check.values, lib);
+        }
+        if (check.nothing) {
+            return renderUpdate(ctx, guard, uc, mergeValues(updateDefaults(ctx, guard), check.values), {},
+                render.UPDATE_TEXT.NOTHING, false);
+        }
+        return applyUpdate(ctx, guard, uc, check, lib);
+    }
+
     /**
      * @param {Object} context - Suitelet context
      */
@@ -599,6 +1065,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 html = handleDeliveryPost(ctx, params);
             } else if (action === 'delivery') {
                 html = handleDeliveryGet(ctx, params.so);
+            } else if (action === 'update' && request.method === 'POST') {
+                html = handleUpdatePost(ctx, params);
+            } else if (action === 'update') {
+                html = handleUpdateGet(ctx, params.opp);
             } else {
                 html = renderDashboard(ctx);
             }
@@ -606,7 +1076,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         } catch (e) {
             log.error({
                 title: title('REQUEST_FAILED'),
-                details: request.method + ' a=' + action + ' so=' + (params.so || '') + ': ' +
+                details: request.method + ' a=' + action + ' so=' + (params.so || '') + ' opp=' + (params.opp || '') + ': ' +
                     (e && e.message ? e.message : String(e)) + (e && e.stack ? ' ' + e.stack : '')
             });
             send(context.response, render.errorPage(cfg.LOGO_URL));
