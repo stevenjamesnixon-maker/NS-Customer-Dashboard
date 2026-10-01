@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.2
  */
 define(['./cdb_lib_dates'], function (dates) {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -175,11 +175,12 @@ define(['./cdb_lib_dates'], function (dates) {
         return 'tel:' + String(phone || '').replace(/[^0-9+]/g, '');
     }
 
-    /** Short date for rows: "Tue 13 Oct". */
+    /**
+     * Every customer-facing date (1.3.2): "Fri 30 Oct" this year, "Fri 16 Apr 2027" otherwise, via
+     * dates.formatDisplay() against today in Europe/London. '' for a blank or invalid key.
+     */
     function shortDate(key) {
-        var long = dates.formatLong(key);
-        var parts = long.split(' ');
-        return parts.length === 4 ? parts[0] + ' ' + parts[1] + ' ' + parts[2].slice(0, 3) : long;
+        return dates.formatDisplay(key, dates.londonTodayKey(Date.now()));
     }
 
     // ---------------------------------------------------------------- page CSS
@@ -378,7 +379,7 @@ define(['./cdb_lib_dates'], function (dates) {
             '<img src="' + esc(logoUrl) + '" alt="Nu-Heat">' : '<span class="brand">Nu-Heat</span>') + '</span>';
     }
 
-    /** The round phone button the phone layout shows; nothing when there is no number. */
+    /** The round button the phone layout shows: call with a phone, email without one, else nothing. */
     function callButton(am) {
         var c = contactParts(am);
         if (c.kind === 'phone') {
@@ -524,6 +525,16 @@ define(['./cdb_lib_dates'], function (dates) {
         return 'We\u2019ll call you to take payment.';
     }
 
+    /** The number of orders in a delivery-style section (1.3.2: the pill counts orders). */
+    function countOrders(projects) {
+        var n = 0;
+        var i;
+        for (i = 0; i < (projects || []).length; i++) {
+            n += projects[i].orders.length;
+        }
+        return n;
+    }
+
     function sectionHead(title, count, sub) {
         return '<div class="sechead"><h2>' + esc(title) + '</h2><span class="count">' + count +
             '</span><span class="secsub">' + esc(sub) + '</span></div>';
@@ -558,7 +569,16 @@ define(['./cdb_lib_dates'], function (dates) {
         var state;
         var acts;
 
-        if (row.state === 'booked') {
+        if (row.state === 'released') {
+            // 1.3: paid and released to the warehouse. No payment panel, whatever the checkbox says.
+            state = stateCell(badge('ready', 'Being prepared'), o.shipDateKey ? 'We\u2019re preparing your delivery for ' +
+                shortDate(o.shipDateKey) + (o.timeText ? ', ' + o.timeText : '') : 'We\u2019re preparing your delivery');
+            acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
+        } else if (row.state === 'delivered') {
+            // 1.3: "Recently delivered". No actions, no amounts.
+            state = stateCell(badge('ready', 'Delivered'), 'Delivered ' + shortDate(o.deliveredKey));
+            acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
+        } else if (row.state === 'booked') {
             state = stateCell(badge('ready', 'Delivery booked'), shortDate(o.confirmedDateKey) +
                 (o.timeText ? ', ' + o.timeText : ''));
             acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
@@ -630,7 +650,8 @@ define(['./cdb_lib_dates'], function (dates) {
         }
         if (g.forDelivery.length) {
             html = '<section class="sec" aria-label="Projects for delivery">' +
-                sectionHead('Projects for delivery', g.forDelivery.length, 'Designed, with orders to deliver') +
+                // 1.3.2: the pill counts ORDERS (it counted projects before).
+                sectionHead('Projects for delivery', countOrders(g.forDelivery), 'Designed, with orders to deliver') +
                 colHead('Project and orders');
             for (i = 0; i < g.forDelivery.length; i++) {
                 count = g.forDelivery[i].orders.length;
@@ -642,7 +663,25 @@ define(['./cdb_lib_dates'], function (dates) {
             }
             body += html + '</section>';
         }
-        if (g.isEmpty) {
+        // 1.3.2: "Booked deliveries", last — everything in hand (released, booked, recently delivered),
+        // in data.arrangeSections() order. Left out when empty. The pill counts orders.
+        if ((g.booked || []).length) {
+            html = '<section class="sec" aria-label="Booked deliveries">' +
+                sectionHead('Booked deliveries', countOrders(g.booked), 'Nothing needed from you. Delivered orders stay here for ' +
+                    m.recentDays + ' days.') +
+                colHead('Project and orders');
+            for (i = 0; i < g.booked.length; i++) {
+                count = g.booked[i].orders.length;
+                html += '<div class="oprow">' + projectCell(g.booked[i].opp, count + (count === 1 ? ' order' : ' orders')) +
+                    '<div></div><div></div></div>';
+                for (j = 0; j < g.booked[i].orders.length; j++) {
+                    html += orderRow(g.booked[i].orders[j], m);
+                }
+            }
+            body += html + '</section>';
+        }
+        // A customer whose only items are booked or recent deliveries is not "nothing to show".
+        if (g.isEmpty && !(g.booked || []).length) {
             body += '<div class="card"><p style="margin:0">There is nothing to show at the moment. If you think ' +
                 'that’s wrong, please contact your account manager.</p></div>';
         }
@@ -696,8 +735,8 @@ define(['./cdb_lib_dates'], function (dates) {
                     day = String(parseInt(key.slice(8), 10));
                     if (allowedSet[key]) {
                         html += '<label class="day"><input class="sr" type="radio" name="date" value="' + esc(key) + '"' +
-                            (selected === key ? ' checked' : '') + ' required data-label="' + esc(dates.formatLong(key)) +
-                            '" aria-label="' + esc(dates.formatLong(key)) + '"><span class="d">' + day + '</span></label>';
+                            (selected === key ? ' checked' : '') + ' required data-label="' + esc(shortDate(key)) +
+                            '" aria-label="' + esc(shortDate(key)) + '"><span class="d">' + day + '</span></label>';
                     } else {
                         html += '<span class="day day-off" aria-hidden="true"><span class="d">' + day + '</span></span>';
                     }
@@ -932,7 +971,7 @@ define(['./cdb_lib_dates'], function (dates) {
             '<div class="srow"><span>System</span><span>' + esc(title) + '</span></div>' +
             (o.uniqueRef ? '<div class="srow"><span>Contains</span><span>' + esc(o.uniqueRef) + '</span></div>' : '') +
             (amountShown ? '<div class="srow"><span>Amount to pay</span><span>' + esc(amountShown) + '</span></div>' : '') +
-            summaryRow('Date', 'date', v.date ? dates.formatLong(v.date) : '') +
+            summaryRow('Date', 'date', v.date ? shortDate(v.date) : '') +
             summaryRow('Time', 'time', textOf(m.options.time, v.time)) +
             summaryRow('Payment', 'payment', PAYMENT_LABELS[v.payment] || '') +
             '</div><h3>What happens next</h3><ol class="next">' + nextSteps(prepay) + '</ol></aside></div>';
@@ -950,7 +989,7 @@ define(['./cdb_lib_dates'], function (dates) {
      *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only) }
      */
     function confirmation(m) {
-        var noted = (m.dateKey ? dates.formatLong(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
+        var noted = (m.dateKey ? shortDate(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
         var what = (m.orderTitle || 'your order') + (m.uniqueRef ? ', ' + m.uniqueRef : '') + ' (order ' + m.tranId + ')';
         var amountShown = m.payment === 'ACCOUNT' ? '' : amountText(m.amount);
         var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>Delivery requested</h1><p>' +
@@ -1002,39 +1041,12 @@ define(['./cdb_lib_dates'], function (dates) {
         var rows = [];
         var i;
         var j;
-        var o;
         var opp;
-        var st;
-        var row;
-        var when;
 
+        // "For delivery": what needs the customer (after data.arrangeSections()).
         for (i = 0; i < groups.forDelivery.length; i++) {
-            opp = groups.forDelivery[i].opp;
             for (j = 0; j < groups.forDelivery[i].orders.length; j++) {
-                st = groups.forDelivery[i].orders[j];
-                o = st.order;
-                // 1.2: the order's own lines, as on the page: description in full, split reference,
-                // then "Order SO… · UFH · <where it's up to>".
-                row = { title: opp.title || opp.tranId, line1: orderTitle(o), ref: o.uniqueRef || '', sub: orderMeta(o) };
-                when = (dates.formatLong(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : '');
-                if (st.state === 'ready') {
-                    row.sub += ' \u00b7 ready to arrange delivery';
-                    row.badgeKind = 'ready'; row.badgeText = 'Action needed';
-                } else if (st.state === 'awaiting_payment') {
-                    row.sub += ' \u00b7 ' + (o.payIntent === String(payBacs) ? 'awaiting your bank transfer \u00b7 ref ' +
-                        o.tranId : 'your account manager will call to take payment');
-                    row.badgeKind = 'pay'; row.badgeText = 'Awaiting payment';
-                } else if (st.state === 'requested') {
-                    row.sub += ' \u00b7 requested ' + when;
-                    row.badgeKind = 'work'; row.badgeText = 'Delivery requested';
-                } else if (st.state === 'booked') {
-                    row.sub += ' \u00b7 delivery booked for ' + dates.formatLong(o.confirmedDateKey);
-                    row.badgeKind = 'ready'; row.badgeText = 'Delivery booked';
-                } else {
-                    row.sub += ' \u00b7 ' + (o.holdReason ? o.holdReason : 'your account manager will be in touch');
-                    row.badgeKind = 'need'; row.badgeText = 'Needs information';
-                }
-                rows.push(row);
+                rows.push(emailOrderRow(groups.forDelivery[i].opp, groups.forDelivery[i].orders[j], payBacs));
             }
         }
         for (i = 0; i < groups.inDesign.length; i++) {
@@ -1049,7 +1061,51 @@ define(['./cdb_lib_dates'], function (dates) {
             opp = groups.toOrder[i];
             rows.push({ title: opp.title || opp.tranId, sub: 'Quote sent', badgeKind: 'quote', badgeText: 'Quote stage' });
         }
+        // 1.3.2: "Booked deliveries", a headed group at the end, after "For delivery" as on the page.
+        // Never in the callout.
+        for (i = 0; i < (groups.booked || []).length; i++) {
+            for (j = 0; j < groups.booked[i].orders.length; j++) {
+                rows.push(emailOrderRow(groups.booked[i].opp, groups.booked[i].orders[j], payBacs));
+                if (i === 0 && j === 0) {
+                    rows[rows.length - 1].heading = 'Booked deliveries';
+                }
+            }
+        }
         return rows;
+    }
+
+    /**
+     * One order's email row, as on the page: description in full, split reference, then
+     * "Order SO… · UFH · <where it's up to>".
+     */
+    function emailOrderRow(opp, st, payBacs) {
+        var o = st.order;
+        var row = { title: opp.title || opp.tranId, line1: orderTitle(o), ref: o.uniqueRef || '', sub: orderMeta(o) };
+        var when = (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : '');
+        if (st.state === 'ready') {
+            row.sub += ' \u00b7 ready to arrange delivery';
+            row.badgeKind = 'ready'; row.badgeText = 'Action needed';
+        } else if (st.state === 'awaiting_payment') {
+            row.sub += ' \u00b7 ' + (o.payIntent === String(payBacs) ? 'awaiting your bank transfer \u00b7 ref ' +
+                o.tranId : 'your account manager will call to take payment');
+            row.badgeKind = 'pay'; row.badgeText = 'Awaiting payment';
+        } else if (st.state === 'requested') {
+            row.sub += ' \u00b7 requested ' + when;
+            row.badgeKind = 'work'; row.badgeText = 'Delivery requested';
+        } else if (st.state === 'released') {
+            row.sub += ' \u00b7 we\u2019re preparing your delivery' + (o.shipDateKey ? ' for ' + when : '');
+            row.badgeKind = 'ready'; row.badgeText = 'Being prepared';
+        } else if (st.state === 'booked') {
+            row.sub += ' \u00b7 Delivery booked \u00b7 ' + shortDate(o.confirmedDateKey);
+            row.badgeKind = 'ready'; row.badgeText = 'Delivery booked';
+        } else if (st.state === 'delivered') {
+            row.sub += ' \u00b7 delivered ' + shortDate(o.deliveredKey);
+            row.badgeKind = 'ready'; row.badgeText = 'Delivered';
+        } else {
+            row.sub += ' \u00b7 ' + (o.holdReason ? o.holdReason : 'your account manager will be in touch');
+            row.badgeKind = 'need'; row.badgeText = 'Needs information';
+        }
+        return row;
     }
 
     /**
@@ -1161,6 +1217,10 @@ define(['./cdb_lib_dates'], function (dates) {
         for (i = 0; i < rows.length; i++) {
             r = rows[i];
             b = BADGES[r.badgeKind] || BADGES.quote;
+            if (r.heading) {
+                html += '<tr><td style="padding:20px 0 4px;' + f + 'font-size:15px;font-weight:bold;letter-spacing:1px;' +
+                    'text-transform:uppercase;color:' + COLORS.PURPLE + ';">' + esc(r.heading) + '</td></tr>';
+            }
             html += '<tr><td style="padding:16px 0;' + (i < rows.length - 1 ? 'border-bottom:1px solid #ece8e3;' : '') + '">' +
                 '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
                 '<td valign="middle" style="' + f + 'text-align:left;">' +

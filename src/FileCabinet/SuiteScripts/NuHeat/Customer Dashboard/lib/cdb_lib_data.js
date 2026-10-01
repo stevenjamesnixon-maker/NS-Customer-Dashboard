@@ -37,6 +37,20 @@
  * the ORDER's terms blank or not in that list. Every doubt — either parameter empty, the extras
  * search failed, blank customer terms — means pay up front.
  *
+ * THE RELEASED EXCEPTION (1.3, Steve 1 Oct 2026) — THE DASHBOARD'S ONLY. When payment arrives,
+ * staff set the Record Status to "Release to Warehouse", which is in the excluded list, so a just-paid
+ * order vanished from the dashboard. An order whose Record Status is in custscript_cdb_released_statuses
+ * counts as open EVEN THOUGH it is also excluded; every other rule (opportunity link, native status,
+ * quote type) still applies. NS-Opportunity-SO-Sync's excluded list is NOT changed by this and still
+ * means "don't evaluate readiness". Applied in isOpenOrder() and in recordStatusFilter().
+ *
+ * RECENTLY DELIVERED (1.3): getRecentlyDelivered() is one more search per page, for shipped orders
+ * (native F/G) delivered in the last custscript_cdb_recent_days days. Like every other section it
+ * works through the CUSTOMER'S OPPORTUNITIES (1.3.1), not the order's own entity: the opportunity
+ * IDs getProjects() already loaded. No opportunities, no search. It deliberately does NOT apply
+ * the excluded list — shipped orders usually carry a completed Record Status — only the optional
+ * custscript_cdb_recent_hidden_statuses. A failure logs CDB RECENT_FAILED and returns no rows.
+ *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
  * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
@@ -45,14 +59,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.2
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -62,6 +76,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         BOOKED: 'booked',
         AWAITING_PAYMENT: 'awaiting_payment',
         REQUESTED: 'requested',
+        RELEASED: 'released',
+        DELIVERED: 'delivered',
         READY: 'ready',
         NEEDS_INFO: 'needs_info'
     };
@@ -80,7 +96,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         NOT_OPEN: 'order is not open (Record Status or quote type excluded, or no opportunity)',
         BOOKED: 'delivery already confirmed (custbody_del_date set)',
         ALREADY_REQUESTED: 'delivery already requested (custbody_cust_pay_intent set)',
-        NOT_READY: 'order is not ready for delivery'
+        NOT_READY: 'order is not ready for delivery',
+        RELEASED: 'order is released to the warehouse (Record Status in custscript_cdb_released_statuses)'
     };
 
     // ---------------------------------------------------------------- pure
@@ -174,7 +191,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         if (trim(order.opportunityId) === '') {
             return false;
         }
-        if (contains(cfg.EXCLUDED_STATUSES, order.recordStatus)) {
+        // 1.3: a released Record Status stays open although it is in the excluded list.
+        if (contains(cfg.EXCLUDED_STATUSES, order.recordStatus) && !isReleased(order, cfg)) {
             return false;
         }
         if (contains(cfg.EXCLUDED_QUOTE_TYPES, order.quoteType)) {
@@ -189,9 +207,22 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * @param {Object} order - { confirmedDateKey, payIntent, ready }
      * @returns {string} one of STATES
      */
+    /** Pure (1.3): is the order's Record Status a released one? */
+    function isReleased(order, cfg) {
+        return !!cfg && contains(cfg.RELEASED_STATUSES, order.recordStatus);
+    }
+
+    /**
+     * Pure. Precedence (1.3): booked (confirmed date) -> released (Record Status) -> requested
+     * (Add to account) -> awaiting payment (any other intent) -> ready -> needs info. The state never
+     * comes from custbody_cdb_awaiting_payment: a released or booked order shows no payment panel.
+     */
     function orderState(order, cfg) {
         if (trim(order.confirmedDateKey) !== '') {
             return STATES.BOOKED;
+        }
+        if (isReleased(order, cfg)) {
+            return STATES.RELEASED;
         }
         // 1.2: an Add-to-account booking has nothing to pay; it is requested, not awaiting payment.
         if (cfg && trim(cfg.PAY_ACCOUNT) !== '' && trim(order.payIntent) === String(cfg.PAY_ACCOUNT)) {
@@ -401,6 +432,71 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return { ok: true, errors: errors, values: values };
     }
 
+    // ---------------------------------------------------------------- 1.3: released and delivered
+
+    /**
+     * Pure: the Record Status part of a search filter for "open". Without released statuses it is
+     * today's (RS noneof excluded OR RS empty); with them it gains "OR RS anyof released".
+     * @returns {Array} a filter expression
+     */
+    function recordStatusFilter(cfg) {
+        var expr = [[SO.RECORD_STATUS, 'anyof', '@NONE@'], 'OR', [SO.RECORD_STATUS, 'noneof', cfg.EXCLUDED_STATUSES]];
+        if ((cfg.RELEASED_STATUSES || []).length) {
+            expr = expr.concat(['OR', [SO.RECORD_STATUS, 'anyof', cfg.RELEASED_STATUSES]]);
+        }
+        return expr;
+    }
+
+    /**
+     * Pure: an order's delivery date — the confirmed date (custbody_del_date) when set, otherwise
+     * the ship date (custbody_defaultshipdate); null with neither.
+     * @returns {string|null} key
+     */
+    function deliveryDateKey(order) {
+        return trim(order.confirmedDateKey) || trim(order.shipDateKey) || null;
+    }
+
+    /**
+     * Pure: the "Recently delivered" section. Keeps rows delivered from today - days to today
+     * (inclusive), with an opportunity, a quote type that is not excluded and a Record Status that is
+     * not hidden; groups them under their project (from opps, else the order's opportunity text).
+     *
+     * @param {Object[]} orders - shaped like orderFromResult()
+     * @param {Object[]} opps - the customer's opportunities (getProjects().opps), may be []
+     * @param {Object} cfg - EXCLUDED_QUOTE_TYPES, RECENT_HIDDEN_STATUSES
+     * @param {string} todayKey
+     * @param {number} days
+     * @returns {Array<{opp: Object, orders: Array<{order: Object, state: string}>}>}
+     */
+    function groupRecent(orders, opps, cfg, todayKey, days) {
+        var fromKey = dates.addDays(todayKey, -Math.max(0, parseInt(days, 10) || 0));
+        var byOpp = {};
+        var order = [];
+        var oppById = {};
+        var i;
+        var o;
+        var key;
+        for (i = 0; i < (opps || []).length; i++) {
+            oppById[opps[i].id] = opps[i];
+        }
+        for (i = 0; i < (orders || []).length; i++) {
+            o = orders[i];
+            key = deliveryDateKey(o);
+            if (!key || key < fromKey || key > todayKey || trim(o.opportunityId) === '' ||
+                    contains(cfg.EXCLUDED_QUOTE_TYPES, o.quoteType) || contains(cfg.RECENT_HIDDEN_STATUSES, o.recordStatus)) {
+                continue;
+            }
+            o.deliveredKey = key;
+            if (!byOpp[o.opportunityId]) {
+                byOpp[o.opportunityId] = { opp: oppById[o.opportunityId] ||
+                    { id: o.opportunityId, title: o.opportunityText, tranId: '', siteAddress: '' }, orders: [] };
+                order.push(o.opportunityId);
+            }
+            byOpp[o.opportunityId].orders.push({ order: o, state: STATES.DELIVERED });
+        }
+        return order.map(function (id) { return byOpp[id]; });
+    }
+
     // ---------------------------------------------------------------- money and terms (1.2)
 
     /** Pure: a currency value as a number, or null when blank or not a number. 0 is a number. */
@@ -522,6 +618,149 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             }
         }
         return groups;
+    }
+
+    /**
+     * 1.3: everything a page or a digest needs on top of getProjects(), in ONE extras call: the IDs
+     * of the delivery orders and of the recent rows are joined, the extras read once, every order
+     * decorated, and groups.recent set from groupRecent().
+     *
+     * @param {Object} groups - from getProjects()
+     * @param {Object[]} recentRows - from getRecentlyDelivered(); [] when it failed
+     * @returns {Object} groups
+     */
+    function decorateAll(groups, recentRows, labels, cfg, customerTermsId, todayKey, onOdd) {
+        var ids = orderIdsOf(groups);
+        var extras;
+        var i;
+        var j;
+        // 1.3.1: group first, so only the recent rows that will be SHOWN join the extras call.
+        groups.recent = groupRecent(recentRows, groups.opps, cfg, todayKey, cfg.RECENT_DAYS);
+        for (i = 0; i < groups.recent.length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                ids.push(groups.recent[i].orders[j].order.id);
+            }
+        }
+        extras = getOrderExtras(ids);
+        decorateGroups(groups, extras, labels, cfg, customerTermsId, onOdd);
+        for (i = 0; i < groups.recent.length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                decorateOrder(groups.recent[i].orders[j].order, extras, labels, cfg, customerTermsId, onOdd);
+            }
+        }
+        return groups;
+    }
+
+    /** The states that need the customer (1.3.2): they stay in "Projects for delivery". */
+    var NEEDS_CUSTOMER = [STATES.READY, STATES.AWAITING_PAYMENT, STATES.REQUESTED, STATES.NEEDS_INFO];
+
+    /** The date an in-hand order is due: the confirmed date when booked, else the ship date. */
+    function upcomingKey(row) {
+        return row.state === STATES.BOOKED ? trim(row.order.confirmedDateKey) : trim(row.order.shipDateKey);
+    }
+
+    /** Ascending by key, blanks last, then by SO number so the order is stable. */
+    function byKeyAsc(keyOf) {
+        return function (a, b) {
+            var ka = keyOf(a);
+            var kb = keyOf(b);
+            if (ka !== kb) {
+                return ka === '' ? 1 : kb === '' ? -1 : (ka < kb ? -1 : 1);
+            }
+            return String(a.order.tranId) < String(b.order.tranId) ? -1 : 1;
+        };
+    }
+
+    /**
+     * Pure (1.3.2): one "Booked deliveries" section. Run after decorateAll().
+     *
+     *   groups.forDelivery  keeps only orders that NEED THE CUSTOMER (ready, awaiting payment,
+     *                       requested, needs info); a project with none of those leaves it.
+     *   groups.booked       everything IN HAND — released and booked open orders, plus the recent
+     *                       deliveries — grouped under their project. Projects with an upcoming order
+     *                       first, by their soonest upcoming date; then delivered-only projects, most
+     *                       recent first. Within a project: upcoming by date ascending, then delivered
+     *                       by date descending.
+     *
+     * Whether a project or customer has anything to show (groups.isEmpty, and so who gets a
+     * digest) is NOT changed here: it was decided by groupProjects() before the split.
+     *
+     * @param {Object} groups - from getProjects(), with groups.recent from decorateAll()
+     * @returns {Object} groups
+     */
+    function arrangeSections(groups) {
+        var forDelivery = [];
+        var byOpp = {};
+        var keys = [];
+        var i;
+        var j;
+        var p;
+        var row;
+        var need;
+        var buckets;
+
+        function bucket(opp) {
+            if (!byOpp[opp.id]) {
+                byOpp[opp.id] = { opp: opp, upcoming: [], delivered: [] };
+                keys.push(opp.id);
+            }
+            return byOpp[opp.id];
+        }
+
+        for (i = 0; i < groups.forDelivery.length; i++) {
+            p = groups.forDelivery[i];
+            need = [];
+            for (j = 0; j < p.orders.length; j++) {
+                row = p.orders[j];
+                if (contains(NEEDS_CUSTOMER, row.state)) {
+                    need.push(row);
+                } else {
+                    bucket(p.opp).upcoming.push(row);
+                }
+            }
+            if (need.length) {
+                forDelivery.push({ opp: p.opp, orders: need });
+            }
+        }
+        for (i = 0; i < (groups.recent || []).length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                bucket(groups.recent[i].opp).delivered.push(groups.recent[i].orders[j]);
+            }
+        }
+
+        buckets = keys.map(function (k) {
+            var b = byOpp[k];
+            b.upcoming.sort(byKeyAsc(upcomingKey));
+            b.delivered.sort(byKeyAsc(function (r) { return trim(r.order.deliveredKey); })).reverse();
+            b.soonest = b.upcoming.length ? upcomingKey(b.upcoming[0]) : '';
+            b.latest = b.delivered.length ? trim(b.delivered[0].order.deliveredKey) : '';
+            return b;
+        });
+        buckets.sort(function (a, b) {
+            var au = a.upcoming.length > 0;
+            var bu = b.upcoming.length > 0;
+            if (au !== bu) {
+                return au ? -1 : 1;
+            }
+            if (au) {
+                if (a.soonest !== b.soonest) {
+                    return a.soonest === '' ? 1 : b.soonest === '' ? -1 : (a.soonest < b.soonest ? -1 : 1);
+                }
+                return 0;
+            }
+            return a.latest === b.latest ? 0 : (a.latest > b.latest ? -1 : 1);
+        });
+
+        groups.forDelivery = forDelivery;
+        groups.booked = buckets.map(function (b) {
+            return { opp: b.opp, orders: b.upcoming.concat(b.delivered) };
+        });
+        return groups;
+    }
+
+    /** Pure (1.3.1): the IDs of the customer's opportunities that getProjects() loaded. */
+    function oppIdsOf(groups) {
+        return (groups.opps || []).map(function (o) { return o.id; });
     }
 
     /** Pure: the IDs of every order in the delivery section. */
@@ -735,6 +974,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             holdReason: trim(r.getValue(SO.HOLD_REASON)),
             shipDateKey: dateKey(r.getValue(SO.SHIP_DATE)),
             timeText: trim(r.getText(SO.TIME)),
+            opportunityText: trim(r.getText(SO.OPPORTUNITY)),
             description: cleanDescription(r.getValue({ name: config.FIELDS.QUOTE.DESCRIPTION,
                 join: config.FIELDS.QUOTE.JOIN }))
         };
@@ -785,7 +1025,10 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
                 wonIds.push(opps[i].id);
             }
         }
-        return groupProjects(opps, getOrdersForOpportunities(wonIds), cfg);
+        var groups = groupProjects(opps, getOrdersForOpportunities(wonIds), cfg);
+        // 1.3: kept so the recently delivered rows can sit under their project's heading.
+        groups.opps = opps;
+        return groups;
     }
 
     /**
@@ -852,6 +1095,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             result.reason = GUARD.BOOKED;
             return result;
         }
+        // 1.3: released orders are open (they show) but are never bookable.
+        if (isReleased(result.order, cfg)) {
+            result.reason = GUARD.RELEASED;
+            return result;
+        }
         if (result.order.payIntent !== '') {
             result.reason = GUARD.ALREADY_REQUESTED;
             result.alreadyRequested = true;
@@ -899,6 +1147,48 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             return {};
         }
         return result;
+    }
+
+    /**
+     * 1.3: the customer's shipped orders (native F/G) whose confirmed or ship date falls in the last
+     * custscript_cdb_recent_days days. 1.3.1: "the customer's" means ON THE CUSTOMER'S OPPORTUNITIES,
+     * as in every other section, not the order's own entity. oppIds are the ones getProjects()
+     * already loaded (oppIdsOf()); with none, no search is run. NOT the excluded list; only the
+     * hidden statuses. FAIL-SAFE: any error logs CDB RECENT_FAILED and returns [] so the page and
+     * the digest carry on without them. Rows still need groupRecent(), which decides each one on
+     * deliveryDateKey(). Since 1.3.2 they are shown in "Booked deliveries" (arrangeSections()).
+     *
+     * @returns {Object[]} rows shaped like orderFromResult()
+     */
+    function getRecentlyDelivered(customerId, oppIds, cfg, todayKey) {
+        var fromKey = dates.addDays(todayKey, -Math.max(0, parseInt(cfg.RECENT_DAYS, 10) || 0));
+        var filters;
+        if (!oppIds || !oppIds.length) {
+            return [];
+        }
+        try {
+            filters = [
+                ['mainline', 'is', 'T'], 'AND',
+                [SO.OPPORTUNITY, 'anyof', oppIds], 'AND',
+                ['status', 'anyof', config.DELIVERED_STATUSES], 'AND',
+                [[SO.QUOTE_TYPE, 'anyof', '@NONE@'], 'OR', [SO.QUOTE_TYPE, 'noneof', cfg.EXCLUDED_QUOTE_TYPES]], 'AND',
+                [[SO.CONFIRMED_DATE, 'within', dateFilterValue(fromKey), dateFilterValue(todayKey)], 'OR',
+                    [SO.SHIP_DATE, 'within', dateFilterValue(fromKey), dateFilterValue(todayKey)]]
+            ];
+            if ((cfg.RECENT_HIDDEN_STATUSES || []).length) {
+                filters = filters.concat(['AND', [[SO.RECORD_STATUS, 'anyof', '@NONE@'], 'OR',
+                    [SO.RECORD_STATUS, 'noneof', cfg.RECENT_HIDDEN_STATUSES]]]);
+            }
+            return collect(search.create({
+                type: search.Type.SALES_ORDER,
+                filters: filters,
+                columns: [search.createColumn({ name: 'tranid', sort: search.Sort.ASC })].concat(orderColumns().slice(1))
+            }), orderFromResult);
+        } catch (e) {
+            log.audit({ title: config.logTitle('RECENT_FAILED'), details: 'Customer ' + customerId + ': ' +
+                (e && e.message ? e.message : String(e)) + '. Shown without "Recently delivered".' });
+            return [];
+        }
     }
 
     /**
@@ -1009,6 +1299,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getOpportunities: getOpportunities,
         getOrdersForOpportunities: getOrdersForOpportunities,
         getProjects: getProjects,
+        isReleased: isReleased,
+        recordStatusFilter: recordStatusFilter,
+        deliveryDateKey: deliveryDateKey,
+        groupRecent: groupRecent,
+        getRecentlyDelivered: getRecentlyDelivered,
+        oppIdsOf: oppIdsOf,
+        decorateAll: decorateAll,
+        arrangeSections: arrangeSections,
         guardOrder: guardOrder,
         getNonDeliveryDates: getNonDeliveryDates,
         getListOptions: getListOptions,

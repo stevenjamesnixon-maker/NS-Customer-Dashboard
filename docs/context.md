@@ -6,8 +6,11 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 30 Sep 2026 (release 1.2, `feat/dashboard-r1-2`). **Status:** releases 1 and 1.1 passed their Production
-tests on 30 Sep 2026; release 1.2 not deployed.
+**Last updated:** 1 Oct 2026 (release 1.3, `feat/dashboard-r1-3`). **Status:** releases 1 and 1.1 passed their Production
+tests on 30 Sep 2026; release 1.2 merged; release 1.3 not deployed.
+
+**Versions:** every amendment to an open release PR bumps the patch version (1.3.1, 1.3.2…) of
+every file it changes. Steve tells deployed copies apart by version.
 
 **Design source:** `docs/design/canvas/` (read its README). Release 1.1 builds `Main`, `Mobile`,
 `Delivery`, `ConfirmBacs`, `ConfirmCard` and `Email`. `Order` and `Update` are release 2.
@@ -63,6 +66,11 @@ tests on 30 Sep 2026; release 1.2 not deployed.
     apply to sales orders makes a search throw; in the extras search that costs amounts and split
     references, in a main search it would cost the whole page.
 
+12. **The released exception is the dashboard's only.** An order whose Record Status is in
+    `custscript_cdb_released_statuses` counts as open although that status is also in the excluded
+    list (section 4). NS-Opportunity-SO-Sync's excluded list is **unchanged** and still means "don't
+    evaluate readiness". Do not "tidy" the two lists into one.
+
 ---
 
 ## 1. What this solves
@@ -86,13 +94,13 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.2.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.2.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
-| Config library | 1.2.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
+| Dashboard Suitelet | 1.3.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 1.3.2 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Config library | 1.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
-| Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.2.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.2.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
+| Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
+| Data library | 1.3.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Render library | 1.3.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -226,15 +234,76 @@ nothing is written. An account booking writes the account intent, **does not tic
 customer payment*, and writes EDD certainty as usual. Its state is **`requested`** (badge *Delivery
 requested*, `b-work`), on the dashboard and in the email.
 
+### Released orders stay visible (1.3)
+
+Steve, 1 Oct 2026: when payment arrives, staff set the Record Status to **Release to Warehouse**
+("Delivery arranged, awaiting shipment"). That status is in the excluded list, so the moment a
+customer paid, their order vanished from the dashboard. `custscript_cdb_released_statuses` (and its
+twin) names the statuses that stay **open although excluded**; every other rule of "open" still
+applies (opportunity link, native A/B/D/E, quote type). It is applied in `isOpenOrder()` and in
+`recordStatusFilter()` — the digest's input search, the only search that filters Record Status
+(the main searches decide it in `isOpenOrder()`). Empty keeps released orders hidden. A released
+order is shown but **never bookable**: the guard refuses it (`order is released…`). **This exception
+is the dashboard's only**: the readiness sync's excluded list is unchanged.
+
+### Recently delivered (1.3)
+
+`getRecentlyDelivered()`, one more search per page: sales orders on **the customer's opportunities**
+(`opportunity anyof` the IDs `getProjects()` already loaded — the same rule as every other section,
+not the order's own `entity`; 1.3.1), native **F or G** (fully fulfilled), quote type not excluded, and a delivery date in the
+last `custscript_cdb_recent_days` days (default 7) up to today (UK). The **delivery date** is
+`custbody_del_date` if set, otherwise `custbody_defaultshipdate` (`deliveryDateKey()`); the search
+ORs the two and `groupRecent()` decides each row; neither date → not shown. **No opportunities → no
+search and no section.** It **does not apply the
+excluded list** — shipped orders usually carry a completed Record Status — only
+`custscript_cdb_recent_hidden_statuses` (the account's test statuses). Its order IDs join the one
+extras call (`decorateAll()`), after grouping, so only rows that will be shown are read. A failure
+logs `CDB RECENT_FAILED` and the page or digest carries on without them. Since 1.3.2 they are shown
+in *Booked deliveries* (below).
+
+### Two delivery sections: what needs you, and what is in hand (1.3.2)
+
+Steve's test showed a booked, released order among orders that need the customer. The page answers
+"do I need to do anything?" at a glance. `data.arrangeSections()` (pure, run after `decorateAll()`):
+
+- **Projects for delivery** keeps only orders that **need the customer**: `ready`, `awaiting_payment`,
+  `requested`, `needs_info`. A project with none of those leaves the section.
+- **Booked deliveries** (last; *"Nothing needed from you. Delivered orders stay here for {N}
+  days."*) holds everything **in hand** — `released` (*Being prepared*), `booked` (*Delivery booked*)
+  and the recent deliveries (*Delivered*) — grouped by project, *Nothing needed from you* on every
+  row, no actions, no amounts, left out when empty. Projects with an upcoming order come first, by
+  their soonest upcoming date (the confirmed date when booked, else the ship date; undated last);
+  then delivered-only projects, most recent first. Within a project: upcoming ascending, then
+  delivered descending. A project can appear in both sections.
+- **Both pills count orders.** Before 1.3.2, *Projects for delivery* (and *Recently delivered*)
+  counted projects.
+- **Whether anything shows, and who gets a digest, are unchanged** (`groups.isEmpty`, decided before
+  the split). Booked deliveries count against "nothing to show" on the page. **The digest rule, as in
+  1.3.0:** a customer gets one if they have an open quote, design or open order — and booked or
+  released orders ARE open orders, so a customer whose only orders are booked or released still gets
+  a digest; recent deliveries alone never trigger one.
+- **The email** keeps its order — *For delivery* rows first, then design, then quotes — and ends with
+  a headed *Booked deliveries* group (last, as on the page, so design and quote rows never sit under
+  its heading). The callout still counts only ready and BACS-awaiting orders.
+
+### Customer-facing dates (1.3.2)
+
+One helper, `dates.formatDisplay(key, todayKey)`: *"Fri 30 Oct"* in the current UK year, *"Fri 16 Apr
+2027"* otherwise. Used for every customer-facing date on the dashboard, the form (calendar labels and
+summary), the confirmations and the email. The Task and the staff change log keep the long form.
+
 ### Order row states, first match wins
 
 1. `custbody_del_date` set → **Delivery booked**, with that date.
-2. (1.2) `custbody_cust_pay_intent` = `custscript_cdb_pay_account` → **Delivery requested**,
+2. (1.3) Record Status in `custscript_cdb_released_statuses` → **Being prepared** (`b-ready`),
+   *We're preparing your delivery for {ship date, time}* (or without the date), nothing needed, and
+   **no payment panel** even if *Awaiting customer payment* is ticked.
+3. (1.2) `custbody_cust_pay_intent` = `custscript_cdb_pay_account` → **Delivery requested**,
    *Requested <ship date>, <time>*, no payment panel.
-3. `custbody_cust_pay_intent` set (otherwise) → **Awaiting payment**, *Requested <ship date>, <time>*, and a
+4. `custbody_cust_pay_intent` set (otherwise) → **Awaiting payment**, *Requested <ship date>, <time>*, and a
    *Payment details* disclosure: the bank panel for BACS, *your account manager will call* for Card.
-4. `custbody_ready_for_delivery` ticked → **Ready to deliver**, yellow **Arrange delivery**.
-5. Otherwise → **Needs information**, `custbody_delivery_hold_reason`, *Your account manager will
+5. `custbody_ready_for_delivery` ticked → **Ready to deliver**, yellow **Arrange delivery**.
+6. Otherwise → **Needs information**, `custbody_delivery_hold_reason`, *Your account manager will
    be in touch*.
 
 **1.2:** the description is shown **in full** (no clamp, no tooltip). Under it, when set,
@@ -368,6 +437,9 @@ and names every missing parameter.
 | `custscript_cdb_notice_days` | — | Integer | 3; audit |
 | `custscript_cdb_bank_name`, `_bank_sort`, `_bank_account` | — | Text | throw |
 | `custscript_cdb_option_hints` (1.1) | — | Long Text: JSON `{"vehicle": {"<id>": "<hint>"}, "unload": {"<id>": "<hint>"}}` | no hints; invalid JSON also logs `CDB OPTION_HINTS_INVALID` once per request. Never fails the page |
+| `custscript_cdb_released_statuses` (1.3) | `custscript_cdbmr_released_statuses` | Free-Form Text: Record Status IDs that stay open although excluded | released orders stay hidden (fails closed) |
+| `custscript_cdb_recent_days` (1.3) | `custscript_cdbmr_recent_days` | Integer: days of *Recently delivered* | 7 |
+| `custscript_cdb_recent_hidden_statuses` (1.3) | `custscript_cdbmr_recent_hidden_statuses` | Free-Form Text: Record Statuses never shown in *Recently delivered* | hide none |
 | `custscript_cdb_prepay_terms` (1.2) | — (nothing in the digest reads it) | Free-Form Text: comma list of `terms` IDs that pay up front | everyone pays up front |
 | `custscript_cdb_pay_account` (1.2) | `custscript_cdbmr_pay_account` | Integer: the `customlist_cust_pay_intent` ID of *Add to account* | the account option is never offered; everyone pays up front |
 | `custscript_cdb_quote_type_labels` (1.2) | `custscript_cdbmr_quote_type_labels` | Long Text: JSON `{"<quote type id>": "UFH"}` | each quote type's own text; invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the page |
@@ -458,6 +530,7 @@ Every title starts `CDB `.
 | `CDB REQUEST_FAILED` | error | Something of ours threw; the customer saw the error page | Read the stack |
 | `CDB OPTION_HINTS_INVALID` | audit | `custscript_cdb_option_hints` is not valid JSON of the right shape; options show titles only | Fix the JSON |
 | `CDB EDD_SKIPPED` | audit | `custscript_cdb_edd_definite_value` is empty, so EDD certainty was not written | Set the parameter |
+| `CDB RECENT_FAILED` | audit | The 1.3 recently delivered search threw; the page or digest carries on without the section | Check the search in `getRecentlyDelivered()` |
 | `CDB EXTRAS_FAILED` | audit | The 1.2 extras search threw; the page shows no amounts or split references and treats every order as pay up front | Check the field IDs in `getOrderExtras()` against the account |
 | `CDB AMOUNT_ODD` | audit | An amount to pay came out negative, so it is not shown | Check the order's balance, total and deposit |
 | `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR twin) is not a JSON object; each type shows its own text | Fix the JSON |
@@ -582,6 +655,36 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 1.3.2 — notes for Steve
+
+1. **"Projects for delivery" counted projects, not orders**, before 1.3.2 (so did "Recently
+   delivered"). Both pills now count orders, as the note asked; this is that report.
+2. **Email group order:** the note says the groups follow the page, *For delivery* first, then
+   *Booked deliveries*. The email has always put design and quote rows after the delivery rows; placing
+   *Booked deliveries* straight after *For delivery* would put those rows under its heading. It goes
+   last instead, as on the page.
+3. **Undated upcoming orders** (released with no ship date) sort after dated ones.
+
+### Release 1.3 — contradictions and decisions for Steve
+
+1. **The brief says to apply the released exception in "the search filter", but the main order
+   searches have no Record Status filter** — `isOpenOrder()` decides it. The filter
+   (`recordStatusFilter()`) is used by the digest's LIVE input search, the only search that filters
+   Record Status.
+2. **A released order is open, so the guard would have let it be booked by URL** when it is ready
+   and has no payment intent. Not in the brief: the guard now refuses released orders.
+3. ~~Recently delivered uses the order's own `entity`.~~ **Decided (1.3.1):** it goes through the
+   customer's opportunities, like every other section.
+4. **The released meta uses `custbody_defaultshipdate`** (the customer's requested date) for
+   "We're preparing your delivery for …", as briefed.
+
+### Needs Steve (1.3)
+
+- Set `custscript_cdb_released_statuses` and its twin to the **Release to Warehouse** ID, and the
+  hidden statuses to the test statuses, in each account.
+- A Sandbox check of the recent search: `opportunity anyof`, `status anyof SalesOrd:F,SalesOrd:G` and the two
+  `within` date filters on sales orders.
 
 ### Release 1.2 — contradictions and decisions for Steve
 

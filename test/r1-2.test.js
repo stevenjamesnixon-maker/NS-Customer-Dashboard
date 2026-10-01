@@ -229,7 +229,8 @@ test('7b. the email shows an account booking as Delivery requested, with no amou
         Object.assign({}, fx.CFG, { PAY_ACCOUNT: ACCOUNT_ID }));
     var html = render.digestEmail({ customerName: 'A', groups: groups, payBacs: '1', link: 'https://x/l', am: {}, digestDays: 14 });
     assert.ok(html.indexOf('>Delivery requested</span>') > 0);
-    assert.ok(html.indexOf('requested Fri 30 October 2026, AM delivery') > 0);
+    // 1.3.2: the short display date, with the year only when it is not this year.
+    assert.ok(html.indexOf('requested ' + amd.load('lib/cdb_lib_dates').formatDisplay('2026-10-30', amd.load('lib/cdb_lib_dates').londonTodayKey(Date.now())) + ', AM delivery') > 0);
     assert.strictEqual(html.indexOf('£'), -1);
 });
 
