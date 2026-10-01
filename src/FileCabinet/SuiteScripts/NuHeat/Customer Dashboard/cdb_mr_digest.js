@@ -17,8 +17,9 @@
  *
  * PER CUSTOMER (map):
  *   recipient  the dashboard contact's email, otherwise the customer's email
+ *              (data.emailRecipient(), 2.0: shared with the Send delivery link email)
  *   author     the customer's sales rep if active, otherwise the fallback employee. Never the
- *              current user.
+ *              current user. (data.emailAuthor(), 2.0: moved there unchanged, and shared)
  *   skip       no recipient, or nothing to show — logged at audit with the reason
  *   extras     1.2: data.getOrderExtras() once per customer (fail-safe) for the split reference;
  *              the short type labels come from custscript_cdbmr_quote_type_labels. No amounts.
@@ -33,7 +34,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -41,7 +42,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.0';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -190,18 +191,6 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         });
     }
 
-    /**
-     * The sales rep if active, otherwise the fallback employee.
-     */
-    function author(customer, cfg) {
-        var rep = customer.salesRep ? data.getEmployee(customer.salesRep) : null;
-        if (rep && !rep.isInactive) {
-            return rep;
-        }
-        return data.getEmployee(String(cfg.FALLBACK_EMPLOYEE)) ||
-            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', phone: '', email: '' };
-    }
-
     function skip(context, customerId, reason) {
         log.audit({ title: title('DIGEST_SKIPPED'), details: 'Customer ' + customerId + ': ' + reason });
         context.write({ key: OUTCOME.SKIPPED_PREFIX + reason, value: customerId });
@@ -228,7 +217,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 skip(context, customerId, 'customer inactive');
                 return;
             }
-            recipient = data.getContactEmail(customer.dashboardContact) || customer.email;
+            recipient = data.emailRecipient(customer);
             if (!recipient) {
                 skip(context, customerId, 'no recipient email');
                 return;
@@ -247,7 +236,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             // 1.3.2: the email follows the page's two delivery groups. Who gets a digest is unchanged:
             // groups.isEmpty was decided above, before this split.
             data.arrangeSections(groups);
-            from = author(customer, cfg);
+            from = data.emailAuthor(customer, cfg);
 
             body = render.digestEmail({
                 customerName: customer.name,

@@ -12,8 +12,13 @@
  * does come from the request, so every read and write of an order goes through
  * data.guardOrder(), which checks that the order's opportunity belongs to THIS customer.
  *
- * NO CURRENT USER. A no-login Suitelet runs as user -4. runtime.getCurrentUser() is not used
- * anywhere in this repo.
+ * NO CURRENT USER. A no-login Suitelet runs as user -4. runtime.getCurrentUser() is not used in
+ * this script. (2.0: the one exception in the repo is the login-required cdb_sl_send_link.js, which
+ * logs who pressed the button and nothing more.)
+ *
+ * DIRECT LINKS (2.0): every customer action is addressable as ?t=…&a=<action>&<id>=…, so an email can
+ * link straight to the action (the "Send delivery link" email links to ?t=…&a=delivery&so=…), and
+ * the confirmation pages link back to the dashboard.
  *
  * WHAT THIS SCRIPT WRITES — and nothing else:
  *   - the sales order fields in brief B5 (setOrderFields below), plus, from 1.1, two OPTIONAL
@@ -35,7 +40,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.0
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -43,7 +48,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.0';
 
     var SO = config.FIELDS.SALES_ORDER;
 

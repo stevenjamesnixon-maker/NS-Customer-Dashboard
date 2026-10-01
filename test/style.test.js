@@ -7,7 +7,15 @@ var path = require('path');
 
 var ROOT = path.join(__dirname, '..', 'src', 'FileCabinet', 'SuiteScripts', 'NuHeat', 'Customer Dashboard');
 var FILES = ['cdb_sl_dashboard.js', 'cdb_mr_digest.js', 'lib/cdb_lib_config.js', 'lib/cdb_lib_token.js',
-    'lib/cdb_lib_dates.js', 'lib/cdb_lib_data.js', 'lib/cdb_lib_render.js', 'lib/cdb_lib_task.js'];
+    'lib/cdb_lib_dates.js', 'lib/cdb_lib_data.js', 'lib/cdb_lib_render.js', 'lib/cdb_lib_task.js',
+    'cdb_ue_salesorder.js', 'cdb_sl_send_link.js'];
+
+/**
+ * 2.0: the ONE file that may read the current user — the login-required Send delivery link
+ * Suitelet, for its CDB SEND_LINK log line only (brief §5 step 7). Every other file, and above all
+ * the no-login dashboard, still may not.
+ */
+var CURRENT_USER_ALLOWED = ['cdb_sl_send_link.js'];
 
 FILES.forEach(function (f) {
     test(f, function () {
@@ -19,7 +27,11 @@ FILES.forEach(function (f) {
         assert.ok(code.indexOf('`') === -1, 'no template literals');
         assert.ok(!/\.includes\(/.test(code), 'no includes');
         assert.ok(!/log\.warn/.test(code), 'no log.warn');
-        assert.ok(!/getCurrentUser/.test(code), 'no current user');
+        if (CURRENT_USER_ALLOWED.indexOf(f) < 0) {
+            assert.ok(!/getCurrentUser/.test(code), 'no current user');
+        } else {
+            assert.strictEqual((code.match(/getCurrentUser/g) || []).length, 1, 'the current user read once, for the log');
+        }
         var constant = /var VERSION = '(\d+\.\d+\.\d+)';/.exec(src);
         var header = /@version (\d+\.\d+\.\d+)/.exec(src);
         assert.ok(constant && header && constant[1] === header[1], 'VERSION and @version in step');

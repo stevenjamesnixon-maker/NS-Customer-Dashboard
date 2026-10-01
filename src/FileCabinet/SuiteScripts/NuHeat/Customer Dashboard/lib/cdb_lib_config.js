@@ -12,8 +12,9 @@
  * PARAMETER IDS DIFFER BY SCRIPT. A script parameter is a custom field, and custom field IDs are
  * unique across the account, so the Map/Reduce cannot define a parameter with the Suitelet's ID.
  * (NS-Opportunity-SO-Sync tried it and NetSuite refused.) The Map/Reduce therefore carries twins
- * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original.
- * PARAMETERS below names both, explicitly, per script: no derivation and no fallback, because a
+ * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original, and
+ * (2.0) the internal Send delivery link Suitelet carries five more prefixed custscript_cdbsend_.
+ * PARAMETERS below names each, explicitly, per script: no derivation and no fallback, because a
  * fallback reads the wrong script's value and hides the misconfiguration. See docs/context.md
  * section 4.
  *
@@ -26,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 2.0.0
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '2.0.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -41,10 +42,19 @@ define(['N/runtime'], function (runtime) {
         SUITELET: 'customscript_cdb_sl_dashboard',
         SUITELET_DEPLOYMENT: 'customdeploy_cdb_sl_dashboard',
         DIGEST: 'customscript_cdb_mr_digest',
-        DIGEST_DEPLOYMENT: 'customdeploy_cdb_mr_digest'
+        DIGEST_DEPLOYMENT: 'customdeploy_cdb_mr_digest',
+        // 2.0: the internal Suitelet behind the sales order's "Send delivery link" button, and the
+        // User Event that adds the button.
+        SEND_LINK: 'customscript_cdb_sl_send_link',
+        SEND_LINK_DEPLOYMENT: 'customdeploy_cdb_sl_send_link',
+        SALES_ORDER_UE: 'customscript_cdb_ue_salesorder'
     };
 
-    /** The API Secret. Restricted in the account to the two scripts above, never by employee. */
+    /**
+     * The API Secret. Set to "Allow for all scripts" in the account (2.0 correction): restricting it
+     * to named scripts failed in Production ("An error occurred while decrypting a secret"), probably
+     * because N/crypto is called from a library file. Never restricted by employee.
+     */
     var SECRET_ID = 'custsecret_cdb_link_key';
 
     var RECORD_TYPES = {
@@ -173,6 +183,43 @@ define(['N/runtime'], function (runtime) {
     ];
 
     /**
+     * 2.0: the "Send delivery link" email's wording, in one place. Plain text: render escapes every
+     * value. {SO} in SUBJECT is the order number; {name} in HELLO the greeting name.
+     */
+    var DELIVERY_LINK_EMAIL = {
+        SUBJECT: 'Your order {SO} is ready to deliver: choose your date',
+        EYEBROW: 'READY TO DELIVER',
+        HEADING: 'Choose your delivery date',
+        HELLO: 'Hello {name}',
+        INTRO: 'Good news: your order below is ready to deliver. Choose a date that suits you and how ' +
+            'you\u2019d like to pay.',
+        BUTTON: 'ARRANGE DELIVERY',
+        DASHBOARD_LINK: 'Or view all your projects',
+        PERSONAL: 'This link is personal to you. Please don\u2019t forward this email.',
+        FOOTER: 'You\u2019re receiving this because you have an order with Nu-Heat.'
+    };
+
+    /**
+     * 2.0: the sales order banner after "Send delivery link". A FIXED WHITELIST keyed by the cdbsl
+     * code in the URL: only these texts are ever shown, and an unknown code shows nothing. Nothing
+     * from the URL is shown. type is an N/ui/message Type key.
+     */
+    var SEND_LINK_BANNERS = {
+        sent: { type: 'CONFIRMATION', title: 'Delivery link sent',
+            message: 'The customer has been emailed a link to arrange delivery for this order. ' +
+                'The email is on the Communication tab.' },
+        refused: { type: 'WARNING', title: 'Delivery link not sent',
+            message: 'This order can\u2019t be booked online right now (it may already be booked, requested, ' +
+                'released or not ready), or the customer has no email address. Details are in the script ' +
+                'log (CDB SEND_REFUSED or CDB SEND_NO_RECIPIENT).' },
+        failed: { type: 'ERROR', title: 'Delivery link not sent',
+            message: 'The email could not be sent. Details are in the script log (CDB SEND_FAILED).' }
+    };
+
+    /** 2.0: how long the banner shows after the redirect (cdblt, milliseconds since the epoch). */
+    var SEND_LINK_BANNER_SECONDS = 300;
+
+    /**
      * Parameter kinds:
      *   idlist  comma list of whole numbers -> string[]
      *   id      one whole number (Integer, or a List/Record select) -> string
@@ -201,15 +248,21 @@ define(['N/runtime'], function (runtime) {
         DELIVERY_SUBSTATUS: { kind: 'idlist', empty: 'throw',
             ids: { SL: 'custscript_cdb_delivery_substatus', MR: 'custscript_cdbmr_delivery_substatus' } },
         EXCLUDED_STATUSES: { kind: 'idlist', empty: 'throw',
-            ids: { SL: 'custscript_cdb_excluded_statuses', MR: 'custscript_cdbmr_excluded_statuses' } },
+            ids: { SL: 'custscript_cdb_excluded_statuses', MR: 'custscript_cdbmr_excluded_statuses',
+                SEND: 'custscript_cdbsend_excluded_statuses' } },
         EXCLUDED_QUOTE_TYPES: { kind: 'idlist', empty: 'throw',
-            ids: { SL: 'custscript_cdb_excluded_quote_types', MR: 'custscript_cdbmr_excluded_quote_types' } },
+            ids: { SL: 'custscript_cdb_excluded_quote_types', MR: 'custscript_cdbmr_excluded_quote_types',
+                SEND: 'custscript_cdbsend_excluded_quote_types' } },
+        // 2.0: the Send delivery link Suitelet (SEND) reads five of these, as custscript_cdbsend_ twins:
+        // the guard's three lists, the fallback author and the logo. Empty means what it means on
+        // the dashboard Suitelet.
         PAY_BACS: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_pay_bacs', MR: 'custscript_cdbmr_pay_bacs' } },
         PAY_CARD: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_pay_card', MR: 'custscript_cdbmr_pay_card' } },
         FALLBACK_EMPLOYEE: { kind: 'id', empty: 'throw',
-            ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee' } },
+            ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee',
+                SEND: 'custscript_cdbsend_fallback_employee' } },
         // 1.2. Pay up front vs account. Empty prepay terms -> everyone pays up front; empty account
         // value -> the account option is never offered. Both fail closed: they offer less.
         // Suitelet only: nothing in the digest reads it (amendment 1).
@@ -219,7 +272,8 @@ define(['N/runtime'], function (runtime) {
         // 1.3. Record Statuses that stay visible although they are in EXCLUDED_STATUSES ("Release to
         // Warehouse": staff set it when payment arrives). Empty -> released orders stay hidden.
         RELEASED_STATUSES: { kind: 'idlist', empty: 'none',
-            ids: { SL: 'custscript_cdb_released_statuses', MR: 'custscript_cdbmr_released_statuses' } },
+            ids: { SL: 'custscript_cdb_released_statuses', MR: 'custscript_cdbmr_released_statuses',
+                SEND: 'custscript_cdbsend_released_statuses' } },
         // 1.3. "Recently delivered": how many days back, and the Record Statuses never shown there.
         RECENT_DAYS: { kind: 'int', empty: 'default', defaultValue: 7,
             ids: { SL: 'custscript_cdb_recent_days', MR: 'custscript_cdbmr_recent_days' } },
@@ -229,7 +283,8 @@ define(['N/runtime'], function (runtime) {
         QUOTE_TYPE_LABELS: { kind: 'text', empty: 'none',
             ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels' } },
         LOGO_URL: { kind: 'https', empty: 'none',
-            ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url' } },
+            ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url',
+                SEND: 'custscript_cdbsend_logo_url' } },
 
         TIME_VALUES: { kind: 'idlist', empty: 'throw', ids: { SL: 'custscript_cdb_time_values' } },
         VEHICLE_VALUES: { kind: 'idlist', empty: 'throw', ids: { SL: 'custscript_cdb_vehicle_values' } },
@@ -259,6 +314,7 @@ define(['N/runtime'], function (runtime) {
     var SCRIPT_KEYS = {};
     SCRIPT_KEYS[SCRIPTS.SUITELET] = 'SL';
     SCRIPT_KEYS[SCRIPTS.DIGEST] = 'MR';
+    SCRIPT_KEYS[SCRIPTS.SEND_LINK] = 'SEND';
 
     /**
      * @param {*} value
@@ -326,7 +382,7 @@ define(['N/runtime'], function (runtime) {
      * Pure: reads and validates every parameter for one script column.
      *
      * @param {function(string): *} getParameter - returns the raw value for a parameter ID
-     * @param {string} column - 'SL' or 'MR'
+     * @param {string} column - 'SL', 'MR' or 'SEND'
      * @returns {{config: Object, missing: string[], notes: string[]}}
      *   config  keyed by logical key
      *   missing parameter IDs that are empty (or invalid) where empty means throw
@@ -553,6 +609,9 @@ define(['N/runtime'], function (runtime) {
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
+        DELIVERY_LINK_EMAIL: DELIVERY_LINK_EMAIL,
+        SEND_LINK_BANNERS: SEND_LINK_BANNERS,
+        SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
         PARAMETERS: PARAMETERS,

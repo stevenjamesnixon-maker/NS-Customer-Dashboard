@@ -6,8 +6,8 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (release 1.3, `feat/dashboard-r1-3`). **Status:** releases 1 and 1.1 passed their Production
-tests on 30 Sep 2026; release 1.2 merged; release 1.3 not deployed.
+**Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
 
 **Versions:** every amendment to an open release PR bumps the patch version (1.3.1, 1.3.2…) of
 every file it changes. Steve tells deployed copies apart by version.
@@ -71,6 +71,11 @@ every file it changes. Steve tells deployed copies apart by version.
     list (section 4). NS-Opportunity-SO-Sync's excluded list is **unchanged** and still means "don't
     evaluate readiness". Do not "tidy" the two lists into one.
 
+13. **Every customer action has its own direct link (2.0).** `?t=<token>&a=<action>&<id>=<value>`
+    (today: `a=delivery&so=<sales order>`). Emails link to the action; confirmation pages link back to
+    the dashboard. The link's customer is **always the order's opportunity's customer** (the guard's
+    rule), never the order's `entity`. Section 4, *Direct links*.
+
 ---
 
 ## 1. What this solves
@@ -94,13 +99,15 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.3.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.3.2 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
-| Config library | 1.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
-| Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
+| Dashboard Suitelet | 2.0.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 2.0.0 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
+| Send link Suitelet (2.0) | 2.0.0 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording | Not deployed |
+| Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 1.3.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.3.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
+| Data library | 2.0.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient and author rules | Not deployed |
+| Render library | 2.0.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, the email building blocks, the digest and the delivery-link email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -141,11 +148,81 @@ url     = url.resolveScript({ scriptId: 'customscript_cdb_sl_dashboard',
   → `update({ input, inputEncoding: UTF_8 })` → `digest({ outputEncoding: BASE_64 })`.
   `encoding` on `createSecretKey` says how the secret's clear text is read; it defaults to HEX,
   and UTF_8 lets the secret be any random string.
+- **The API Secret is "Allow for all scripts"** (2.0 correction). Restricting it to the named scripts
+  failed in Production with *"An error occurred while decrypting a secret"*, probably because
+  `N/crypto` is called from a library file (`cdb_lib_token.js`) rather than from a script record. It
+  is still never restricted by employee.
 - **Verify** checks, in order: shape, payload, HMAC (constant-time compare), the customer exists,
   is not inactive, and its version matches. Any failure shows **one** page — *"This link is no
   longer valid. Please contact your account manager"* — and logs `CDB INVALID_LINK` at audit with
   the reason.
-- `buildLink(customerId)` is exported for the digest and future email templates.
+- `buildLink(customerId, extra)` is exported for the digest, the *Send delivery link* email and
+  future email templates. `extra` is passed through to `url.resolveScript`, which encodes it; with
+  no `extra` the link is byte-identical to 1.x. An extra `t` is ignored.
+
+### Direct links (2.0)
+
+**Every customer action gets its own direct link**: `?t=<token>&a=<action>&<id>=<value>`. The token
+still names only the customer; the action and its ID are plain parameters, and the dashboard
+Suitelet guards them against the token's customer exactly as before. Emails link **to the action**
+(the *Send delivery link* email's button is `?t=…&a=delivery&so=<id>`), with a secondary link to the
+dashboard; confirmation pages link back to the dashboard.
+
+**The customer for a link is always the order's opportunity's customer** (`data.orderCustomer()`,
+the guard's rule), never the order's own `entity`. A link built for any other customer would be
+refused by the guard as *another customer*.
+
+### Send delivery link (2.0)
+
+Staff send a customer a *book your delivery* link for **one** sales order. Automatic sending comes
+later.
+
+**`cdb_ue_salesorder.js`** — User Event on Sales Order, `beforeLoad`, **VIEW only, internal UI only**
+(any other event or execution context does nothing). It adds **Send delivery link** when all five
+hold, read from the record's own fields (no search, no parameter, no units): `opportunity` set; the
+native `orderstatus` is A, B, D or E (`config.SHIPPABLE_STATUSES`); `custbody_del_date` empty;
+`custbody_cust_pay_intent` empty; `custbody_ready_for_delivery` ticked. The button is a convenience,
+not the check: a released or excluded order can show it and is then refused by the Suitelet. Clicking
+goes to the internal Suitelet with `so=<id>` (URL from `url.resolveScript`, an inline
+`window.location.assign` handler, no client script file).
+
+**The banner.** The Suitelet redirects back with `cdbsl=sent|refused|failed` and `cdblt=<ms>`. The
+text comes only from `config.SEND_LINK_BANNERS`, a fixed whitelist keyed by the code; an unknown code
+shows nothing and nothing from the URL is displayed. It shows for 300 seconds after `cdblt` (60
+seconds of clock difference tolerated the other way). The recipient's email is **not** in the
+banner: no record holds it, and reading the script log costs a search; it is in `CDB SEND_LINK` and
+on the Communication tab.
+
+**`cdb_sl_send_link.js`** — internal Suitelet, **login required, GET only**:
+
+1. `config.load()` — the `custscript_cdbsend_` parameters (below).
+2. `data.orderCustomer(so)` (the opportunity's customer), then `data.guardOrder()` for that customer:
+   open, ready, not booked, not requested, not released. Refused → back to the order with
+   `cdbsl=refused`; `CDB SEND_REFUSED` with the guard's reason. An inactive customer is refused too
+   (the link would show the invalid page).
+3. Recipient: `data.emailRecipient()` — the dashboard contact's email, else the customer's (the
+   digest's rule). Missing or not an email → `refused`; `CDB SEND_NO_RECIPIENT`.
+4. Author: `data.emailAuthor()` — the customer's sales rep if active, else the fallback employee (the
+   digest's rule, moved to the data library and shared). **Not the user who pressed the button.**
+5. The email: `render.deliveryLinkEmail()` with the direct link
+   `buildLink(oppCustomer, { a: 'delivery', so })` and the dashboard link `buildLink(oppCustomer)`;
+   the extras (description, split reference, type label) as the dashboard reads them.
+6. `email.send` with `relatedRecords: { entityId: customer, transactionId: so }` — on both
+   Communication tabs. Any failure → `cdbsl=failed`; `CDB SEND_FAILED`.
+7. `CDB SEND_LINK`: the order, the customer, the recipient, the author and **the user who pressed**.
+8. `redirect.toRecord` to the order with `cdbsl=sent`.
+
+**No record writes.** Sending changes nothing on the order; a resend is just another email.
+
+**The email** (`render.deliveryLinkEmail`, snapshot `test/snapshots/delivery-link-email.html`):
+subject *"Your order {SO} is ready to deliver: choose your date"*; the logo; the band *READY TO
+DELIVER / Choose your delivery date / Hello {name}*; the intro; one order block (project title, order
+title, split reference, *Order SO… · UFH*); the yellow **ARRANGE DELIVERY** button; *Or view all your
+projects*; the personal-link line; the AM card (the author); the footer *"You're receiving this
+because you have an order with Nu-Heat."* — **no opt-out wording**. Every word is in
+`config.DELIVERY_LINK_EMAIL`, so it changes in one place. It is built from the digest's blocks
+(`emailShell`, `emailLogo`, `emailBand`, `emailButton`, `emailAmBlock`, `emailFooter`), extracted in
+2.0 without changing the digest (its snapshot is byte-identical).
 
 ### Stages (`cdb_lib_data.groupProjects`, pure)
 
@@ -449,6 +526,17 @@ and names every missing parameter.
 | — | `custscript_cdb_digest_days` | Integer | 14; audit |
 | — | `custscript_cdb_digest_cap` | Integer | 200; audit |
 
+**The Send delivery link Suitelet's twins (2.0)** — prefix `custscript_cdbsend_`, the same value as
+their `custscript_cdb_` original, and **empty means what it means on the dashboard Suitelet**:
+
+| Parameter (Send link Suitelet) | Type | Value | Empty means |
+|---|---|---|---|
+| `custscript_cdbsend_excluded_statuses` | Free-Form Text, comma list | same as `custscript_cdb_excluded_statuses` | throw |
+| `custscript_cdbsend_excluded_quote_types` | Free-Form Text, comma list | same as `custscript_cdb_excluded_quote_types` | throw |
+| `custscript_cdbsend_released_statuses` | Free-Form Text, comma list | same as `custscript_cdb_released_statuses` | none: released orders count as excluded, so are refused as not open (the guard refuses them as released when it is set) |
+| `custscript_cdbsend_fallback_employee` | List/Record → Employee | same as `custscript_cdb_fallback_employee` | throw |
+| `custscript_cdbsend_logo_url` | Free-Form Text, https | same as `custscript_cdb_logo_url` | no logo; audit |
+
 The numeric defaults above are the values the brief gives for Production. **Read the IDs off each
 account's lists before setting them**; they are not guaranteed to match between accounts.
 
@@ -459,8 +547,9 @@ account's lists before setting them**; they are not guaranteed to match between 
 **Security — do not relax:**
 
 - **No current user.** A no-login Suitelet runs as user −4. `runtime.getCurrentUser()` appears
-  nowhere in this repo (a node test enforces it). Authors and assignees come from records and
-  parameters.
+  nowhere in this repo **except once in the login-required `cdb_sl_send_link.js` (2.0), for its
+  `CDB SEND_LINK` log line only** (a node test enforces both). Authors and assignees come from
+  records and parameters, never from the current user.
 - **The customer is the token's.** The customer ID is never read from a request parameter.
 - **Ownership on every write.** The order ID comes from the request, so the guard checks that the
   order's opportunity belongs to the token's customer, on GET and again on POST, and the loaded
@@ -540,6 +629,11 @@ Every title starts `CDB `.
 | `CDB DIGEST_SENT` / `DIGEST_SKIPPED` | audit | Per customer | — |
 | `CDB DIGEST_FAILED` / `DIGEST_STAMP_FAILED` | error | Not sent / sent but not stamped (it will send again next LIVE run) | Stamp by hand if needed |
 | `CDB DIGEST_SUMMARY` | audit | Counts per outcome | — |
+| `CDB SEND_LINK` (2.0) | audit | A delivery link was emailed: order, customer, recipient, author, the user who pressed | — |
+| `CDB SEND_REFUSED` (2.0) | audit | Not sent: the guard's reason, no opportunity, an inactive customer, or a bad request | Expected for a booked, requested, released or not-ready order |
+| `CDB SEND_NO_RECIPIENT` (2.0) | audit | Not sent: no dashboard contact email and no valid customer email | Add an email to the customer or the dashboard contact |
+| `CDB SEND_FAILED` (2.0) | error | `email.send` (or a read before it) threw; nothing was sent | Read the details; often the author is not a valid employee |
+| `CDB UE_FAILED` (2.0) | error | The sales order User Event threw; the order still opened, without the button or banner | Read the details |
 
 ---
 
@@ -560,11 +654,11 @@ Steve deploys. Manual File Cabinet upload to
      read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
 2. **The custom record** `customrecord_cdb_nondelivery` (*Non-delivery date*), field
    `custrecord_cdb_nd_date` (Date) plus its name. Add bank holidays and shutdowns for the next year.
-3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters,
-   restricted to `customscript_cdb_sl_dashboard` and `customscript_cdb_mr_digest` — **never** by
-   employee.
-4. **Upload the libs, then the scripts.** All six `lib/` files first; then `cdb_sl_dashboard.js`
-   and `cdb_mr_digest.js`.
+3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters, set to
+   **Allow for all scripts** — **never** restricted by employee. (Restricting it to the two scripts
+   failed in Production: *"An error occurred while decrypting a secret"*; section 4.)
+4. **Upload the libs, then the scripts.** All six `lib/` files first; then `cdb_sl_dashboard.js`,
+   `cdb_mr_digest.js`, and (2.0) `cdb_ue_salesorder.js` and `cdb_sl_send_link.js`.
 5. **The Suitelet** `customscript_cdb_sl_dashboard`, deployment `customdeploy_cdb_sl_dashboard`:
    Available Without Login, Execute As Administrator, Released, log level Audit. Define and set every
    `custscript_cdb_*` parameter in section 4.
@@ -574,6 +668,13 @@ Steve deploys. Manual File Cabinet upload to
 7. **A run by hand** (Save and Execute). Check `CDB DIGEST_SUMMARY` and the test customer's
    Communication tab.
 8. **Then schedule it daily**, and switch to LIVE when Steve says.
+9. **(2.0) The Send link Suitelet** `customscript_cdb_sl_send_link`, deployment
+   `customdeploy_cdb_sl_send_link`: **not** Available Without Login, audience the sales roles,
+   Released, log level Audit. Define every `custscript_cdbsend_*` twin (section 4) with the same value
+   as its `custscript_cdb_*` original.
+10. **(2.0) The User Event** `customscript_cdb_ue_salesorder`, deployment `customdeploy_cdb_ue_salesorder`
+    on Sales Order: event type **View**, all roles, Testing first, then Released after testing. No
+    parameters.
 
 ---
 
@@ -606,6 +707,10 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 13 | A **Billed** SO with a blank Record Status on a delivery-stage opportunity | Not shown; its delivery URL refused |
 | 14 | A **Pending Fulfillment** SO | Shown |
 | 15 | Mobile width; email with images and styles off | Usable; readable |
+| 16 (2.0) | View a ready, unbooked order with an opportunity; then edit it | *Send delivery link* in VIEW only |
+| 17 (2.0) | Press it | One email from the rep to the dashboard contact / customer, on the customer's and the order's Communication tabs; the green banner; `CDB SEND_LINK` names you; the button opens the delivery form directly; the secondary link opens the dashboard |
+| 18 (2.0) | A released order with the box ticked; a customer with no email | The button shows; pressing gives the warning banner and no email; `CDB SEND_REFUSED` / `SEND_NO_RECIPIENT` |
+| 19 (2.0) | Reload the order after 5 minutes | No banner |
 
 ---
 
@@ -626,6 +731,10 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 1.1: `record.getField({ fieldId })` on a record loaded in standard mode | Returns `null` for a field the record does not carry | Documented behaviour; not verified here |
 | 1.1: `getText` on `custbody_edd_certainty` after `setValue` in standard mode | Returns the new option's text, for the change log | Falls back to `ID <n>` if not |
 | Search type = a custom list's script ID (`customlist_del_time_per`), column `name` | Returns the options | Not verified |
+| 2.0: `newRecord.getValue({ fieldId: 'orderstatus' })` in beforeLoad VIEW | Returns the letter (`A`…`H`) | Not verified |
+| 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
+| 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
+| 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
 
 ### Contradictions in the brief — for Steve
 
@@ -655,6 +764,32 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 2.0 — contradictions and decisions for Steve
+
+1. **"No current user" vs logging who pressed the button.** Section 5 and a node test said
+   `getCurrentUser()` appears nowhere in the repo; the brief asks `CDB SEND_LINK` to log the user who
+   pressed. The rule exists for the no-login page, so it is kept there and everywhere else; the
+   login-required Send link Suitelet reads the user once, for the log only. The style test allows it in
+   that one file and checks it is read exactly once.
+2. **The type label needs a parameter the brief does not list.** *Order SO… · UFH* uses
+   `custscript_cdb_quote_type_labels` on the dashboard. The brief's five `cdbsend_` parameters leave it
+   out, so the email shows each quote type's own text (e.g. *Underfloor heating system*) in that place.
+   Adding `custscript_cdbsend_quote_type_labels` would make it *UFH*. Not done: say if you want it.
+3. **The recipient's email is not in the banner.** No record holds it and reading the log costs a
+   search; the brief allowed leaving it out.
+4. **The AM block "contact fallback".** The brief describes phone, then email, then the name; the
+   digest's block (now `emailAmBlock`, shared so the digest is byte-identical) shows the phone **and**
+   the email when both exist, then whichever exists, then the name alone. The new email uses the same
+   block.
+5. **The author.** Moved from the digest to `data.emailAuthor()` unchanged, so both emails use one
+   rule (the page's `customerManager()` is the same rule).
+6. **The button's five conditions do not include the Record Status**, as briefed (record fields only):
+   a released or excluded order with the box ticked shows the button and is then refused, with the
+   warning banner.
+7. **Apostrophes.** The wording uses the typographic ’ (*you’d*, *don’t*, *You’re*), as the digest does.
+8. **A missing `cdbsend_` parameter** sends nothing and redirects with `cdbsl=failed`
+   (`CDB PARAMETER_MISSING` names it).
 
 ### Release 1.3.2 — notes for Steve
 
@@ -752,5 +887,5 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 
 ### NetSuite configuration tasks for Steve
 
-Section 8, plus: keep each `custscript_cdbmr_*` equal to its `custscript_cdb_*` original, and
+Section 8, plus: keep each `custscript_cdbmr_*` and `custscript_cdbsend_*` equal to its `custscript_cdb_*` original, and
 `custscript_cdb_excluded_statuses` equal to the sync's `custscript_opsync_excluded_statuses`.

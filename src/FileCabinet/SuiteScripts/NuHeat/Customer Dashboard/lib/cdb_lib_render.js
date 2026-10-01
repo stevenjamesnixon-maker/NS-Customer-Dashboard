@@ -23,17 +23,21 @@
  * THE EMAIL is tables and inline styles, 600px and fluid on phones, Calibri/Arial with no web
  * font, no flex or grid, no display:none, and a bulletproof table-cell button for Outlook.
  *
+ * EMAIL BUILDING BLOCKS (2.0): emailShell, emailLogo, emailBand, emailButton, emailAmBlock and
+ * emailFooter are the digest's pieces, extracted unchanged (its snapshot is byte-identical), so
+ * every email looks the same. deliveryLinkEmail() — "Send delivery link" — is built from them.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.0
  */
 define(['./cdb_lib_dates'], function (dates) {
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -1165,6 +1169,95 @@ define(['./cdb_lib_dates'], function (dates) {
         return n % 7 === 0 ? (n === 7 ? 'every week' : 'every ' + (n / 7) + ' weeks') : 'every ' + n + ' days';
     }
 
+    /** The email's inline font declaration. */
+    var EF = 'font-family:' + EMAIL_FONT + ';';
+
+    /**
+     * The outer tables: the page colour, and the 600px white card. content is rows (<tr>).
+     * @param {string} content - HTML
+     */
+    function emailShell(content) {
+        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eeebe7" ' +
+            'style="background-color:#eeebe7;"><tr><td align="center" style="padding:24px 8px;">' +
+            '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
+            'style="width:100%;max-width:600px;background-color:#ffffff;">' + content + '</table></td></tr></table>';
+    }
+
+    /** The logo row: the image when there is a URL, else "Nu-Heat" in purple. */
+    function emailLogo(logoUrl) {
+        return '<tr><td align="center" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
+            (logoUrl ? '<img src="' + esc(logoUrl) + '" alt="Nu-Heat" height="60" style="display:block;height:60px;' +
+                'max-height:60px;width:auto;max-width:100%;border:0;margin:0 auto;">' :
+                '<span style="' + EF + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE + ';">Nu-Heat</span>') +
+            '</td></tr>';
+    }
+
+    /**
+     * The purple band. Every argument is plain text, escaped here.
+     * @param {string} eyebrow - e.g. "YOUR PROJECTS UPDATE"
+     * @param {string} heading
+     * @param {string} hello - the whole line, e.g. "Hello Sam"
+     */
+    function emailBand(eyebrow, heading, hello) {
+        return '<tr><td align="center" bgcolor="' + COLORS.PURPLE + '" style="background-color:' + COLORS.PURPLE +
+            ';padding:36px 32px;' + EF + 'color:#ffffff;">' +
+            '<p style="margin:0 0 10px;' + EF + 'font-size:15px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
+            'color:#e7d9ea;">' + esc(eyebrow) + '</p>' +
+            '<h1 style="margin:0 0 10px;' + EF + 'font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">' +
+            esc(heading) + '</h1>' +
+            '<p style="margin:0;' + EF + 'font-size:17px;color:#f3ecf4;">' + esc(hello) + '</p></td></tr>';
+    }
+
+    /**
+     * The yellow button row (bulletproof: a padded table cell, no VML, so the URL appears once).
+     * @param {string} link
+     * @param {string} label - plain text
+     */
+    function emailButton(link, label) {
+        return '<tr><td align="center" style="padding:16px 32px 8px;">' +
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr>' +
+            '<td align="center" bgcolor="' + COLORS.CTA + '" style="background-color:' + COLORS.CTA + ';border-radius:6px;">' +
+            '<a href="' + esc(link) + '" target="_blank" style="display:inline-block;padding:16px 36px;' + EF +
+            'font-size:18px;font-weight:bold;letter-spacing:0.5px;color:' + COLORS.CTA_TEXT + ';text-decoration:none;' +
+            'border-radius:6px;">' + esc(label) + '</a></td></tr></table></td></tr>';
+    }
+
+    /**
+     * The account manager card, no photo: the name, then phone · email (either may be missing).
+     * '' without a name.
+     * @param {Object} am - { name, phone, email }
+     */
+    function emailAmBlock(am) {
+        if (!am || !am.name) {
+            return '';
+        }
+        return '<tr><td align="center" bgcolor="' + COLORS.TIP + '" style="background-color:' + COLORS.TIP +
+            ';padding:28px 32px;' + EF + '">' +
+            '<p style="margin:0;' + EF + 'font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
+            'color:' + COLORS.MUTED + ';">Your account manager</p>' +
+            '<p style="margin:4px 0;' + EF + 'font-size:22px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
+            esc(am.name) + '</p>' +
+            '<p style="margin:0;' + EF + 'font-size:15px;color:#4a4650;">' +
+            [am.phone ? esc(am.phone) : '', am.email ? '<a href="mailto:' + esc(am.email) + '" style="color:' +
+                COLORS.PURPLE + ';">' + esc(am.email) + '</a>' : ''].filter(function (x) { return !!x; })
+                .join(' · ') + '</p></td></tr>';
+    }
+
+    /**
+     * The footer row.
+     * @param {string} html - ALREADY ESCAPED: the digest's carries a mailto link
+     */
+    function emailFooter(html) {
+        return '<tr><td align="center" style="padding:24px 32px;border-top:1px solid #ece8e3;' + EF +
+            'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">' + html + '</td></tr>';
+    }
+
+    /** The muted "This link is personal to you…" row. text is plain. */
+    function emailPersonal(text) {
+        return '<tr><td align="center" style="padding:4px 32px 32px;' + EF + 'font-size:14px;color:' + COLORS.MUTED + ';">' +
+            esc(text) + '</td></tr>';
+    }
+
     /**
      * The digest email body. Pure, snapshot-tested.
      * @param {Object} m - { customerName, greetingName, logoUrl, groups, payBacs, link,
@@ -1172,7 +1265,7 @@ define(['./cdb_lib_dates'], function (dates) {
      * @returns {string}
      */
     function digestEmail(m) {
-        var f = 'font-family:' + EMAIL_FONT + ';';
+        var f = EF;
         var rows = digestRows(m.groups, m.payBacs);
         var callout = digestCallout(m.groups, m.payBacs);
         var html = '';
@@ -1180,27 +1273,9 @@ define(['./cdb_lib_dates'], function (dates) {
         var r;
         var b;
 
-        html += '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eeebe7" ' +
-            'style="background-color:#eeebe7;"><tr><td align="center" style="padding:24px 8px;">' +
-            '<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
-            'style="width:100%;max-width:600px;background-color:#ffffff;">';
-
-        // 1. logo
-        html += '<tr><td align="center" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
-            (m.logoUrl ? '<img src="' + esc(m.logoUrl) + '" alt="Nu-Heat" height="60" style="display:block;height:60px;' +
-                'max-height:60px;width:auto;max-width:100%;border:0;margin:0 auto;">' :
-                '<span style="' + f + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE + ';">Nu-Heat</span>') +
-            '</td></tr>';
-
-        // 2. purple band
-        html += '<tr><td align="center" bgcolor="' + COLORS.PURPLE + '" style="background-color:' + COLORS.PURPLE +
-            ';padding:36px 32px;' + f + 'color:#ffffff;">' +
-            '<p style="margin:0 0 10px;' + f + 'font-size:15px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
-            'color:#e7d9ea;">YOUR PROJECTS UPDATE</p>' +
-            '<h1 style="margin:0 0 10px;' + f + 'font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">' +
-            'Here’s where everything stands</h1>' +
-            '<p style="margin:0;' + f + 'font-size:17px;color:#f3ecf4;">Hello ' + esc(m.greetingName || m.customerName) +
-            '</p></td></tr>';
+        // 1. logo, 2. purple band
+        html += emailLogo(m.logoUrl);
+        html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
 
         html += '<tr><td style="padding:32px 32px 8px;"><table role="presentation" width="100%" cellpadding="0" ' +
             'cellspacing="0" border="0">';
@@ -1236,39 +1311,73 @@ define(['./cdb_lib_dates'], function (dates) {
         }
         html += '</table></td></tr>';
 
-        // 5. the button (bulletproof: a padded table cell, no VML, so the URL appears once)
-        html += '<tr><td align="center" style="padding:16px 32px 8px;">' +
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr>' +
-            '<td align="center" bgcolor="' + COLORS.CTA + '" style="background-color:' + COLORS.CTA + ';border-radius:6px;">' +
-            '<a href="' + esc(m.link) + '" target="_blank" style="display:inline-block;padding:16px 36px;' + f +
-            'font-size:18px;font-weight:bold;letter-spacing:0.5px;color:' + COLORS.CTA_TEXT + ';text-decoration:none;' +
-            'border-radius:6px;">VIEW YOUR PROJECTS</a></td></tr></table></td></tr>';
-
-        // 6. personal link
-        html += '<tr><td align="center" style="padding:4px 32px 32px;' + f + 'font-size:14px;color:' + COLORS.MUTED + ';">' +
-            'This link is personal to you. Please don’t forward this email.</td></tr>';
-
-        // 7. account manager, no photo
-        if (m.am && m.am.name) {
-            html += '<tr><td align="center" bgcolor="' + COLORS.TIP + '" style="background-color:' + COLORS.TIP +
-                ';padding:28px 32px;' + f + '">' +
-                '<p style="margin:0;' + f + 'font-size:13px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
-                'color:' + COLORS.MUTED + ';">Your account manager</p>' +
-                '<p style="margin:4px 0;' + f + 'font-size:22px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
-                esc(m.am.name) + '</p>' +
-                '<p style="margin:0;' + f + 'font-size:15px;color:#4a4650;">' +
-                [m.am.phone ? esc(m.am.phone) : '', m.am.email ? '<a href="mailto:' + esc(m.am.email) + '" style="color:' +
-                    COLORS.PURPLE + ';">' + esc(m.am.email) + '</a>' : ''].filter(function (x) { return !!x; })
-                    .join(' · ') + '</p></td></tr>';
-        }
+        // 5. the button, 6. personal link, 7. account manager
+        html += emailButton(m.link, 'VIEW YOUR PROJECTS');
+        html += emailPersonal('This link is personal to you. Please don’t forward this email.');
+        html += emailAmBlock(m.am);
 
         // 8. footer
-        html += '<tr><td align="center" style="padding:24px 32px;border-top:1px solid #ece8e3;' + f +
-            'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">You get this update ' + everyText(m.digestDays) +
+        html += emailFooter('You get this update ' + everyText(m.digestDays) +
             ' while you have an open project or order with us. To stop these updates, reply to this email' +
-            emailFooterContact(m.am) + '.</td></tr>';
+            emailFooterContact(m.am) + '.');
 
-        return html + '</table></td></tr></table>';
+        return emailShell(html);
+    }
+
+    /**
+     * 2.0, Pure: the subject of the "Send delivery link" email.
+     * @param {Object} text - config.DELIVERY_LINK_EMAIL
+     * @param {string} tranId
+     */
+    function deliveryLinkSubject(text, tranId) {
+        return String(text.SUBJECT).replace('{SO}', String(tranId || ''));
+    }
+
+    /**
+     * 2.0: the "Send delivery link" email body — one order, one button to its direct delivery link.
+     * Pure, snapshot-tested. No opt-out wording: it is not the digest.
+     *
+     * @param {Object} m - { text (config.DELIVERY_LINK_EMAIL), customerName, greetingName, logoUrl,
+     *                       opp {title, tranId}, order (decorated: tranId, description, uniqueRef,
+     *                       typeLabel, quoteTypeText), link (the direct delivery link),
+     *                       dashboardLink, am {name, phone, email} }
+     * @returns {string}
+     */
+    function deliveryLinkEmail(m) {
+        var t = m.text;
+        var o = m.order;
+        var html = '';
+
+        html += emailLogo(m.logoUrl);
+        html += emailBand(t.EYEBROW, t.HEADING, String(t.HELLO).replace('{name}', m.greetingName || m.customerName || ''));
+
+        // Intro, then the one order block: project, order title, split reference, "Order SO… · UFH".
+        html += '<tr><td style="padding:32px 32px 8px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
+            '<p style="margin:0 0 20px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
+            esc(t.INTRO) + '</p>' +
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
+            '<td style="padding:16px 18px;border:1px solid #ece8e3;border-left:4px solid ' + COLORS.PURPLE + ';' + EF +
+            'text-align:left;">' +
+            '<p style="margin:0;' + EF + 'font-size:17px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
+            esc((m.opp && (m.opp.title || m.opp.tranId)) || '') + '</p>' +
+            '<p style="margin:2px 0 0;' + EF + 'font-size:15px;color:' + COLORS.TEXT + ';">' + esc(orderTitle(o)) + '</p>' +
+            (o.uniqueRef ? '<p style="margin:2px 0 0;' + EF + 'font-size:15px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
+                esc(o.uniqueRef) + '</p>' : '') +
+            '<p style="margin:2px 0 0;' + EF + 'font-size:15px;color:' + COLORS.MUTED + ';">' + esc(orderMeta(o)) + '</p>' +
+            '</td></tr></table></td></tr>';
+
+        html += emailButton(m.link, t.BUTTON);
+
+        // The secondary link to the dashboard: small, purple, underlined.
+        html += '<tr><td align="center" style="padding:8px 32px 4px;' + EF + 'font-size:15px;">' +
+            '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
+            ';text-decoration:underline;">' + esc(t.DASHBOARD_LINK) + '</a></td></tr>';
+
+        html += emailPersonal(t.PERSONAL);
+        html += emailAmBlock(m.am);
+        html += emailFooter(esc(t.FOOTER));
+
+        return emailShell(html);
     }
 
     return {
@@ -1293,6 +1402,15 @@ define(['./cdb_lib_dates'], function (dates) {
         confirmation: confirmation,
         digestRows: digestRows,
         digestCallout: digestCallout,
-        digestEmail: digestEmail
+        digestEmail: digestEmail,
+        emailOrderRow: emailOrderRow,
+        emailShell: emailShell,
+        emailLogo: emailLogo,
+        emailBand: emailBand,
+        emailButton: emailButton,
+        emailAmBlock: emailAmBlock,
+        emailFooter: emailFooter,
+        deliveryLinkSubject: deliveryLinkSubject,
+        deliveryLinkEmail: deliveryLinkEmail
     };
 });

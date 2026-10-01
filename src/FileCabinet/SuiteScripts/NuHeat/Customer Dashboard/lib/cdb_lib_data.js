@@ -51,6 +51,12 @@
  * the excluded list — shipped orders usually carry a completed Record Status — only the optional
  * custscript_cdb_recent_hidden_statuses. A failure logs CDB RECENT_FAILED and returns no rows.
  *
+ * EMAILS TO THE CUSTOMER (2.0) share two rules, so the customer sees the same person and the same
+ * inbox everywhere: emailRecipient() — the dashboard contact's email, else the customer's email —
+ * and emailAuthor() — the customer's sales rep if active, else the fallback employee. The digest
+ * and the Send delivery link Suitelet both use them. orderCustomer() gives the customer an order
+ * belongs to for links: its OPPORTUNITY's customer (the guard's rule), never the order's entity.
+ *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
  * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
@@ -59,14 +65,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.0
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -899,6 +905,62 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return trim(r.email);
     }
 
+    /**
+     * 2.0, the digest's rule: who a customer email goes to — the dashboard contact's email, else the
+     * customer's own. The caller decides what an unusable result means.
+     * @param {Object} customer - from getCustomer()
+     * @returns {string} '' when neither is set
+     */
+    function emailRecipient(customer) {
+        return getContactEmail(customer.dashboardContact) || customer.email;
+    }
+
+    /**
+     * 2.0, the digest's rule (moved here from cdb_mr_digest.js unchanged): who a customer email comes
+     * from and whose card it shows — the customer's sales rep if active, else the fallback employee.
+     * Never the current user.
+     * @param {Object} customer - from getCustomer()
+     * @param {Object} cfg - FALLBACK_EMPLOYEE
+     * @returns {Object} { id, name, phone, email }
+     */
+    function emailAuthor(customer, cfg) {
+        var rep = customer.salesRep ? getEmployee(customer.salesRep) : null;
+        if (rep && !rep.isInactive) {
+            return rep;
+        }
+        return getEmployee(String(cfg.FALLBACK_EMPLOYEE)) ||
+            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', phone: '', email: '' };
+    }
+
+    /**
+     * 2.0: the customer a sales order's links belong to — its OPPORTUNITY's customer, the guard's
+     * rule, never the order's own entity. Two lookups. Never throws.
+     * @param {string} orderId
+     * @returns {{opportunityId: string, customerId: string}|null} null when the order or its
+     *   opportunity cannot be read, or the order has no opportunity
+     */
+    function orderCustomer(orderId) {
+        var so;
+        var opp;
+        var oppId;
+        var customerId;
+        if (!/^\d+$/.test(trim(orderId))) {
+            return null;
+        }
+        try {
+            so = search.lookupFields({ type: search.Type.SALES_ORDER, id: trim(orderId), columns: [SO.OPPORTUNITY] });
+            oppId = lookupSelect(so[SO.OPPORTUNITY]).value;
+            if (oppId === '') {
+                return null;
+            }
+            opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: oppId, columns: ['entity'] });
+            customerId = lookupSelect(opp.entity).value;
+        } catch (e) {
+            return null;
+        }
+        return customerId === '' ? null : { opportunityId: oppId, customerId: customerId };
+    }
+
     /** Runs a search to completion, mapping each result. */
     function collect(searchObj, mapper) {
         var rows = [];
@@ -1296,6 +1358,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getCustomer: getCustomer,
         getEmployee: getEmployee,
         getContactEmail: getContactEmail,
+        emailRecipient: emailRecipient,
+        emailAuthor: emailAuthor,
+        orderCustomer: orderCustomer,
         getOpportunities: getOpportunities,
         getOrdersForOpportunities: getOrdersForOpportunities,
         getProjects: getProjects,

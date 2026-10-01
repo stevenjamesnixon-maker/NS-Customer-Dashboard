@@ -6,6 +6,13 @@
  *   payload  c<customerId>.v<version>
  *   token    base64url(payload) + '.' + base64url(HMAC-SHA256(payload))
  *
+ * DIRECT LINKS (2.0). Every customer action is addressable as ?t=<token>&a=<action>&<id>=<value>,
+ * e.g. ?t=…&a=delivery&so=<sales order id>. buildLink(customerId, extra) passes extra through to
+ * url.resolveScript, which encodes it; without extra the link is byte-identical to 1.x. The token
+ * still names only the customer: the action and its ID are plain parameters, and the dashboard
+ * Suitelet guards the order against the token's customer as it always has. The customer for a link
+ * is ALWAYS the order's OPPORTUNITY's customer (the guard's rule), never the order's entity.
+ *
  * STABLE, NO EXPIRY. One customer has one link until custentity_cdb_link_version changes.
  * Incrementing that field revokes every link the customer has been sent. Empty means 0.
  *
@@ -15,8 +22,10 @@
  *   hmac.update({ input: payload, inputEncoding: encode.Encoding.UTF_8 })
  *   hmac.digest({ outputEncoding: encode.Encoding.BASE_64 })
  * createSecretKey's encoding says how the secret's clear text is read. It defaults to HEX;
- * UTF_8 lets the secret be any random string. The secret must be restricted in the account to
- * the two scripts of this repo. See docs/context.md section 4 for what was and was not verified.
+ * UTF_8 lets the secret be any random string. The API Secret is set to "Allow for all scripts":
+ * restricting it to named scripts failed in Production ("An error occurred while decrypting a
+ * secret"), probably because N/crypto is called from this library file rather than from a script
+ * record. See docs/context.md section 4.
  *
  * VERIFY FAILS CLOSED. Any failure — shape, signature, customer missing or inactive, version —
  * returns ok: false with a reason for the audit log. The page shows the reason to nobody.
@@ -29,14 +38,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 2.0.0
  */
 define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
     function (crypto, encode, search, url, config) {
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '2.0.0';
 
     var ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -290,16 +299,17 @@ define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
     }
 
     /**
-     * The dashboard URL for a token, with optional extra parameters.
+     * The dashboard URL for a token, with optional extra parameters. url.resolveScript encodes
+     * them. An extra 't' is ignored: the token is never replaced.
      * @param {string} token
-     * @param {Object} [extra]
+     * @param {Object} [extra] - e.g. { a: 'delivery', so: '123' }
      * @returns {string}
      */
     function linkForToken(token, extra) {
         var params = { t: token };
         var key;
         for (key in (extra || {})) {
-            if (extra.hasOwnProperty(key)) {
+            if (extra.hasOwnProperty(key) && key !== 't') {
                 params[key] = extra[key];
             }
         }
@@ -312,19 +322,21 @@ define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
     }
 
     /**
-     * The customer's dashboard link, at the customer's current link version. For the digest and
-     * for future email templates.
+     * The customer's link, at the customer's current link version: the dashboard, or with extra a
+     * direct link to one action (2.0). For the digest, the Send delivery link email and future
+     * email templates. customerId must be the OPPORTUNITY's customer, never an order's entity.
      *
      * @param {string|number} customerId
+     * @param {Object} [extra] - e.g. { a: 'delivery', so: soId }; omitted -> the dashboard link
      * @returns {string}
      * @throws {Error} CDB_CUSTOMER_NOT_FOUND
      */
-    function buildLink(customerId) {
+    function buildLink(customerId, extra) {
         var customer = readCustomer(customerId);
         if (!customer) {
             throw new Error('CDB_CUSTOMER_NOT_FOUND: customer ' + customerId);
         }
-        return linkForToken(sign(customerId, customer.version));
+        return linkForToken(sign(customerId, customer.version), extra);
     }
 
     return {
