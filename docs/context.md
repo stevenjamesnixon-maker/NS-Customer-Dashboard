@@ -94,13 +94,13 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.3.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.3.1 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Dashboard Suitelet | 1.3.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 1.3.2 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Config library | 1.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
 | Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
-| Dates library | 1.0.0 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today | Not deployed |
-| Data library | 1.3.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.3.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
+| Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
+| Data library | 1.3.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
+| Render library | 1.3.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
 | Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -257,11 +257,40 @@ ORs the two and `groupRecent()` decides each row; neither date → not shown. **
 search and no section.** It **does not apply the
 excluded list** — shipped orders usually carry a completed Record Status — only
 `custscript_cdb_recent_hidden_statuses` (the account's test statuses). Its order IDs join the one
-extras call (`decorateAll()`), after grouping, so only rows that will be shown are read. The section *Recently delivered* (*Delivered in the last N days*)
-comes last, grouped by project, badge *Delivered*, *Delivered {date}*, no actions, no amounts, and
-is left out when empty; it counts against "nothing to show" on the page, **but not for the digest**:
-recent deliveries alone send no email. In a digest that is sent it is a group at the end, outside the
-callout. A failure logs `CDB RECENT_FAILED` and the page or digest carries on without it.
+extras call (`decorateAll()`), after grouping, so only rows that will be shown are read. A failure
+logs `CDB RECENT_FAILED` and the page or digest carries on without them. Since 1.3.2 they are shown
+in *Booked deliveries* (below).
+
+### Two delivery sections: what needs you, and what is in hand (1.3.2)
+
+Steve's test showed a booked, released order among orders that need the customer. The page answers
+"do I need to do anything?" at a glance. `data.arrangeSections()` (pure, run after `decorateAll()`):
+
+- **Projects for delivery** keeps only orders that **need the customer**: `ready`, `awaiting_payment`,
+  `requested`, `needs_info`. A project with none of those leaves the section.
+- **Booked deliveries** (last; *"Nothing needed from you. Delivered orders stay here for {N}
+  days."*) holds everything **in hand** — `released` (*Being prepared*), `booked` (*Delivery booked*)
+  and the recent deliveries (*Delivered*) — grouped by project, *Nothing needed from you* on every
+  row, no actions, no amounts, left out when empty. Projects with an upcoming order come first, by
+  their soonest upcoming date (the confirmed date when booked, else the ship date; undated last);
+  then delivered-only projects, most recent first. Within a project: upcoming ascending, then
+  delivered descending. A project can appear in both sections.
+- **Both pills count orders.** Before 1.3.2, *Projects for delivery* (and *Recently delivered*)
+  counted projects.
+- **Whether anything shows, and who gets a digest, are unchanged** (`groups.isEmpty`, decided before
+  the split). Booked deliveries count against "nothing to show" on the page. **The digest rule, as in
+  1.3.0:** a customer gets one if they have an open quote, design or open order — and booked or
+  released orders ARE open orders, so a customer whose only orders are booked or released still gets
+  a digest; recent deliveries alone never trigger one.
+- **The email** keeps its order — *For delivery* rows first, then design, then quotes — and ends with
+  a headed *Booked deliveries* group (last, as on the page, so design and quote rows never sit under
+  its heading). The callout still counts only ready and BACS-awaiting orders.
+
+### Customer-facing dates (1.3.2)
+
+One helper, `dates.formatDisplay(key, todayKey)`: *"Fri 30 Oct"* in the current UK year, *"Fri 16 Apr
+2027"* otherwise. Used for every customer-facing date on the dashboard, the form (calendar labels and
+summary), the confirmations and the email. The Task and the staff change log keep the long form.
 
 ### Order row states, first match wins
 
@@ -626,6 +655,16 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 1.3.2 — notes for Steve
+
+1. **"Projects for delivery" counted projects, not orders**, before 1.3.2 (so did "Recently
+   delivered"). Both pills now count orders, as the note asked; this is that report.
+2. **Email group order:** the note says the groups follow the page, *For delivery* first, then
+   *Booked deliveries*. The email has always put design and quote rows after the delivery rows; placing
+   *Booked deliveries* straight after *For delivery* would put those rows under its heading. It goes
+   last instead, as on the page.
+3. **Undated upcoming orders** (released with no ship date) sort after dated ones.
 
 ### Release 1.3 — contradictions and decisions for Steve
 

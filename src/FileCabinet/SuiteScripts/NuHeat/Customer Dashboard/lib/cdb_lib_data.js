@@ -59,14 +59,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.1
+ * @version 1.3.2
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.1';
+    var VERSION = '1.3.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -651,6 +651,113 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return groups;
     }
 
+    /** The states that need the customer (1.3.2): they stay in "Projects for delivery". */
+    var NEEDS_CUSTOMER = [STATES.READY, STATES.AWAITING_PAYMENT, STATES.REQUESTED, STATES.NEEDS_INFO];
+
+    /** The date an in-hand order is due: the confirmed date when booked, else the ship date. */
+    function upcomingKey(row) {
+        return row.state === STATES.BOOKED ? trim(row.order.confirmedDateKey) : trim(row.order.shipDateKey);
+    }
+
+    /** Ascending by key, blanks last, then by SO number so the order is stable. */
+    function byKeyAsc(keyOf) {
+        return function (a, b) {
+            var ka = keyOf(a);
+            var kb = keyOf(b);
+            if (ka !== kb) {
+                return ka === '' ? 1 : kb === '' ? -1 : (ka < kb ? -1 : 1);
+            }
+            return String(a.order.tranId) < String(b.order.tranId) ? -1 : 1;
+        };
+    }
+
+    /**
+     * Pure (1.3.2): one "Booked deliveries" section. Run after decorateAll().
+     *
+     *   groups.forDelivery  keeps only orders that NEED THE CUSTOMER (ready, awaiting payment,
+     *                       requested, needs info); a project with none of those leaves it.
+     *   groups.booked       everything IN HAND — released and booked open orders, plus the recent
+     *                       deliveries — grouped under their project. Projects with an upcoming order
+     *                       first, by their soonest upcoming date; then delivered-only projects, most
+     *                       recent first. Within a project: upcoming by date ascending, then delivered
+     *                       by date descending.
+     *
+     * Whether a project or customer has anything to show (groups.isEmpty, and so who gets a
+     * digest) is NOT changed here: it was decided by groupProjects() before the split.
+     *
+     * @param {Object} groups - from getProjects(), with groups.recent from decorateAll()
+     * @returns {Object} groups
+     */
+    function arrangeSections(groups) {
+        var forDelivery = [];
+        var byOpp = {};
+        var keys = [];
+        var i;
+        var j;
+        var p;
+        var row;
+        var need;
+        var buckets;
+
+        function bucket(opp) {
+            if (!byOpp[opp.id]) {
+                byOpp[opp.id] = { opp: opp, upcoming: [], delivered: [] };
+                keys.push(opp.id);
+            }
+            return byOpp[opp.id];
+        }
+
+        for (i = 0; i < groups.forDelivery.length; i++) {
+            p = groups.forDelivery[i];
+            need = [];
+            for (j = 0; j < p.orders.length; j++) {
+                row = p.orders[j];
+                if (contains(NEEDS_CUSTOMER, row.state)) {
+                    need.push(row);
+                } else {
+                    bucket(p.opp).upcoming.push(row);
+                }
+            }
+            if (need.length) {
+                forDelivery.push({ opp: p.opp, orders: need });
+            }
+        }
+        for (i = 0; i < (groups.recent || []).length; i++) {
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                bucket(groups.recent[i].opp).delivered.push(groups.recent[i].orders[j]);
+            }
+        }
+
+        buckets = keys.map(function (k) {
+            var b = byOpp[k];
+            b.upcoming.sort(byKeyAsc(upcomingKey));
+            b.delivered.sort(byKeyAsc(function (r) { return trim(r.order.deliveredKey); })).reverse();
+            b.soonest = b.upcoming.length ? upcomingKey(b.upcoming[0]) : '';
+            b.latest = b.delivered.length ? trim(b.delivered[0].order.deliveredKey) : '';
+            return b;
+        });
+        buckets.sort(function (a, b) {
+            var au = a.upcoming.length > 0;
+            var bu = b.upcoming.length > 0;
+            if (au !== bu) {
+                return au ? -1 : 1;
+            }
+            if (au) {
+                if (a.soonest !== b.soonest) {
+                    return a.soonest === '' ? 1 : b.soonest === '' ? -1 : (a.soonest < b.soonest ? -1 : 1);
+                }
+                return 0;
+            }
+            return a.latest === b.latest ? 0 : (a.latest > b.latest ? -1 : 1);
+        });
+
+        groups.forDelivery = forDelivery;
+        groups.booked = buckets.map(function (b) {
+            return { opp: b.opp, orders: b.upcoming.concat(b.delivered) };
+        });
+        return groups;
+    }
+
     /** Pure (1.3.1): the IDs of the customer's opportunities that getProjects() loaded. */
     function oppIdsOf(groups) {
         return (groups.opps || []).map(function (o) { return o.id; });
@@ -1043,16 +1150,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
-     * Non-delivery dates between two keys, inclusive.
-     * @returns {Object} a set of keys
-     */
-    /**
      * 1.3: the customer's shipped orders (native F/G) whose confirmed or ship date falls in the last
      * custscript_cdb_recent_days days. 1.3.1: "the customer's" means ON THE CUSTOMER'S OPPORTUNITIES,
      * as in every other section, not the order's own entity. oppIds are the ones getProjects()
-     * already loaded (oppIdsOf()); with none, no search is run. NOT the excluded list; only the hidden statuses. FAIL-SAFE: any
-     * error logs CDB RECENT_FAILED and returns [] so the page and the digest carry on without the
-     * section. Rows still need groupRecent(), which decides each one on deliveryDateKey().
+     * already loaded (oppIdsOf()); with none, no search is run. NOT the excluded list; only the
+     * hidden statuses. FAIL-SAFE: any error logs CDB RECENT_FAILED and returns [] so the page and
+     * the digest carry on without them. Rows still need groupRecent(), which decides each one on
+     * deliveryDateKey(). Since 1.3.2 they are shown in "Booked deliveries" (arrangeSections()).
      *
      * @returns {Object[]} rows shaped like orderFromResult()
      */
@@ -1087,6 +1191,10 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         }
     }
 
+    /**
+     * Non-delivery dates between two keys, inclusive.
+     * @returns {Object} a set of keys
+     */
     function getNonDeliveryDates(fromKey, toKey) {
         var keys = collect(search.create({
             type: config.RECORD_TYPES.NON_DELIVERY,
@@ -1198,6 +1306,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getRecentlyDelivered: getRecentlyDelivered,
         oppIdsOf: oppIdsOf,
         decorateAll: decorateAll,
+        arrangeSections: arrangeSections,
         guardOrder: guardOrder,
         getNonDeliveryDates: getNonDeliveryDates,
         getListOptions: getListOptions,

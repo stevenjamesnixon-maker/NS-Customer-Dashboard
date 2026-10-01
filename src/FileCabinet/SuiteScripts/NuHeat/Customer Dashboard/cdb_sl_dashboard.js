@@ -35,7 +35,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.3.1
+ * @version 1.3.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -43,7 +43,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.3.1';
+    var VERSION = '1.3.2';
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -172,6 +172,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         // pay-up-front.
         data.decorateAll(groups, data.getRecentlyDelivered(ctx.customer.id, data.oppIdsOf(groups), ctx.cfg, todayKey),
             typeLabels(ctx), ctx.cfg, ctx.customer.termsId, todayKey, amountOdd);
+        // 1.3.2: "Projects for delivery" keeps what needs the customer; the rest is "Booked deliveries".
+        data.arrangeSections(groups);
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,

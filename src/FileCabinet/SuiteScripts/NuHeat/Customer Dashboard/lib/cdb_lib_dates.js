@@ -25,13 +25,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.3.2
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.3.2';
 
     var DAY_MS = 86400000;
 
@@ -289,6 +289,24 @@ define([], function () {
     }
 
     /**
+     * The customer-facing date (1.3.2): "Fri 30 Oct" in the current UK year, "Fri 16 Apr 2027"
+     * otherwise. One helper for the dashboard, the form, the confirmations and the email.
+     *
+     * @param {string} key - the date
+     * @param {string} todayKey - today in Europe/London (londonTodayKey); its year is "this year"
+     * @returns {string} '' for an invalid key
+     */
+    function formatDisplay(key, todayKey) {
+        var p = parseKey(key);
+        var t = parseKey(todayKey);
+        if (!p) {
+            return '';
+        }
+        return DAY_NAMES[dayOfWeek(key)] + ' ' + p.d + ' ' + MONTH_NAMES[p.m - 1].slice(0, 3) +
+            (t && t.y === p.y ? '' : ' ' + p.y);
+    }
+
+    /**
      * The day of a JavaScript Date as NetSuite returned it (format.parse on the server), read in
      * the server's own zone, which is the zone format.parse built it in.
      * @param {Date} date
@@ -330,6 +348,7 @@ define([], function () {
         allowedDates: allowedDates,
         calendarMonths: calendarMonths,
         formatLong: formatLong,
+        formatDisplay: formatDisplay,
         keyFromLocalDate: keyFromLocalDate,
         localDateForWrite: localDateForWrite
     };
