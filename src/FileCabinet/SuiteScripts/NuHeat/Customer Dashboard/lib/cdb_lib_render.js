@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.0
  */
 define(['./cdb_lib_dates'], function (dates) {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -378,7 +378,7 @@ define(['./cdb_lib_dates'], function (dates) {
             '<img src="' + esc(logoUrl) + '" alt="Nu-Heat">' : '<span class="brand">Nu-Heat</span>') + '</span>';
     }
 
-    /** The round phone button the phone layout shows; nothing when there is no number. */
+    /** The round button the phone layout shows: call with a phone, email without one, else nothing. */
     function callButton(am) {
         var c = contactParts(am);
         if (c.kind === 'phone') {
@@ -558,7 +558,16 @@ define(['./cdb_lib_dates'], function (dates) {
         var state;
         var acts;
 
-        if (row.state === 'booked') {
+        if (row.state === 'released') {
+            // 1.3: paid and released to the warehouse. No payment panel, whatever the checkbox says.
+            state = stateCell(badge('ready', 'Being prepared'), o.shipDateKey ? 'We\u2019re preparing your delivery for ' +
+                shortDate(o.shipDateKey) + (o.timeText ? ', ' + o.timeText : '') : 'We\u2019re preparing your delivery');
+            acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
+        } else if (row.state === 'delivered') {
+            // 1.3: "Recently delivered". No actions, no amounts.
+            state = stateCell(badge('ready', 'Delivered'), 'Delivered ' + shortDate(o.deliveredKey));
+            acts = '';
+        } else if (row.state === 'booked') {
             state = stateCell(badge('ready', 'Delivery booked'), shortDate(o.confirmedDateKey) +
                 (o.timeText ? ', ' + o.timeText : ''));
             acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
@@ -642,7 +651,23 @@ define(['./cdb_lib_dates'], function (dates) {
             }
             body += html + '</section>';
         }
-        if (g.isEmpty) {
+        // 1.3: "Recently delivered", last. Left out when empty.
+        if ((g.recent || []).length) {
+            html = '<section class="sec" aria-label="Recently delivered">' +
+                sectionHead('Recently delivered', g.recent.length, 'Delivered in the last ' + m.recentDays + ' days') +
+                colHead('Project and orders');
+            for (i = 0; i < g.recent.length; i++) {
+                count = g.recent[i].orders.length;
+                html += '<div class="oprow">' + projectCell(g.recent[i].opp, count + (count === 1 ? ' order' : ' orders')) +
+                    '<div></div><div></div></div>';
+                for (j = 0; j < g.recent[i].orders.length; j++) {
+                    html += orderRow(g.recent[i].orders[j], m);
+                }
+            }
+            body += html + '</section>';
+        }
+        // A customer whose only items are recent deliveries is not "nothing to show".
+        if (g.isEmpty && !(g.recent || []).length) {
             body += '<div class="card"><p style="margin:0">There is nothing to show at the moment. If you think ' +
                 'that’s wrong, please contact your account manager.</p></div>';
         }
@@ -1027,8 +1052,11 @@ define(['./cdb_lib_dates'], function (dates) {
                 } else if (st.state === 'requested') {
                     row.sub += ' \u00b7 requested ' + when;
                     row.badgeKind = 'work'; row.badgeText = 'Delivery requested';
+                } else if (st.state === 'released') {
+                    row.sub += ' \u00b7 we\u2019re preparing your delivery';
+                    row.badgeKind = 'ready'; row.badgeText = 'Being prepared';
                 } else if (st.state === 'booked') {
-                    row.sub += ' \u00b7 delivery booked for ' + dates.formatLong(o.confirmedDateKey);
+                    row.sub += ' \u00b7 Delivery booked \u00b7 ' + dates.formatLong(o.confirmedDateKey);
                     row.badgeKind = 'ready'; row.badgeText = 'Delivery booked';
                 } else {
                     row.sub += ' \u00b7 ' + (o.holdReason ? o.holdReason : 'your account manager will be in touch');
@@ -1048,6 +1076,16 @@ define(['./cdb_lib_dates'], function (dates) {
         for (i = 0; i < groups.toOrder.length; i++) {
             opp = groups.toOrder[i];
             rows.push({ title: opp.title || opp.tranId, sub: 'Quote sent', badgeKind: 'quote', badgeText: 'Quote stage' });
+        }
+        // 1.3: "Recently delivered", a group at the end. Never in the callout.
+        for (i = 0; i < (groups.recent || []).length; i++) {
+            opp = groups.recent[i].opp;
+            for (j = 0; j < groups.recent[i].orders.length; j++) {
+                o = groups.recent[i].orders[j].order;
+                rows.push({ heading: i === 0 && j === 0 ? 'Recently delivered' : '', title: opp.title || opp.tranId,
+                    line1: orderTitle(o), ref: o.uniqueRef || '', sub: orderMeta(o) + ' \u00b7 delivered ' +
+                    dates.formatLong(o.deliveredKey), badgeKind: 'ready', badgeText: 'Delivered' });
+            }
         }
         return rows;
     }
@@ -1161,6 +1199,10 @@ define(['./cdb_lib_dates'], function (dates) {
         for (i = 0; i < rows.length; i++) {
             r = rows[i];
             b = BADGES[r.badgeKind] || BADGES.quote;
+            if (r.heading) {
+                html += '<tr><td style="padding:20px 0 4px;' + f + 'font-size:15px;font-weight:bold;letter-spacing:1px;' +
+                    'text-transform:uppercase;color:' + COLORS.PURPLE + ';">' + esc(r.heading) + '</td></tr>';
+            }
             html += '<tr><td style="padding:16px 0;' + (i < rows.length - 1 ? 'border-bottom:1px solid #ece8e3;' : '') + '">' +
                 '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
                 '<td valign="middle" style="' + f + 'text-align:left;">' +

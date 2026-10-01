@@ -26,13 +26,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.0
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -136,6 +136,15 @@ define(['N/runtime'], function (runtime) {
      */
     var SHIPPABLE_STATUSES = ['SalesOrd:A', 'SalesOrd:B', 'SalesOrd:D', 'SalesOrd:E'];
 
+    /**
+     * 1.3: the native statuses of an order that HAS SHIPPED — fully fulfilled. Used only by the
+     * "Recently delivered" search. Standard NetSuite codes, not account IDs.
+     *
+     *   SalesOrd:F  Pending Billing
+     *   SalesOrd:G  Billed
+     */
+    var DELIVERED_STATUSES = ['SalesOrd:F', 'SalesOrd:G'];
+
     var TEXT_LIMITS = {
         CONTACT_NAME: 100,
         CONTACT_PHONE: 40,
@@ -207,6 +216,15 @@ define(['N/runtime'], function (runtime) {
         PREPAY_TERMS: { kind: 'idlist', empty: 'none', ids: { SL: 'custscript_cdb_prepay_terms' } },
         PAY_ACCOUNT: { kind: 'id', empty: 'none',
             ids: { SL: 'custscript_cdb_pay_account', MR: 'custscript_cdbmr_pay_account' } },
+        // 1.3. Record Statuses that stay visible although they are in EXCLUDED_STATUSES ("Release to
+        // Warehouse": staff set it when payment arrives). Empty -> released orders stay hidden.
+        RELEASED_STATUSES: { kind: 'idlist', empty: 'none',
+            ids: { SL: 'custscript_cdb_released_statuses', MR: 'custscript_cdbmr_released_statuses' } },
+        // 1.3. "Recently delivered": how many days back, and the Record Statuses never shown there.
+        RECENT_DAYS: { kind: 'int', empty: 'default', defaultValue: 7,
+            ids: { SL: 'custscript_cdb_recent_days', MR: 'custscript_cdbmr_recent_days' } },
+        RECENT_HIDDEN_STATUSES: { kind: 'idlist', empty: 'none',
+            ids: { SL: 'custscript_cdb_recent_hidden_statuses', MR: 'custscript_cdbmr_recent_hidden_statuses' } },
         // 1.2. JSON {"<quote type id>": "UFH", ...}. Parsed by parseTypeLabels(); never fails the page.
         QUOTE_TYPE_LABELS: { kind: 'text', empty: 'none',
             ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels' } },
@@ -530,6 +548,7 @@ define(['N/runtime'], function (runtime) {
         RECORD_TYPES: RECORD_TYPES,
         FIELDS: FIELDS,
         SHIPPABLE_STATUSES: SHIPPABLE_STATUSES,
+        DELIVERED_STATUSES: DELIVERED_STATUSES,
         TEXT_LIMITS: TEXT_LIMITS,
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,

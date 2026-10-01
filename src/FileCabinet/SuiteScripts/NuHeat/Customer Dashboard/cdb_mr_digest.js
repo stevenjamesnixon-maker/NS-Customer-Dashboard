@@ -33,7 +33,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -41,7 +41,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -98,9 +98,9 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         var set = {};
         each(search.create({
             type: search.Type.SALES_ORDER,
+            // 1.3: data.recordStatusFilter() carries the released exception when the list is set.
             filters: data.openOrderFilters().concat([
-                'AND', [[SO.RECORD_STATUS, 'anyof', '@NONE@'], 'OR',
-                    [SO.RECORD_STATUS, 'noneof', cfg.EXCLUDED_STATUSES]],
+                'AND', data.recordStatusFilter(cfg),
                 'AND', [[SO.QUOTE_TYPE, 'anyof', '@NONE@'], 'OR',
                     [SO.QUOTE_TYPE, 'noneof', cfg.EXCLUDED_QUOTE_TYPES]]
             ]),
@@ -234,14 +234,16 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 return;
             }
             groups = data.getProjects(customerId, cfg);
-            // 1.2: the split reference and short type label, from the one fail-safe extras search.
-            // The email never shows amounts, so no amount is read from it.
-            data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)),
-                config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg, customer.termsId);
+            // 1.3: decided BEFORE the recent search. Recent deliveries alone are not a reason to
+            // email, so a customer with nothing else is skipped (and costs no further searches).
             if (groups.isEmpty) {
                 skip(context, customerId, 'nothing to show');
                 return;
             }
+            // 1.2/1.3: the split reference and short type label from the one fail-safe extras search,
+            // recent rows included. The email never shows amounts.
+            data.decorateAll(groups, data.getRecentlyDelivered(customerId, cfg, todayKey),
+                config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg, customer.termsId, todayKey);
             from = author(customer, cfg);
 
             body = render.digestEmail({

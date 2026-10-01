@@ -35,7 +35,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.0
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task'],
@@ -43,7 +43,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     var SO = config.FIELDS.SALES_ORDER;
 
@@ -166,9 +166,12 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     function renderDashboard(ctx, notice) {
         var groups = data.getProjects(ctx.customer.id, ctx.cfg);
         var am = customerManager(ctx);
-        // 1.2: one extras search for every order on the page; a failure leaves them pay-up-front.
-        data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)), typeLabels(ctx), ctx.cfg,
-            ctx.customer.termsId, amountOdd);
+        var todayKey = dates.londonTodayKey(Date.now());
+        // 1.3: one more search per page (recently delivered; fail-safe), and still ONE extras search
+        // for every order on the page, recent rows included. A failed extras search leaves them
+        // pay-up-front.
+        data.decorateAll(groups, data.getRecentlyDelivered(ctx.customer.id, ctx.cfg, todayKey), typeLabels(ctx),
+            ctx.cfg, ctx.customer.termsId, todayKey, amountOdd);
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,
@@ -178,6 +181,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             notice: notice || '',
             bank: bankOf(ctx.cfg),
             payBacs: ctx.cfg.PAY_BACS,
+            recentDays: ctx.cfg.RECENT_DAYS,
             deliveryUrl: function (orderId) {
                 return ctx.baseUrl + '&a=delivery&so=' + encodeURIComponent(orderId);
             }

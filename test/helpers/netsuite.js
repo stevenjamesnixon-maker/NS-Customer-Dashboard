@@ -110,12 +110,18 @@ function stubs(w) {
                     }
                 });
                 var st = findClause(def.filters, 'status');
+                var ent = findClause(def.filters, 'entity');
+                // 1.3: the recently delivered search (native F/G) can be made to throw.
+                if (st && st[2].indexOf('SalesOrd:F') >= 0 && w.recentThrow) {
+                    throw new Error('An unexpected error occurred in the recently delivered search.');
+                }
                 var byId = findClause(def.filters, 'internalid');
                 var byOpp = null;
                 (function walk(e) { if (!Array.isArray(e)) { return; } if (e[0] === 'opportunity' && e[1] === 'anyof') { byOpp = e; } e.forEach(walk); }(def.filters));
                 Object.keys(w.orders).forEach(function (id) {
                     var o = w.orders[id];
                     if (st && st[2].indexOf(o.status) < 0) { return; }
+                    if (ent && asList(ent[2]).indexOf(String(o.entity || '')) < 0) { return; }
                     if (byId && asList(byId[2]).indexOf(id) < 0) { return; }
                     if (byOpp && asList(byOpp[2]).indexOf(o.opportunity) < 0) { return; }
                     rows.push({ id: id,
