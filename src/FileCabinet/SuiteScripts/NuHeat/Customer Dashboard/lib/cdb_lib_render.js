@@ -32,13 +32,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.2
+ * @version 2.0.3
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.0.2';
+    var VERSION = '2.0.3';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -1091,8 +1091,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             row.sub += ' \u00b7 ready to arrange delivery';
             row.badgeKind = 'ready'; row.badgeText = 'Action needed';
         } else if (st.state === 'awaiting_payment') {
-            row.sub += ' \u00b7 ' + (o.payIntent === String(payBacs) ? 'awaiting your bank transfer \u00b7 ref ' +
-                o.tranId : 'your account manager will call to take payment');
+            // 2.0.3 (digest v2): "ref SO… for payment" for BACS.
+            row.sub += ' \u00b7 ' + (o.payIntent === String(payBacs) ? 'ref ' + o.tranId + ' for payment' :
+                'your account manager will call to take payment');
             row.badgeKind = 'pay'; row.badgeText = 'Awaiting payment';
         } else if (st.state === 'requested') {
             row.sub += ' \u00b7 requested ' + when;
@@ -1158,8 +1159,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             return ' or call ' + esc(am.name) + ' on ' + esc(c.text);
         }
         if (c.kind === 'email') {
-            return ' or email ' + esc(am.name) + ' at <a href="mailto:' + esc(c.text) + '" style="color:' + COLORS.PURPLE +
-                ';">' + esc(c.text) + '</a>';
+            // 2.0.3: in the teal footer, so the link is in the footer's text colour.
+            return ' or email ' + esc(am.name) + ' at <a href="mailto:' + esc(c.text) + '" style="color:' +
+                config.EMAIL_STANDARD.FOOTER_TEXT + ';"><font color="' + config.EMAIL_STANDARD.FOOTER_TEXT + '">' +
+                esc(c.text) + '</font></a>';
         }
         return ' or contact ' + esc(am.name);
     }
@@ -1180,6 +1183,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     // polishes and stacks two-up cells on phones. No floats, no percentage-width side-by-side tables,
     // no display:none wrappers (the preheader span excepted); each button is one [if !mso] / [if mso]
     // pair, so exactly one visible link per button in every client.
+    //
+    // 2.0.3 (amendment 3, "customer emails v2"): both emails are built to the approved designs
+    // docs/design/canvas/EmailDeliveryLink.dc.html and EmailDigestV2.dc.html, in the same standard. Where
+    // the drawings use flex or grid, these use table cells. The AM card's buttons are purple (CALL filled,
+    // EMAIL outlined), with Send Quote's contact fallback; the footer is teal with its line inside it.
 
     /** The email's inline font declaration and <font face>. */
     var EF = 'font-family:' + EMAIL_FONT + ';';
@@ -1190,13 +1198,19 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         return '<font face="' + FACE + '" color="' + color + '">' + html + '</font>';
     }
 
+    /** True for an absolute https URL an email can use (no spaces, quotes or angle brackets). */
+    function isHttpsUrl(value) {
+        return /^https:\/\/[^\s"'<>]+$/i.test(String(value === null || value === undefined ? '' : value));
+    }
+
     /**
-     * The whole email document (Send Quote's emailShell): head, the phone media queries, the Outlook
+     * The whole email document (Send Quote's emailShell): head, the phone media query, the Outlook
      * blocks, the hidden preheader, the centred 600px column, the caller's rows, the account manager
-     * card, and the Send Quote footer (logo, five social links) with this email's line under it.
+     * card, the rows after it, and the teal footer (logo, five social links, this email's line).
      *
      * @param {Object} s - every value already escaped HTML:
-     *   title, preheader, rows (<tr>…</tr>), card (emailRepCard() or ''), footerLine
+     *   title, preheader, rows (<tr>…</tr>), card (emailRepCard() or ''), cardIntro (HTML above the card,
+     *   optional), after (<tr>…</tr> after the card, optional), footerLine
      * @returns {string}
      */
     function emailShell(s) {
@@ -1233,6 +1247,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '.cl-sep { display:none !important; }\n' +
             '.cl-line { display:block !important; }\n' +
             '.h1 { font-size:26px !important; line-height:32px !important; }\n' +
+            '.pad { padding-left:20px !important; padding-right:20px !important; }\n' +
             '}\n' +
             '</style>\n' +
             '<!--[if mso]>\n' +
@@ -1249,18 +1264,20 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
             s.rows +
 
-            (s.card ? '<tr><td align="center" valign="top" style="padding:28px 20px 32px 20px;">\n' + s.card + '</td></tr>\n' : '') +
+            (s.card ? '<tr><td align="center" valign="top" class="pad" style="padding:28px 40px 8px 40px;">\n' + (s.cardIntro || '') +
+                s.card + '</td></tr>\n' : '') +
 
-            // The Send Quote footer: logo and the five social links, then this email's line.
-            '<tr><td align="center" valign="top" bgcolor="' + std.FOOTER_BG + '" style="background-color:' + std.FOOTER_BG +
-            ';padding:10px 10px 24px 10px;">\n' +
+            (s.after || '') +
+
+            // The footer: teal, logo, the five social links, and this email's line.
+            '<tr><td align="center" valign="top" bgcolor="' + std.FOOTER_BG + '" class="pad" style="background-color:' + std.FOOTER_BG +
+            ';padding:28px 40px;">\n' +
             '<img src="' + esc(std.IMG_BASE + std.FOOTER_LOGO) + '" width="167" height="94" alt="Nu-Heat Underfloor Heating &amp; Renewables" border="0" style="display:block;margin:0 auto 10px auto;width:167px;height:auto;">\n' +
             '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
             '<tr>\n' + social + '</tr>\n' +
             '</table>\n' +
-            '</td></tr>\n' +
-            '<tr><td align="center" valign="top" style="padding:16px 20px 24px 20px;">\n' +
-            '<p style="margin:0;' + EF + 'font-size:13px;line-height:17px;color:#6b6b6b;">' + fontHtml('#6b6b6b', s.footerLine) + '</p>\n' +
+            '<p style="margin:16px 0 0 0;' + EF + 'font-size:13px;line-height:20px;color:' + std.FOOTER_TEXT + ';">' +
+            fontHtml(std.FOOTER_TEXT, s.footerLine) + '</p>\n' +
             '</td></tr>\n' +
 
             '</table>\n' +
@@ -1273,7 +1290,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     /** The logo row: the image when there is a URL, else "Nu-Heat" in purple. */
     function emailLogo(logoUrl) {
-        return '<tr><td align="center" valign="top" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
+        return '<tr><td align="center" valign="top" style="padding:24px 16px;">' +
             (logoUrl ? '<img src="' + esc(logoUrl) + '" alt="Nu-Heat" height="60" border="0" style="display:block;height:60px;' +
                 'max-height:60px;width:auto;max-width:100%;border:0;margin:0 auto;">' :
                 fontHtml(COLORS.PURPLE, '<span style="' + EF + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE +
@@ -1285,16 +1302,34 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * The purple band. Every argument is plain text, escaped here.
      * @param {string} eyebrow - e.g. "YOUR PROJECTS UPDATE"
      * @param {string} heading
-     * @param {string} hello - the whole line, e.g. "Hello Sam"
+     * @param {string} sub - the line under the heading, e.g. "Hello Sam"
      */
-    function emailBand(eyebrow, heading, hello) {
-        return '<tr><td align="center" valign="top" bgcolor="' + COLORS.PURPLE + '" style="background-color:' + COLORS.PURPLE +
-            ';padding:36px 32px;' + EF + 'color:#ffffff;">' +
-            '<p style="margin:0 0 10px;' + EF + 'font-size:15px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
+    function emailBand(eyebrow, heading, sub) {
+        return '<tr><td align="center" valign="top" bgcolor="' + COLORS.PURPLE + '" class="pad" style="background-color:' + COLORS.PURPLE +
+            ';padding:36px 48px 40px 48px;' + EF + 'color:#ffffff;">' +
+            '<p style="margin:0 0 10px;' + EF + 'font-size:14px;letter-spacing:1px;text-transform:uppercase;font-weight:bold;' +
             'color:#e7d9ea;">' + fontHtml('#e7d9ea', '<b>' + esc(eyebrow) + '</b>') + '</p>' +
-            '<h1 class="h1" style="margin:0 0 10px;' + EF + 'font-size:30px;line-height:36px;font-weight:bold;color:#ffffff;">' +
+            '<h1 class="h1" style="margin:0 0 10px;' + EF + 'font-size:32px;line-height:37px;font-weight:bold;color:#ffffff;">' +
             fontHtml('#ffffff', esc(heading)) + '</h1>' +
-            '<p style="margin:0;' + EF + 'font-size:17px;color:#f3ecf4;">' + fontHtml('#f3ecf4', esc(hello)) + '</p></td></tr>\n';
+            '<p style="margin:0;' + EF + 'font-size:17px;line-height:25px;color:#f3ecf4;">' + fontHtml('#f3ecf4', esc(sub)) +
+            '</p></td></tr>\n';
+    }
+
+    /**
+     * The button kinds: yellow (Send Quote's main button), yellowSmall (CHOOSE DATE), purple (VIEW ALL
+     * YOUR PROJECTS), call (the AM card's filled CALL) and outline (the AM card's EMAIL: a purple
+     * frame made by an outer bgcolor cell, so it survives stripped styles).
+     */
+    function buttonKind(kind) {
+        var std = config.EMAIL_STANDARD;
+        var kinds = {
+            yellow: { bg: std.BUTTON_BG, fg: std.BUTTON_TEXT, size: 18, pad: '15px 28px' },
+            yellowSmall: { bg: std.BUTTON_BG, fg: std.BUTTON_TEXT, size: 14, pad: '12px 18px' },
+            purple: { bg: std.PURPLE, fg: '#ffffff', size: 17, pad: '15px 34px' },
+            call: { bg: std.PURPLE, fg: '#ffffff', size: 15, pad: '12px 22px' },
+            outline: { bg: '#ffffff', fg: std.PURPLE, size: 15, pad: '10px 20px', frame: std.PURPLE }
+        };
+        return kinds[kind] || kinds.yellow;
     }
 
     /**
@@ -1302,34 +1337,42 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * Colour by bgcolor and <font color>, padding by cellpadding, so it survives stripped styles.
      * @param {string} href - plain; escaped here
      * @param {string} label - plain; escaped here
+     * @param {string} [kind] - see buttonKind(); default yellow
      */
-    function emailButton(href, label) {
-        var bg = config.EMAIL_STANDARD.BUTTON_BG;
-        var fg = config.EMAIL_STANDARD.BUTTON_TEXT;
-        var text = EF + 'font-size:18px;line-height:22px;font-weight:bold;color:' + fg + ';text-decoration:none;';
+    function emailButton(href, label, kind) {
+        var k = buttonKind(kind);
+        var text = EF + 'font-size:' + k.size + 'px;line-height:' + (k.size + 4) + 'px;font-weight:bold;color:' + k.fg +
+            ';text-decoration:none;letter-spacing:0.5px;';
         var h = esc(href);
         var l = esc(label);
+        var link = '<a href="' + h + '" target="_blank" style="display:block;padding:' + k.pad + ';' + text + '"><font face="' +
+            FACE + '" color="' + k.fg + '"><b>' + l + '</b></font></a>';
+        var inner = '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' +
+            k.bg + '" style="background-color:' + k.bg + ';border-radius:' + (k.frame ? '4' : '6') + 'px;border-collapse:separate;' +
+            (k.frame ? 'width:100%;' : '') + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + k.bg + '" style="padding:0;border-radius:' + (k.frame ? '4' : '6') +
+            'px;">' + link + '</td></tr>\n' +
+            '</table>\n';
         return '' +
             '<!--[if !mso]><!-- -->\n' +
-            '<table role="presentation" class="btn-full" align="center" cellpadding="14" cellspacing="0" border="0" bgcolor="' + bg +
-            '" style="background-color:' + bg + ';border-radius:5px;border-collapse:separate;">\n' +
-            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:0;border-radius:5px;"><a href="' + h +
-            '" target="_blank" style="display:block;padding:15px 28px;' + text + '"><font face="' + FACE + '" color="' + fg +
-            '"><b>' + l + '</b></font></a></td></tr>\n' +
-            '</table>\n' +
+            (k.frame ? '<table role="presentation" class="btn-full" align="center" cellpadding="2" cellspacing="0" border="0" bgcolor="' +
+                k.frame + '" style="background-color:' + k.frame + ';border-radius:6px;border-collapse:separate;">\n' +
+                '<tr><td align="center" valign="middle" bgcolor="' + k.frame + '" style="padding:2px;border-radius:6px;">\n' + inner +
+                '</td></tr>\n</table>\n' : inner) +
             '<!--<![endif]-->\n' +
             '<!--[if mso]>\n' +
-            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + bg + '">\n' +
-            '<tr><td align="center" valign="middle" bgcolor="' + bg + '" style="padding:15px 28px;"><a href="' + h +
-            '" target="_blank" style="' + text + '"><font face="Arial, sans-serif" color="' + fg + '"><b>' + l +
-            '</b></font></a></td></tr>\n' +
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + k.bg + '">\n' +
+            '<tr><td align="center" valign="middle" bgcolor="' + k.bg + '" style="padding:' + k.pad + ';' +
+            (k.frame ? 'border:2px solid ' + k.frame + ';' : '') + '"><a href="' + h + '" target="_blank" style="' + text +
+            '"><font face="Arial, sans-serif" color="' + k.fg + '"><b>' + l + '</b></font></a></td></tr>\n' +
             '</table>\n' +
             '<![endif]-->\n';
     }
 
     /** A centred row holding one button. */
-    function emailButtonRow(link, label) {
-        return '<tr><td align="center" valign="top" style="padding:16px 32px 8px;">\n' + emailButton(link, label) + '</td></tr>\n';
+    function emailButtonRow(link, label, kind, padding) {
+        return '<tr><td align="center" valign="top" style="padding:' + (padding || '16px 32px 8px') + ';">\n' +
+            emailButton(link, label, kind) + '</td></tr>\n';
     }
 
     /**
@@ -1349,70 +1392,74 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     }
 
     /**
+     * Pure (2.0.3): the AM's contact values with Send Quote's fallback — no phone -> 01404 540604, no
+     * email -> info@nu-heat.co.uk (config.EMAIL_STANDARD). tel is digits and + only.
+     * @returns {{name: string, first: string, phone: string, tel: string, email: string}}
+     */
+    function amContact(am) {
+        var a = am || {};
+        var std = config.EMAIL_STANDARD;
+        var phone = String(a.phone || '').replace(/^\s+|\s+$/g, '') || std.FALLBACK_PHONE;
+        return {
+            name: a.name || std.GENERIC_AM_NAME,
+            first: resolveFirstName(a.firstName, a.name),
+            phone: phone,
+            tel: phone.replace(/[^\d+]/g, ''),
+            email: String(a.email || '').replace(/^\s+|\s+$/g, '') || std.FALLBACK_EMAIL
+        };
+    }
+
+    /**
      * The account manager card (Send Quote 2.2.0's emailRepCard): the photo (a 96px circle, only for an
      * https:// URL, else no photo row at all), YOUR ACCOUNT MANAGER, the name, phone · email (two lines
-     * on phones), then CALL {FIRST} and EMAIL {FIRST} side by side (stacked, full width, on phones). A
-     * button without its value is left out. '' when there is no name, phone or email at all.
+     * on phones), then CALL {FIRST} (purple, filled) and EMAIL {FIRST} (purple outline) side by side,
+     * stacked full width on phones. 2.0.3: Send Quote's contact fallback fills a missing phone or email,
+     * so both buttons always show.
      *
      * @param {Object} am - { name, phone, email, firstName, photoUrl }, plain text
      * @returns {string}
      */
     function emailRepCard(am) {
         var a = am || {};
-        var name = a.name || config.EMAIL_STANDARD.GENERIC_AM_NAME;
-        var first = resolveFirstName(a.firstName, a.name).toUpperCase();
-        var tel = String(a.phone || '').replace(/[^\d+]/g, '');
-        var photo = /^https:\/\/[^\s"'<>]+$/i.test(String(a.photoUrl || '')) ? String(a.photoUrl) : '';
-        var buttons = [];
-        var lines = [];
-        if (!a.name && !a.phone && !a.email) {
-            return '';
-        }
-        if (tel) {
-            buttons.push(emailButton('tel:' + tel, first ? 'CALL ' + first : 'CLICK TO CALL'));
-        }
-        if (a.email) {
-            buttons.push(emailButton('mailto:' + a.email, first ? 'EMAIL ' + first : 'SEND AN EMAIL'));
-        }
-        if (a.phone) {
-            lines.push('<span class="cl-line">' + esc(a.phone) + '</span>');
-        }
-        if (a.email) {
-            lines.push('<span class="cl-line">' + esc(a.email) + '</span>');
-        }
+        var c = amContact(a);
+        var first = c.first.toUpperCase();
+        var photo = isHttpsUrl(a.photoUrl) ? String(a.photoUrl) : '';
+        var buttons = [
+            emailButton('tel:' + c.tel, first ? 'CALL ' + first : 'CLICK TO CALL', 'call'),
+            emailButton('mailto:' + c.email, first ? 'EMAIL ' + first : 'SEND AN EMAIL', 'outline')
+        ];
         return '' +
-            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:8px;">\n' +
+            '<table role="presentation" class="main-card" width="440" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#f6f2f7" style="width:100%;max-width:440px;background-color:#f6f2f7;border-radius:12px;">\n' +
             (photo ? '<tr><td align="center" valign="top" style="padding:24px 20px 0 20px;"><img src="' + esc(photo) +
-                '" width="96" height="96" alt="' + esc(name) + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n' : '') +
-            '<tr><td align="center" valign="top" style="padding:' + (photo ? '14px' : '24px') + ' 20px ' +
-            (buttons.length ? '0' : '24px') + ' 20px;">\n' +
+                '" width="96" height="96" alt="' + esc(c.name) + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n' : '') +
+            '<tr><td align="center" valign="top" style="padding:' + (photo ? '14px' : '24px') + ' 20px 0 20px;">\n' +
             '<p style="margin:0 0 4px 0;' + EF + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;">' +
             fontHtml('#59315f', '<b>YOUR ACCOUNT MANAGER</b>') + '</p>\n' +
             '<p style="margin:0 0 6px 0;' + EF + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;">' +
-            fontHtml('#000000', '<b>' + esc(name) + '</b>') + '</p>\n' +
-            (lines.length ? '<p style="margin:0;' + EF + 'font-size:17px;line-height:23px;color:#131313;">' +
-                fontHtml('#131313', lines.join('<span class="cl-sep"> · </span>')) + '</p>\n' : '') +
+            fontHtml('#000000', '<b>' + esc(c.name) + '</b>') + '</p>\n' +
+            '<p style="margin:0;' + EF + 'font-size:17px;line-height:23px;color:#131313;">' +
+            fontHtml('#131313', '<span class="cl-line">' + esc(c.phone) + '</span><span class="cl-sep"> · </span><span class="cl-line">' +
+                esc(c.email) + '</span>') + '</p>\n' +
             '</td></tr>\n' +
-            (buttons.length ? '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
-                '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
-                '<tr>\n' +
-                buttons.map(function (b) {
-                    return '<td class="stack" width="' + (buttons.length === 2 ? '50%' : '100%') +
-                        '" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
-                }).join('') +
-                '</tr>\n' +
-                '</table>\n' +
-                '</td></tr>\n' : '') +
+            '<tr><td align="center" valign="top" style="padding:16px 14px 20px 14px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            '<tr>\n' +
+            buttons.map(function (b) {
+                return '<td class="stack" width="50%" align="center" valign="top" style="padding:6px;">\n' + b + '</td>\n';
+            }).join('') +
+            '</tr>\n' +
+            '</table>\n' +
+            '</td></tr>\n' +
             '</table>\n';
     }
 
-    /** The muted "This link is personal to you…" row. text is plain. */
+    /** The muted "This link is personal to you…" row, after the card. text is plain. */
     function emailPersonal(text) {
-        return '<tr><td align="center" valign="top" style="padding:4px 32px 8px;' + EF + 'font-size:14px;color:' + COLORS.MUTED + ';">' +
-            fontHtml(COLORS.MUTED, esc(text)) + '</td></tr>\n';
+        return '<tr><td align="center" valign="top" class="pad" style="padding:8px 40px 28px;' + EF + 'font-size:13px;color:' +
+            COLORS.MUTED + ';">' + fontHtml(COLORS.MUTED, esc(text)) + '</td></tr>\n';
     }
 
-    /** One digest row's badge: a small table, colour by bgcolor and <font color>. */
+    /** A badge: a small table, colour by bgcolor and <font color>. */
     function emailBadge(kind, text) {
         var b = BADGES[kind] || BADGES.quote;
         return '<table role="presentation" align="right" cellpadding="3" cellspacing="0" border="0" bgcolor="' + b.bg +
@@ -1423,71 +1470,62 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     }
 
     /** A paragraph in a colour: plain text, escaped here. */
-    function emailP(margin, size, color, text, bold) {
-        return '<p style="margin:' + margin + ';' + EF + 'font-size:' + size + 'px;' + (bold ? 'font-weight:bold;' : '') +
-            'color:' + color + ';">' + fontHtml(color, bold ? '<b>' + esc(text) + '</b>' : esc(text)) + '</p>';
+    function emailP(margin, size, color, text, bold, align) {
+        return '<p style="margin:' + margin + ';' + EF + 'font-size:' + size + 'px;line-height:' + Math.round(size * 1.4) + 'px;' +
+            (bold ? 'font-weight:bold;' : '') + 'color:' + color + ';' + (align ? 'text-align:' + align + ';' : '') + '"' +
+            (align ? ' align="' + align + '"' : '') + '>' + fontHtml(color, bold ? '<b>' + esc(text) + '</b>' : esc(text)) + '</p>';
+    }
+
+    /** A section heading (22px), centred. */
+    function emailH2(text, color, margin) {
+        return '<h2 align="center" style="margin:' + (margin || '0 0 16px 0') + ';' + EF + 'font-size:22px;line-height:27px;' +
+            'font-weight:bold;color:' + color + ';text-align:center;">' + fontHtml(color, esc(text)) + '</h2>\n';
+    }
+
+    // ---------------------------------------------------------------- "Book your delivery" (2.0.3)
+
+    /** One fact row of the "Your order" box: label left, value right. valueHtml is escaped already. */
+    function factRow(label, valueHtml) {
+        return '<tr><td align="left" valign="top" style="padding:10px 12px 10px 0;border-top:1px solid #ece8e3;' + EF +
+            'font-size:16px;line-height:22px;color:' + COLORS.MUTED + ';white-space:nowrap;">' + fontHtml(COLORS.MUTED, esc(label)) +
+            '</td><td align="right" valign="top" style="padding:10px 0;border-top:1px solid #ece8e3;' + EF +
+            'font-size:16px;line-height:22px;color:' + COLORS.TEXT + ';text-align:right;">' + fontHtml(COLORS.TEXT, valueHtml) +
+            '</td></tr>\n';
+    }
+
+    /** One numbered step of "How it works". extraHtml goes under the text (the "need it sooner" line). */
+    function stepRow(n, title, text, extraHtml) {
+        var teal = config.EMAIL_STANDARD.TEAL;
+        return '<tr><td width="36" align="center" valign="top" style="padding:0 14px 16px 0;">' +
+            '<table role="presentation" width="36" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + teal +
+            '" style="background-color:' + teal + ';border-radius:18px;"><tr><td width="36" height="36" align="center" valign="middle" bgcolor="' +
+            teal + '" style="' + EF + 'font-size:17px;font-weight:bold;color:#ffffff;border-radius:18px;">' + fontHtml('#ffffff', '<b>' + n + '</b>') +
+            '</td></tr></table></td>' +
+            '<td align="left" valign="top" style="padding:0 0 16px 0;">' +
+            emailP('0 0 2px 0', 17, COLORS.TEXT, title, true) +
+            emailP('0', 15, '#4a4650', text) + (extraHtml || '') + '</td></tr>\n';
     }
 
     /**
-     * The digest email. Pure, snapshot-tested.
-     * @param {Object} m - { customerName, greetingName, logoUrl, groups, payBacs, link, title (the
-     *                       subject), am {name, phone, email, firstName, photoUrl}, digestDays }
-     * @returns {string}
+     * The "Need it sooner?" line: the AM's first name (else "us") and their phone, or Send Quote's
+     * fallback number, as a tel: link. The template is escaped first, then the values go in.
      */
-    function digestEmail(m) {
-        var rows = digestRows(m.groups, m.payBacs);
-        var callout = digestCallout(m.groups, m.payBacs);
-        var html = '';
-        var i;
-        var r;
+    function soonerHtml(t, am) {
+        var c = amContact(am);
+        var link = '<a href="tel:' + esc(c.tel) + '" style="color:' + COLORS.PURPLE + ';text-decoration:underline;"><font color="' +
+            COLORS.PURPLE + '">' + esc(c.phone) + '</font></a>';
+        return esc(t.SOONER).replace('{first}', esc(c.first || t.SOONER_NO_NAME)).replace('{phone}', link);
+    }
 
-        html += emailLogo(m.logoUrl);
-        html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
-
-        html += '<tr><td align="center" valign="top" style="padding:32px 32px 8px;"><table role="presentation" width="100%" ' +
-            'align="center" cellpadding="0" cellspacing="0" border="0">\n';
-
-        // The action callout
-        if (callout) {
-            html += '<tr><td align="left" valign="top" style="padding:0 0 8px;"><table role="presentation" width="100%" align="center" ' +
-                'cellpadding="16" cellspacing="0" border="0" bgcolor="#fffaf0" style="background-color:#fffaf0;"><tr>' +
-                '<td align="left" valign="top" bgcolor="#fffaf0" style="background-color:#fffaf0;border:2px solid ' + COLORS.CTA +
-                ';padding:16px 18px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
-                fontHtml(COLORS.TEXT, callout) + '</td></tr></table></td></tr>\n';
+    /**
+     * Pure (2.0.3): what the "Amount to pay" row shows — '' when it is left out: unknown amount, or not a
+     * pay-up-front order (account customers). 0 reads "Nothing left to pay".
+     */
+    function amountToPayText(t, order) {
+        if (!order || !order.prepay || !order.amount || typeof order.amount.amount !== 'number') {
+            return '';
         }
-
-        // One row per order or project
-        for (i = 0; i < rows.length; i++) {
-            r = rows[i];
-            if (r.heading) {
-                html += '<tr><td align="left" valign="top" style="padding:20px 0 4px;' + EF + 'font-size:15px;font-weight:bold;' +
-                    'letter-spacing:1px;text-transform:uppercase;color:' + COLORS.PURPLE + ';">' +
-                    fontHtml(COLORS.PURPLE, '<b>' + esc(r.heading) + '</b>') + '</td></tr>\n';
-            }
-            html += '<tr><td align="left" valign="top" style="padding:16px 0;' + (i < rows.length - 1 ? 'border-bottom:1px solid #ece8e3;' : '') + '">' +
-                '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
-                '<td align="left" valign="middle" style="' + EF + 'text-align:left;">' +
-                emailP('0', 17, COLORS.TEXT, r.title, true) +
-                (r.line1 ? emailP('2px 0 0', 15, COLORS.TEXT, r.line1) : '') +
-                (r.ref ? emailP('2px 0 0', 15, COLORS.TEXT, r.ref, true) : '') +
-                emailP('2px 0 0', 15, COLORS.MUTED, r.sub) + '</td>' +
-                '<td align="right" valign="middle" style="padding-left:12px;white-space:nowrap;">' +
-                emailBadge(r.badgeKind, r.badgeText) + '</td></tr></table></td></tr>\n';
-        }
-        html += '</table></td></tr>\n';
-
-        html += emailButtonRow(m.link, 'VIEW YOUR PROJECTS');
-        html += emailPersonal('This link is personal to you. Please don’t forward this email.');
-
-        return emailShell({
-            title: esc(m.title || 'Your Nu-Heat projects'),
-            preheader: esc(config.EMAIL_STANDARD.DIGEST_PREHEADER),
-            rows: html,
-            card: emailRepCard(m.am),
-            footerLine: 'You get this update ' + everyText(m.digestDays) +
-                ' while you have an open project or order with us. To stop these updates, reply to this email' +
-                emailFooterContact(m.am) + '.'
-        });
+        return order.amount.amount === 0 ? t.NOTHING_TO_PAY : formatMoney(order.amount.amount) + t.AMOUNT_SUFFIX;
     }
 
     /**
@@ -1500,51 +1538,391 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     }
 
     /**
-     * 2.0: the "Send delivery link" email — one order, one button to its direct delivery link.
-     * Pure, snapshot-tested. No opt-out wording: it is not the digest.
+     * The "Send delivery link" email (2.0.3: EmailDeliveryLink.dc.html) — one order, one button to its
+     * direct delivery link. Pure, snapshot-tested. No opt-out wording: it is not the digest.
      *
-     * @param {Object} m - { text (config.DELIVERY_LINK_EMAIL; defaults to it), customerName, greetingName,
-     *                       logoUrl, opp {title, tranId}, order (decorated: tranId, description, uniqueRef,
-     *                       typeLabel, quoteTypeText), link (the direct delivery link), dashboardLink,
-     *                       am {name, phone, email, firstName, photoUrl} }
+     * @param {Object} m - {
+     *     text        config.DELIVERY_LINK_EMAIL (defaults to it)
+     *     customerName, greetingName, logoUrl
+     *     opp         { title, tranId, siteAddress }
+     *     order       decorated: id, tranId, description, uniqueRef, typeLabel, quoteTypeText, prepay, amount
+     *     earliestKey the form's first allowed date ('' -> no row)
+     *     noticeDays  for step 1
+     *     icons       { LORRY, PARCEL, PEOPLE } https URLs ('' -> no icon)
+     *     heroUrl     defaults to config.EMAIL_HERO_URL; used only when https
+     *     link        the direct delivery link;  dashboardLink
+     *     am          { name, phone, email, firstName, photoUrl } }
      * @returns {string}
      */
     function deliveryLinkEmail(m) {
         var t = m.text || config.DELIVERY_LINK_EMAIL;
         var o = m.order;
+        var std = config.EMAIL_STANDARD;
+        var hero = m.heroUrl === undefined ? config.EMAIL_HERO_URL : m.heroUrl;
+        var name = m.greetingName || m.customerName || '';
+        var project = [m.opp && m.opp.tranId, m.opp && m.opp.siteAddress].filter(function (x) { return !!x; }).join(' · ');
+        var amount = amountToPayText(t, o);
+        var earliest = m.earliestKey ? shortDate(m.earliestKey) : '';
+        var icons = m.icons || {};
         var html = '';
+        var facts = '';
 
         html += emailLogo(m.logoUrl);
-        html += emailBand(t.EYEBROW, t.HEADING, String(t.HELLO).replace('{name}', m.greetingName || m.customerName || ''));
+        html += emailBand(t.EYEBROW, name ? t.HEADING.replace('{name}', name) : t.HEADING_NO_NAME, t.SUB);
 
-        // Intro, then the one order block: project, order title, split reference, "Order SO… · UFH".
-        html += '<tr><td align="center" valign="top" style="padding:32px 32px 8px;">' +
-            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
-            '<td align="left" valign="top" style="padding:0 0 20px;' + EF + 'font-size:17px;line-height:24px;color:' + COLORS.TEXT + ';">' +
-            emailP('0', 17, COLORS.TEXT, t.INTRO) + '</td></tr><tr>' +
-            '<td align="left" valign="top" bgcolor="#ffffff" style="padding:16px 18px;border:1px solid #ece8e3;border-left:4px solid ' +
-            COLORS.PURPLE + ';' + EF + 'text-align:left;">' +
-            emailP('0', 17, COLORS.TEXT, (m.opp && (m.opp.title || m.opp.tranId)) || '', true) +
-            emailP('2px 0 0', 15, COLORS.TEXT, orderTitle(o)) +
-            (o.uniqueRef ? emailP('2px 0 0', 15, COLORS.TEXT, o.uniqueRef, true) : '') +
-            emailP('2px 0 0', 15, COLORS.MUTED, orderMeta(o)) +
-            '</td></tr></table></td></tr>\n';
+        // The hero: full width, only for an https address.
+        if (isHttpsUrl(hero)) {
+            html += '<tr><td align="center" valign="top"><img src="' + esc(hero) + '" width="' + config.EMAIL_HERO_WIDTH +
+                '" height="' + config.EMAIL_HERO_HEIGHT + '" alt="" border="0" class="fluid" style="display:block;width:100%;' +
+                'max-width:600px;height:auto;"></td></tr>\n';
+        }
 
-        html += emailButtonRow(m.link, t.BUTTON);
+        // "Your order": the label, the order title, the fact rows.
+        facts += factRow(t.FACT_ORDER, '<b>' + esc(orderMeta(o).replace(/^Order /, '')) + '</b>');
+        if (project) {
+            facts += factRow(t.FACT_PROJECT, '<b>' + esc(project) + '</b>');
+        }
+        if (o.uniqueRef) {
+            facts += factRow(t.FACT_THIS_ORDER, '<b>' + esc(o.uniqueRef) + '</b>');
+        }
+        if (earliest) {
+            facts += factRow(t.FACT_EARLIEST, '<b>' + esc(earliest) + '</b> ' + fontHtml(COLORS.MUTED, esc(t.EARLIEST_SOONER)));
+        }
+        if (amount) {
+            facts += factRow(t.FACT_AMOUNT, '<b>' + esc(amount) + '</b>');
+        }
+        html += '<tr><td align="center" valign="top" class="pad" style="padding:32px 48px 8px 48px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
+            'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
+            '<tr><td align="left" valign="top" style="padding:20px 22px 12px 22px;">\n' +
+            emailP('0 0 6px 0', 12, std.TEAL, t.ORDER_LABEL, true) +
+            emailP('0 0 8px 0', 19, COLORS.TEXT, orderTitle(o), true) +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + facts + '</table>\n' +
+            '</td></tr>\n</table>\n</td></tr>\n';
 
-        // The secondary link to the dashboard: small, purple, underlined.
-        html += '<tr><td align="center" valign="top" style="padding:8px 32px 4px;' + EF + 'font-size:15px;">' +
+        // The button and the dashboard link under it.
+        html += emailButtonRow(m.link, t.BUTTON, 'yellow', '24px 32px 8px');
+        html += '<tr><td align="center" valign="top" style="padding:4px 32px 8px;' + EF + 'font-size:15px;">' +
             '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
             ';text-decoration:underline;">' + fontHtml(COLORS.PURPLE, esc(t.DASHBOARD_LINK)) + '</a></td></tr>\n';
 
-        html += emailPersonal(t.PERSONAL);
+        // How it works: three numbered steps; step 1 carries the "need it sooner" line.
+        html += '<tr><td align="center" valign="top" class="pad" style="padding:24px 48px 8px 48px;">\n' +
+            emailH2(t.HOW_HEADING, std.PURPLE) +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' +
+            stepRow(1, t.STEP1_TITLE, t.STEP1_TEXT.replace('{n}', String(parseInt(m.noticeDays, 10) || 0)),
+                '<table role="presentation" width="100%" align="left" cellpadding="0" cellspacing="0" border="0" bgcolor="#fff5dc" ' +
+                'style="background-color:#fff5dc;border-radius:6px;margin-top:6px;"><tr><td align="left" valign="top" bgcolor="#fff5dc" ' +
+                'style="padding:8px 12px;' + EF + 'font-size:15px;line-height:21px;color:' + COLORS.TEXT + ';">' +
+                fontHtml(COLORS.TEXT, soonerHtml(t, m.am)) + '</td></tr></table>') +
+            stepRow(2, t.STEP2_TITLE, t.STEP2_TEXT) +
+            stepRow(3, t.STEP3_TITLE, o.prepay === false ? t.STEP3_ACCOUNT : t.STEP3_PREPAY) +
+            '</table>\n</td></tr>\n';
+
+        // Before you book: the grey panel with three tips, three across (stacked on phones).
+        html += '<tr><td align="center" valign="top" bgcolor="' + std.PANEL + '" class="pad" style="background-color:' + std.PANEL +
+            ';padding:28px 30px;">\n' + emailH2(t.TIPS_HEADING, std.MAGENTA, '0 0 18px 0') +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n<tr>\n' +
+            t.TIPS.map(function (tip) {
+                var icon = icons[tip[2]];
+                return '<td class="stack" width="33%" align="center" valign="top" style="padding:0 10px 12px 10px;">\n' +
+                    (isHttpsUrl(icon) ? '<img src="' + esc(icon) + '" width="52" height="52" alt="" border="0" ' +
+                        'style="display:block;margin:0 auto 8px auto;width:52px;height:52px;">\n' : '') +
+                    emailP('0 0 6px 0', 16, COLORS.TEXT, tip[0], true, 'center') +
+                    emailP('0', 14, '#4a4650', tip[1], false, 'center') + '</td>\n';
+            }).join('') +
+            '</tr>\n</table>\n</td></tr>\n';
 
         return emailShell({
             title: esc(deliveryLinkSubject(t, o.tranId)),
             preheader: esc(t.PREHEADER),
             rows: html,
+            cardIntro: emailH2(t.QUESTIONS, std.PURPLE, '4px 0 16px 0'),
             card: emailRepCard(m.am),
+            after: emailPersonal(t.PERSONAL),
             footerLine: esc(t.FOOTER)
+        });
+    }
+
+    // ---------------------------------------------------------------- the projects update (2.0.3)
+
+    var STAGE_INDEX = { quote: 0, ordered: 1, design: 2, delivery: 3, booked: 4, delivered: 4 };
+
+    /** The order states that need the customer: the project is at Delivery. */
+    var DELIVERY_STATES = ['ready', 'awaiting_payment', 'requested', 'needs_info'];
+
+    /**
+     * Pure (2.0.3): a project's stage on the progress bar.
+     *   quote-only                                          -> 'quote'
+     *   in design, or needs design information              -> 'design'
+     *   any order ready / awaiting payment / requested / needs info -> 'delivery'
+     *   every order not yet delivered is released or booked -> 'booked'
+     *   only delivered orders                               -> 'delivered'
+     * "Ordered" is never current today: no data says an order is placed but not yet in design.
+     *
+     * @param {Object} project - { kind: 'quote' | 'design' | 'delivery', orders: [{ state }] }
+     * @returns {string}
+     */
+    function projectStage(project) {
+        var orders = (project && project.orders) || [];
+        var open = [];
+        var i;
+        if (!project || project.kind === 'quote') {
+            return 'quote';
+        }
+        if (project.kind === 'design') {
+            return 'design';
+        }
+        for (i = 0; i < orders.length; i++) {
+            if (DELIVERY_STATES.indexOf(orders[i].state) >= 0) {
+                return 'delivery';
+            }
+            if (orders[i].state !== 'delivered') {
+                open.push(orders[i]);
+            }
+        }
+        if (open.length) {
+            return 'booked';
+        }
+        return orders.length ? 'delivered' : 'design';
+    }
+
+    /** The last segment's label: "Booked" when the furthest order is booked or released (2.0.3). */
+    function lastStageLabel(stage, project) {
+        var orders = (project && project.orders) || [];
+        var i;
+        if (stage === 'booked') {
+            return config.DIGEST_EMAIL.STAGE_BOOKED;
+        }
+        if (stage === 'delivery') {
+            for (i = 0; i < orders.length; i++) {
+                if (orders[i].state === 'booked' || orders[i].state === 'released') {
+                    return config.DIGEST_EMAIL.STAGE_BOOKED;
+                }
+            }
+        }
+        return config.DIGEST_EMAIL.STAGES[4];
+    }
+
+    /**
+     * Pure (2.0.3): one card per project, in the existing section order — "For delivery" (what needs the
+     * customer), then design, then quotes, then "Booked deliveries". A project in more than one section
+     * is one card, with all its orders, where it first appears.
+     * @returns {Array<{opp: Object, kind: string, needsInfo: boolean, orders: Array<{order, state}>}>}
+     */
+    function digestProjects(groups) {
+        var cards = [];
+        var byId = {};
+        function card(opp, kind) {
+            var key = String(opp.id);
+            if (!byId[key]) {
+                byId[key] = { opp: opp, kind: kind, needsInfo: false, orders: [] };
+                cards.push(byId[key]);
+            }
+            return byId[key];
+        }
+        (groups.forDelivery || []).forEach(function (p) {
+            card(p.opp, 'delivery').orders = card(p.opp, 'delivery').orders.concat(p.orders);
+        });
+        (groups.inDesign || []).forEach(function (p) {
+            card(p.opp, 'design').needsInfo = p.badge === 'needs_info';
+        });
+        (groups.toOrder || []).forEach(function (opp) {
+            card(opp, 'quote');
+        });
+        (groups.booked || []).forEach(function (p) {
+            var c = card(p.opp, 'delivery');
+            c.orders = c.orders.concat(p.orders);
+        });
+        return cards;
+    }
+
+    /**
+     * Pure (2.0.3): the summary tile counts. ready / awaiting payment: orders that need the customer;
+     * design: projects in design; booked: open orders released or booked (not delivered).
+     * @returns {{ready: number, pay: number, design: number, booked: number}}
+     */
+    function digestCounts(groups) {
+        var c = { ready: 0, pay: 0, design: (groups.inDesign || []).length, booked: 0 };
+        (groups.forDelivery || []).forEach(function (p) {
+            p.orders.forEach(function (st) {
+                if (st.state === 'ready') {
+                    c.ready++;
+                } else if (st.state === 'awaiting_payment') {
+                    c.pay++;
+                }
+            });
+        });
+        (groups.booked || []).forEach(function (p) {
+            p.orders.forEach(function (st) {
+                if (st.state === 'booked' || st.state === 'released') {
+                    c.booked++;
+                }
+            });
+        });
+        return c;
+    }
+
+    /** The tile row: one equal cell per non-zero count; '' when every count is zero. */
+    function digestTiles(counts) {
+        var T = config.DIGEST_EMAIL.TILES;
+        var tiles = [[counts.ready, T.READY, '#fff5dc'], [counts.pay, T.PAY, '#e3edf7'], [counts.design, T.DESIGN, '#efe9f1'],
+            [counts.booked, T.BOOKED, '#e6f2ec']].filter(function (x) { return x[0] > 0; });
+        var width = tiles.length ? Math.floor(100 / tiles.length) : 0;
+        if (!tiles.length) {
+            return '';
+        }
+        return '<table role="presentation" class="tiles" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n<tr>\n' +
+            tiles.map(function (x) {
+                return '<td width="' + width + '%" align="center" valign="top" style="padding:0 6px;">' +
+                    '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="' + x[2] +
+                    '" style="background-color:' + x[2] + ';border-radius:10px;"><tr><td align="center" valign="top" bgcolor="' + x[2] +
+                    '" style="padding:14px 8px;border-radius:10px;">' +
+                    emailP('0', 28, COLORS.TEXT, String(x[0]), true, 'center') +
+                    emailP('2px 0 0 0', 14, COLORS.TEXT, x[1], true, 'center') + '</td></tr></table></td>\n';
+            }).join('') +
+            '</tr>\n</table>\n';
+    }
+
+    /** "{project} · Order SO… · UFH · {split reference}" */
+    function actionSub(opp, o) {
+        return [opp.title || opp.tranId, orderMeta(o), o.uniqueRef].filter(function (x) { return !!x; }).join(' · ');
+    }
+
+    /**
+     * The action box: the ready orders (at most config.DIGEST_EMAIL.ACTION_MAX), each with CHOOSE DATE to
+     * its own direct link, and "and {n} more on your projects page" beyond that. '' when nothing is ready.
+     */
+    function digestActionBox(groups, link, orderLink) {
+        var D = config.DIGEST_EMAIL;
+        var ready = [];
+        var rows = '';
+        var i;
+        (groups.forDelivery || []).forEach(function (p) {
+            p.orders.forEach(function (st) {
+                if (st.state === 'ready') {
+                    ready.push({ opp: p.opp, order: st.order });
+                }
+            });
+        });
+        if (!ready.length) {
+            return '';
+        }
+        for (i = 0; i < ready.length && i < D.ACTION_MAX; i++) {
+            rows += '<tr><td align="left" valign="middle" style="padding:12px 12px 12px 0;border-top:1px solid #f3dfae;">' +
+                emailP('0 0 2px 0', 15, COLORS.TEXT, orderTitle(ready[i].order), true) +
+                emailP('0', 13, COLORS.MUTED, actionSub(ready[i].opp, ready[i].order)) + '</td>' +
+                '<td width="150" align="right" valign="middle" style="padding:12px 0;border-top:1px solid #f3dfae;">\n' +
+                emailButton(orderLink ? orderLink(ready[i].order.id) : link, D.ACTION_BUTTON, 'yellowSmall') + '</td></tr>\n';
+        }
+        return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#fffaf0" ' +
+            'style="background-color:#fffaf0;border:2px solid ' + COLORS.CTA + ';border-radius:10px;border-collapse:separate;">\n' +
+            '<tr><td align="center" valign="top" bgcolor="#fffaf0" style="padding:18px 20px 8px 20px;">\n' +
+            emailP('0 0 8px 0', 18, COLORS.TEXT, ready.length === 1 ? D.ACTION_ONE : D.ACTION_MANY.replace('{n}', ready.length), true, 'center') +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + rows + '</table>\n' +
+            (ready.length > D.ACTION_MAX ? '<p align="center" style="margin:6px 0 4px 0;' + EF + 'font-size:13px;text-align:center;">' +
+                '<a href="' + esc(link) + '" target="_blank" style="color:' + COLORS.PURPLE + ';">' + fontHtml(COLORS.PURPLE,
+                    esc(D.ACTION_MORE.replace('{n}', ready.length - D.ACTION_MAX))) + '</a></p>\n' : '') +
+            '</td></tr>\n</table>\n';
+    }
+
+    /** The progress bar: five equal cells, each a 6px bar (bgcolor) and its label. */
+    function progressBar(project) {
+        var D = config.DIGEST_EMAIL;
+        var std = config.EMAIL_STANDARD;
+        var stage = projectStage(project);
+        var current = STAGE_INDEX[stage];
+        var labels = D.STAGES.slice(0, 4).concat([lastStageLabel(stage, project)]);
+        return '<table role="presentation" class="track" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n<tr>\n' +
+            labels.map(function (label, i) {
+                var color = i === current ? std.BUTTON_BG : i < current ? std.TEAL : '#e2ded9';
+                var now = i === current;
+                return '<td width="20%" align="center" valign="top" style="padding:0 2px;" data-stage="' +
+                    (now ? 'now' : i < current ? 'done' : 'todo') + '">' +
+                    '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
+                    '<td height="6" align="center" valign="top" bgcolor="' + color + '" style="background-color:' + color +
+                    ';height:6px;font-size:1px;line-height:1px;border-radius:3px;"><font size="1">&nbsp;</font></td></tr></table>' +
+                    '<p align="center" style="margin:6px 0 0 0;' + EF + 'font-size:12px;line-height:15px;text-align:center;color:' +
+                    (now ? COLORS.TEXT : COLORS.MUTED) + ';' + (now ? 'font-weight:bold;' : '') + '">' +
+                    fontHtml(now ? COLORS.TEXT : COLORS.MUTED, now ? '<b>' + esc(label) + '</b>' : esc(label)) + '</p></td>\n';
+            }).join('') +
+            '</tr>\n</table>\n';
+    }
+
+    /** A project card: the name, the sub-line, the progress bar, then its order rows. */
+    function projectCard(p, payBacs) {
+        var D = config.DIGEST_EMAIL;
+        var opp = p.opp;
+        var stageText = p.kind === 'design' ? (p.needsInfo ? D.NEEDS_INFO : D.DESIGNING) : p.kind === 'quote' ? D.QUOTE_SENT :
+            opp.siteAddress;
+        var sub = [opp.tranId, stageText].filter(function (x) { return !!x; }).join(' · ');
+        var rows = p.orders.map(function (st) {
+            var r = emailOrderRow(opp, st, payBacs);
+            return '<tr><td align="left" valign="top" bgcolor="#faf9f7" style="background-color:#faf9f7;padding:12px 20px;' +
+                'border-top:1px solid #ece8e3;"><table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0"><tr>' +
+                '<td align="left" valign="middle">' + emailP('0', 15, COLORS.TEXT, r.line1, true) +
+                (r.ref ? emailP('2px 0 0', 13, COLORS.TEXT, r.ref, true) : '') +
+                emailP('2px 0 0', 13, COLORS.MUTED, r.sub) + '</td>' +
+                '<td align="right" valign="middle" style="padding-left:12px;white-space:nowrap;">' + emailBadge(r.badgeKind, r.badgeText) +
+                '</td></tr></table></td></tr>\n';
+        }).join('');
+        return '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
+            'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
+            '<tr><td align="left" valign="top" style="padding:16px 20px 12px 20px;">' +
+            emailP('0', 18, COLORS.TEXT, opp.title || opp.tranId, true) +
+            (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + '</td></tr>\n' +
+            '<tr><td align="center" valign="top" style="padding:4px 18px 16px 18px;">\n' + progressBar(p) + '</td></tr>\n' +
+            rows + '</table>\n';
+    }
+
+    /**
+     * The digest email (2.0.3: EmailDigestV2.dc.html). Pure, snapshot-tested.
+     * @param {Object} m - { customerName, greetingName, logoUrl, groups (after data.arrangeSections()), payBacs,
+     *                       link (the dashboard), orderLink (function(soId) -> that order's direct delivery
+     *                       link; defaults to link), title (the subject), am {name, phone, email, firstName,
+     *                       photoUrl}, digestDays }
+     * @returns {string}
+     */
+    function digestEmail(m) {
+        var groups = m.groups;
+        var tiles = digestTiles(digestCounts(groups));
+        var action = digestActionBox(groups, m.link, m.orderLink);
+        var cards = digestProjects(groups);
+        var html = '';
+        var body = '';
+
+        html += emailLogo(m.logoUrl);
+        html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
+
+        if (tiles) {
+            body += '<tr><td align="center" valign="top" style="padding:0 0 22px 0;">\n' + tiles + '</td></tr>\n';
+        }
+        if (action) {
+            body += '<tr><td align="center" valign="top" style="padding:0 0 22px 0;">\n' + action + '</td></tr>\n';
+        }
+        if (cards.length) {
+            body += '<tr><td align="left" valign="top" style="padding:6px 0 12px 0;">' +
+                '<h2 style="margin:0;' + EF + 'font-size:22px;line-height:27px;font-weight:bold;color:' + COLORS.PURPLE + ';">' +
+                fontHtml(COLORS.PURPLE, esc(config.DIGEST_EMAIL.PROJECTS_HEADING)) + '</h2></td></tr>\n';
+            body += cards.map(function (p) {
+                return '<tr><td align="center" valign="top" style="padding:0 0 16px 0;">\n' + projectCard(p, m.payBacs) + '</td></tr>\n';
+            }).join('');
+        }
+        html += '<tr><td align="center" valign="top" class="pad" style="padding:28px 40px 8px 40px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + body +
+            '</table>\n</td></tr>\n';
+
+        html += emailButtonRow(m.link, config.DIGEST_EMAIL.BUTTON, 'purple', '6px 32px 4px');
+
+        return emailShell({
+            title: esc(m.title || 'Your Nu-Heat projects'),
+            preheader: esc(config.EMAIL_STANDARD.DIGEST_PREHEADER),
+            rows: html,
+            card: emailRepCard(m.am),
+            after: emailPersonal('This link is personal to you. Please don’t forward this email.'),
+            footerLine: 'You get this update ' + everyText(m.digestDays) +
+                ' while you have an open project or order with us.<br>To stop these updates, reply to this email' +
+                emailFooterContact(m.am) + '.'
         });
     }
 
@@ -1578,6 +1956,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         emailButton: emailButton,
         emailRepCard: emailRepCard,
         resolveFirstName: resolveFirstName,
+        amContact: amContact,
+        amountToPayText: amountToPayText,
+        projectStage: projectStage,
+        digestProjects: digestProjects,
+        digestCounts: digestCounts,
         deliveryLinkSubject: deliveryLinkSubject,
         deliveryLinkEmail: deliveryLinkEmail
     };

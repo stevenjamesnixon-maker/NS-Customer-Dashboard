@@ -68,14 +68,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.2
+ * @version 2.0.3
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.0.2';
+    var VERSION = '2.0.3';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -1188,8 +1188,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             opp = search.lookupFields({
                 type: search.Type.OPPORTUNITY,
                 id: result.order.opportunityId,
+                // 2.0.3: the site address too, for the delivery-link email's "Project" row.
                 columns: ['entity', 'title', 'tranid', 'salesrep', OPP.PE, OPP.VALUE_PROPOSITION,
-                    OPP.STATUS]
+                    OPP.STATUS, OPP.SITE_ADDRESS]
             });
         } catch (e) {
             result.reason = GUARD.NOT_OPEN;
@@ -1204,6 +1205,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             id: result.order.opportunityId,
             title: trim(opp.title),
             tranId: trim(opp.tranid),
+            siteAddress: trim(opp[OPP.SITE_ADDRESS]),
             status: oppStatus,
             salesRep: lookupSelect(opp.salesrep).value,
             pe: lookupSelect(opp[OPP.PE]).value,

@@ -56,10 +56,10 @@ test('digest email: tables, the Send Quote standard, the button and the footer',
     var body = html.slice(html.indexOf('<body'));
     assert.strictEqual((body.match(/display:none/g) || []).length, 1, 'the preheader only');
     assert.strictEqual((html.match(/<style>/g) || []).length, 2, 'the standard block and the Outlook one');
-    assert.ok(html.indexOf('VIEW YOUR PROJECTS') > 0);
+    assert.ok(html.indexOf('VIEW ALL YOUR PROJECTS') > 0, '2.0.3 wording');
     assert.ok(html.indexOf('every 2 weeks') > 0);
     assert.ok(html.indexOf('reply to this email') > 0);
-    assert.ok(html.indexOf('ready to arrange delivery') > 0, 'callout');
+    assert.ok(html.indexOf('ready to deliver</b>') > 0, '2.0.3: the action box');
     externalUrls(html).forEach(function (u) {
         var ok = u.indexOf('src="' + LOGO) === 0 || u.indexOf('href="https://acct.extforms.netsuite.com') === 0 ||
             u.indexOf('src="' + std.IMG_BASE) === 0 || std.SOCIAL_LINKS.some(function (l) { return u === 'href="' + l[0] + '"'; });

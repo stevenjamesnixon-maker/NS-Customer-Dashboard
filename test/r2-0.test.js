@@ -141,7 +141,10 @@ function sendParams() {
     return { custscript_cdbsend_excluded_statuses: '90', custscript_cdbsend_excluded_quote_types: '7,8',
         custscript_cdbsend_released_statuses: '2', custscript_cdbsend_fallback_employee: '500',
         custscript_cdbsend_logo_url: 'https://www.nu-heat.co.uk/logo.png',
-        custscript_cdbsend_quote_type_labels: '' };
+        custscript_cdbsend_quote_type_labels: '',
+        // 2.0.3: the delivery-link email v2.
+        custscript_cdbsend_notice_days: '3', custscript_cdbsend_prepay_terms: '', custscript_cdbsend_pay_account: '',
+        custscript_cdbsend_icon_lorry: '', custscript_cdbsend_icon_parcel: '', custscript_cdbsend_icon_people: '' };
 }
 
 function slSetup(tweak) {
@@ -231,10 +234,11 @@ test('5. happy path: one email from the rep, on the customer and the order, with
     assert.ok(e.body.indexOf('href="https://acct.extforms.netsuite.com/sl?t=' + tok + '&amp;a=delivery&amp;so=100"') > 0,
         'the direct link');
     assert.ok(e.body.indexOf('href="https://acct.extforms.netsuite.com/sl?t=' + tok + '"') > 0, 'the dashboard link');
-    assert.ok(e.body.indexOf('>ARRANGE DELIVERY</b></font></a>') > 0);
-    assert.ok(e.body.indexOf('>Underfloor heating Ground floor</font></p>') > 0);
-    assert.ok(e.body.indexOf('Order SO100 · Underfloor heating system') > 0);
-    assert.ok(e.body.indexOf('>Barn</b></font></p>') > 0, 'the project title');
+    // 2.0.3: the v2 design.
+    assert.ok(e.body.indexOf('>CHOOSE MY DELIVERY DATE</b></font></a>') > 0);
+    assert.ok(e.body.indexOf('>Underfloor heating Ground floor</b></font></p>') > 0);
+    assert.ok(e.body.indexOf('<b>SO100 · Underfloor heating system</b>') > 0);
+    assert.ok(e.body.indexOf('<b>OPP4 · Farm</b>') > 0, 'the project: the opportunity number and site address');
     assert.ok(e.body.indexOf('>Ray Rep</b></font></p>') > 0, 'the AM card is the author');
     landed(s.w, 'sent');
     var line = logs(s.w, 'SEND_LINK');
@@ -272,14 +276,15 @@ test('7. email.send throws: redirect failed, logged', function () {
 
 // 2.0.1 (amendment 1): custscript_cdbsend_quote_type_labels, the dashboard's parser and fallback.
 
+/** 2.0.3: the "Order" fact row's value ("SO100 · UFH"). */
 function metaLine(s) {
-    return /Order SO100[^<]*/.exec(s.w.emails[0].body)[0];
+    return />(SO100[^<]*)<\/b>/.exec(s.w.emails[0].body)[1];
 }
 
 test('2.0.1 type labels: mapped -> "UFH"', function () {
     var s = slSetup(function (w) { w.params.custscript_cdbsend_quote_type_labels = '{"1": "UFH", "2": "HP"}'; });
     press(s);
-    assert.strictEqual(metaLine(s), 'Order SO100 · UFH');
+    assert.strictEqual(metaLine(s), 'SO100 · UFH');
     assert.strictEqual(logs(s.w, 'TYPE_LABELS_INVALID').length, 0);
     landed(s.w, 'sent');
 });
@@ -287,7 +292,7 @@ test('2.0.1 type labels: mapped -> "UFH"', function () {
 test('2.0.1 type labels: empty -> the quote type text', function () {
     var s = slSetup();
     press(s);
-    assert.strictEqual(metaLine(s), 'Order SO100 · Underfloor heating system');
+    assert.strictEqual(metaLine(s), 'SO100 · Underfloor heating system');
     assert.strictEqual(logs(s.w, 'TYPE_LABELS_INVALID').length, 0);
     assert.strictEqual(logs(s.w, 'PARAMETER_DEFAULT').filter(function (l) {
         return l[2].indexOf('custscript_cdbsend_quote_type_labels') === 0;
@@ -300,7 +305,7 @@ test('2.0.1 type labels: invalid JSON -> the quote type text plus one log line; 
         var s = slSetup(function (w) { w.params.custscript_cdbsend_quote_type_labels = bad; });
         press(s);
         assert.strictEqual(s.w.emails.length, 1, bad);
-        assert.strictEqual(metaLine(s), 'Order SO100 · Underfloor heating system', bad);
+        assert.strictEqual(metaLine(s), 'SO100 · Underfloor heating system', bad);
         var lines = logs(s.w, 'TYPE_LABELS_INVALID');
         assert.strictEqual(lines.length, 1, bad);
         assert.ok(lines[0][2].indexOf('custscript_cdbsend_quote_type_labels ignored') === 0, bad);
@@ -328,7 +333,7 @@ function emailModel() {
         customerName: 'Acme Ltd',
         greetingName: 'Sam & <Co>',
         logoUrl: 'https://www.nu-heat.co.uk/logo.png',
-        opp: { title: 'Barn <conversion>', tranId: 'OPP4' },
+        opp: { title: 'Barn <conversion>', tranId: 'OPP4', siteAddress: 'Plot <2>, Barn Lane' },
         order: { id: '100', tranId: 'SO100', description: 'UFH <script>alert(1)</script> & "more"',
             uniqueRef: 'Part 2 <b>first floor</b>', typeLabel: 'UFH', quoteTypeText: 'Underfloor heating system' },
         link: 'https://acct.extforms.netsuite.com/sl?t=abc.def&a=delivery&so=100',
@@ -350,14 +355,14 @@ test('9. delivery-link email: snapshot, no opt-out, escaped', function () {
     assert.strictEqual(html.indexOf('<script'), -1);
     assert.ok(html.indexOf('UFH &lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;more&quot;') > 0, 'description escaped');
     assert.ok(html.indexOf('Part 2 &lt;b&gt;first floor&lt;/b&gt;') > 0, 'split reference escaped');
-    assert.ok(html.indexOf('Barn &lt;conversion&gt;') > 0);
-    assert.ok(html.indexOf('Hello Sam &amp; &lt;Co&gt;') > 0);
-    assert.ok(html.indexOf('READY TO DELIVER') > 0 && html.indexOf('Choose your delivery date') > 0);
-    assert.ok(html.indexOf('Good news: your order below is ready to deliver.') > 0);
-    assert.ok(html.indexOf('Order SO100 · UFH') > 0);
+    // 2.0.3: the v2 design.
+    assert.ok(html.indexOf('<b>OPP4 · Plot &lt;2&gt;, Barn Lane</b>') > 0, 'the site address escaped');
+    assert.ok(html.indexOf('Your order is ready, Sam &amp; &lt;Co&gt;') > 0);
+    assert.ok(html.indexOf('READY TO DELIVER') > 0 && html.indexOf('Choose a delivery date that suits you.') > 0);
+    assert.ok(html.indexOf('<b>SO100 · UFH</b>') > 0);
     assert.strictEqual(visible.split(render.esc(m.link)).length - 1, 1, 'the direct link once in the visible markup');
     assert.ok(html.indexOf('href="' + render.esc(m.dashboardLink) + '"') > 0);
-    assert.ok(html.indexOf('<b>ARRANGE DELIVERY</b>') > 0 && html.indexOf('>Or view all your projects</font></a>') > 0);
+    assert.ok(html.indexOf('<b>CHOOSE MY DELIVERY DATE</b>') > 0 && html.indexOf('>Or view all your projects</font></a>') > 0);
     assert.ok(html.indexOf('This link is personal to you. Please don’t forward this email.') > 0);
     assert.ok(html.indexOf('<b>Pat Lee</b>') > 0);
     assert.ok(html.indexOf('You’re receiving this because you have an order with Nu-Heat.') > 0);
@@ -377,10 +382,14 @@ test('9. no split reference, no description: the fallbacks', function () {
     m.order.uniqueRef = '';
     m.order.description = '';
     var html = render.deliveryLinkEmail(m);
-    assert.ok(html.indexOf('>UFH</font></p>') > 0, 'the type label as the title');
-    assert.ok(html.indexOf('>Order SO100</font></p>') > 0, 'the label not shown twice');
+    assert.ok(html.indexOf('><b>UFH</b></font></p>') > 0, 'the type label as the title');
+    assert.ok(html.indexOf('<b>SO100</b>') > 0, 'the label not shown twice');
+    assert.strictEqual(html.indexOf('>This order<'), -1, 'no split reference, no row');
+    // 2.0.3: with no AM at all, the card shows Send Quote's generic name and contact fallback.
     m.am = { name: '' };
-    assert.strictEqual(render.deliveryLinkEmail(m).indexOf('Your account manager'), -1);
+    html = render.deliveryLinkEmail(m);
+    assert.ok(html.indexOf('<b>Your Account Manager</b>') > 0 && html.indexOf('tel:01404540604') > 0 &&
+        html.indexOf('mailto:info@nu-heat.co.uk') > 0);
 });
 
 // ---------------------------------------------------------------- 10. configuration
@@ -396,7 +405,8 @@ test('10. config.load from the new Suitelet reads the cdbsend_ IDs', function ()
     var cfg = c.load({ audit: function () {}, error: function () {} });
     assert.deepStrictEqual(asked.slice().sort(), Object.keys(sendParams()).sort());
     assert.deepStrictEqual(cfg, { EXCLUDED_STATUSES: ['90'], EXCLUDED_QUOTE_TYPES: ['7', '8'], FALLBACK_EMPLOYEE: '500',
-        RELEASED_STATUSES: ['2'], LOGO_URL: 'https://www.nu-heat.co.uk/logo.png', QUOTE_TYPE_LABELS: '' });
+        RELEASED_STATUSES: ['2'], LOGO_URL: 'https://www.nu-heat.co.uk/logo.png', QUOTE_TYPE_LABELS: '',
+        NOTICE_DAYS: 3, PREPAY_TERMS: [], PAY_ACCOUNT: '', ICON_LORRY: '', ICON_PARCEL: '', ICON_PEOPLE: '' });
 });
 
 test('10. cdbsend_: empty means what it means on the dashboard', function () {
@@ -417,7 +427,8 @@ test('10. cdbsend_: empty means what it means on the dashboard', function () {
     Object.keys(config.PARAMETERS).forEach(function (k) {
         var sendId = config.PARAMETERS[k].ids.SEND;
         var slId = config.PARAMETERS[k].ids.SL;
-        if (sendId) {
+        // 2.0.3: the icons are SEND only, with no dashboard original.
+        if (sendId && slId) {
             assert.strictEqual(sendId, slId.replace('custscript_cdb_', 'custscript_cdbsend_'), k + ' twins its SL ID');
         }
     });
@@ -465,6 +476,8 @@ test('10. the dashboard and digest keys are unchanged', function () {
         now[k] = {};
         if (ids.SL) { now[k].SL = ids.SL; }
         if (ids.MR) { now[k].MR = ids.MR; }
+        // 2.0.3: SEND-only keys (the icons) are not the dashboard's or the digest's.
+        if (!ids.SL && !ids.MR) { delete now[k]; }
     });
     assert.deepStrictEqual(now, BEFORE_2_0);
 });

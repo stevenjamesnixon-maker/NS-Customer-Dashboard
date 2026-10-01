@@ -22,6 +22,7 @@ function digest(am) {
     data.arrangeSections(groups);
     return render.digestEmail({ customerName: 'Acme', greetingName: 'Sam', logoUrl: 'https://www.nu-heat.co.uk/logo.png',
         groups: groups, payBacs: '1', link: 'https://acct.extforms.netsuite.com/sl?t=T', title: 'Your Nu-Heat projects: an update',
+        orderLink: function (id) { return 'https://acct.extforms.netsuite.com/sl?t=T&a=delivery&so=' + id; },
         am: am === undefined ? AM : am, digestDays: 14 });
 }
 
@@ -59,9 +60,10 @@ Object.keys(EMAILS).forEach(function (kind) {
         assert.ok(/<table role="presentation" class="width600 main-container" width="600" align="center"/.test(html),
             'the container: width="600" align="center"');
         // Each button's cell carries its colour as bgcolor (the visible half and the Outlook half).
-        var buttons = html.match(/<td[^>]*><a href="[^"]*" target="_blank"><font face="[^"]*" color="#3e3b39"><b>/g) || [];
-        assert.ok(buttons.length >= 3, kind + ': ' + buttons.length + ' button cells');
-        buttons.forEach(function (td) { assert.ok(/ bgcolor="#ffb500"/.test(td), td); });
+        // 2.0.3: digest CHOOSE DATE, VIEW ALL, CALL, EMAIL; delivery CHOOSE MY DELIVERY DATE, CALL, EMAIL.
+        var buttons = html.match(/<td[^>]*><a href="[^"]*" target="_blank"><font face="[^"]*" color="#[0-9a-f]{6}"><b>/g) || [];
+        assert.strictEqual(buttons.length, (kind === 'digest' ? 4 : 3) * 2, kind + ': button cells, both halves');
+        buttons.forEach(function (td) { assert.ok(/ bgcolor="#[0-9a-f]{6}"/.test(td), td); });
         // The AM card: every cell centred by attribute.
         card = html.slice(html.indexOf('class="main-card"'), html.indexOf('</table>\n</td></tr>\n<tr><td align="center" valign="top" bgcolor="#00857d"'));
         (card.match(/<td[^>]*>/g) || []).forEach(function (td) { assert.ok(/ align="center"/.test(td), td); });
@@ -70,23 +72,30 @@ Object.keys(EMAILS).forEach(function (kind) {
             assert.ok(/ align="/.test(td) && / valign="/.test(td), td);
         });
         assert.strictEqual(/float/i.test(EMAILS[kind]()), false);
-        // Colours survive as attributes: the band, the buttons and the footer.
-        assert.ok(html.indexOf('bgcolor="#59315f"') > 0 && html.indexOf('bgcolor="#00857d"') > 0);
+        // Colours survive as attributes: the band, the buttons and the teal footer (2.0.3).
+        assert.ok(html.indexOf('bgcolor="#59315f"') > 0 && html.indexOf('bgcolor="#25847a"') > 0);
         // Two-up content is two td width="50%", never a percentage-width table side by side.
         assert.strictEqual((html.match(/<td class="stack" width="50%"/g) || []).length, 2);
+        assert.strictEqual(/display:\s*none/.test(html), false, 'no display:none once stripped');
         assert.strictEqual(/<table[^>]*width="50%"/.test(html), false);
     });
 
     test(kind + ': exactly one <a> per button target in the visible markup; one [if mso] pair per button', function () {
         var html = EMAILS[kind]();
         var vis = hrefs(visible(html));
-        var targets = ['tel:01234567890', 'mailto:john@example.com',
-            kind === 'digest' ? 'https://acct.extforms.netsuite.com/sl?t=T' : 'https://acct.extforms.netsuite.com/sl?t=T&amp;a=delivery&amp;so=100'];
+        // 2.0.3: the digest's dashboard link is the VIEW ALL button; the ready order's CHOOSE DATE is its
+        // own direct link. The "need it sooner" tel: link is text, not a button, in the delivery email.
+        var targets = ['mailto:john@example.com', 'https://acct.extforms.netsuite.com/sl?t=T&amp;a=delivery&amp;so=100'].concat(
+            kind === 'digest' ? ['tel:01234567890', 'https://acct.extforms.netsuite.com/sl?t=T'] : []);
+        var n = kind === 'digest' ? 4 : 3;
         targets.forEach(function (t) {
             assert.strictEqual(vis.filter(function (h) { return h === t; }).length, 1, t);
         });
-        assert.strictEqual((html.match(/<!--\[if !mso\]><!-- -->/g) || []).length, 3, 'three buttons');
-        assert.strictEqual((html.match(/<!--\[if mso\]>\n<table/g) || []).length, 3, 'three Outlook twins');
+        if (kind === 'delivery') {
+            assert.strictEqual(vis.filter(function (h) { return h === 'tel:01234567890'; }).length, 2, 'the CALL button and the sooner line');
+        }
+        assert.strictEqual((html.match(/<!--\[if !mso\]><!-- -->/g) || []).length, n, n + ' buttons');
+        assert.strictEqual((html.match(/<!--\[if mso\]>\n<table/g) || []).length, n, n + ' Outlook twins');
         assert.strictEqual(/<div[^>]*display:\s*none/.test(html), false, 'no display:none wrappers');
     });
 
@@ -102,7 +111,7 @@ Object.keys(EMAILS).forEach(function (kind) {
 test('footer line and preheader per email', function () {
     var d = digest();
     var l = delivery();
-    assert.ok(d.indexOf('>You get this update every 2 weeks while you have an open project or order with us. To stop these ' +
+    assert.ok(d.indexOf('>You get this update every 2 weeks while you have an open project or order with us.<br>To stop these ' +
         'updates, reply to this email or call John Smith on 01234 567 890.</font></p>') > 0);
     assert.ok(l.indexOf('>You’re receiving this because you have an order with Nu-Heat.</font></p>') > 0);
     assert.strictEqual(l.indexOf('stop these updates'), -1);
@@ -128,20 +137,21 @@ test('buttons: CALL / EMAIL the first name; else the first word of the name; els
     assert.ok(html.indexOf('<b>Your Account Manager</b>') > 0, 'Send Quote\'s generic name');
 });
 
-test('buttons: no phone, no CALL; no email, no EMAIL; one button is full width', function () {
+test('2.0.3 contact fallback: no phone -> 01404 540604; no email -> info@nu-heat.co.uk (Send Quote)', function () {
     var html = card(Object.assign({}, AM, { phone: '' }));
-    assert.strictEqual(html.indexOf('tel:'), -1);
-    assert.strictEqual(html.indexOf('CALL JOHN'), -1);
-    assert.ok(html.indexOf('<td class="stack" width="100%"') > 0);
-    assert.strictEqual(html.indexOf('<span class="cl-sep">'), -1);
+    assert.ok(html.indexOf('href="tel:01404540604"') > 0 && html.indexOf('<b>CALL JOHN</b>') > 0);
+    assert.ok(html.indexOf('<span class="cl-line">01404 540604</span>') > 0, 'the phone text too');
     html = card(Object.assign({}, AM, { email: '' }));
-    assert.strictEqual(html.indexOf('mailto:'), -1);
-    assert.strictEqual(html.indexOf('EMAIL JOHN'), -1);
+    assert.ok(html.indexOf('href="mailto:info@nu-heat.co.uk"') > 0 && html.indexOf('<b>EMAIL JOHN</b>') > 0);
+    assert.ok(html.indexOf('<span class="cl-line">info@nu-heat.co.uk</span>') > 0, 'the email text too');
     assert.ok(html.indexOf('href="tel:01234567890"') > 0, 'tel: digits only');
-    assert.strictEqual(card({ name: '', phone: '', email: '' }), '', 'nothing to show, no card');
-    html = card({ name: 'John Smith', phone: '', email: '' });
-    assert.strictEqual(html.indexOf('<a '), -1);
-    assert.strictEqual(/<td[^>]*>\s*<\/td>/.test(html), false, 'no empty cell without buttons');
+    html = card({ name: '', phone: '', email: '' });
+    assert.ok(html.indexOf('<b>CLICK TO CALL</b>') > 0 && html.indexOf('<b>SEND AN EMAIL</b>') > 0);
+    assert.strictEqual(/<td[^>]*>\s*<\/td>/.test(html), false, 'no empty cell');
+    // CALL is filled purple; EMAIL is a purple outline (an outer purple cell around a white one).
+    html = card(AM);
+    assert.ok(/<td align="center" valign="middle" bgcolor="#59315f"[^>]*><a href="tel:/.test(html), 'CALL filled');
+    assert.ok(/bgcolor="#59315f"[^>]*>\n<table[^>]*bgcolor="#ffffff"[\s\S]*?<a href="mailto:/.test(html), 'EMAIL outlined');
 });
 
 test('photo: an https URL is a 96px circle with alt; anything else leaves no image and no empty cell', function () {

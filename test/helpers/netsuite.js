@@ -147,6 +147,11 @@ function stubs(w) {
                             return '';
                         } });
                 });
+            } else if (def.type === 'customrecord_cdb_nondelivery') {
+                // 2.0.3: non-delivery dates, as keys (the format stub reads and writes keys).
+                (w.nonDelivery || []).forEach(function (key, i) {
+                    rows.push({ id: String(i + 1), getValue: function () { return key; } });
+                });
             } else if (w.lists[def.type]) {
                 var ids = asList(findClause(def.filters, 'internalid')[2]);
                 ids.forEach(function (id) {

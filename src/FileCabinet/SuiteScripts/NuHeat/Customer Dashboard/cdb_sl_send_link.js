@@ -28,6 +28,12 @@
  *      2.0.2: in the customer email standard (Send Quote 2.2.0's card, footer and robustness rules);
  *      the AM card is the author, with firstname and photo from the same lookup (data.emailAm(),
  *      CDB AM_PHOTO once per email).
+ *      2.0.3: the v2 design (docs/design/canvas/EmailDeliveryLink.dc.html): the hero
+ *      (config.EMAIL_HERO_URL), the "Your order" facts — the earliest delivery date by the delivery
+ *      form's own calculation (earliestKey(): custscript_cdbsend_notice_days, weekends, the
+ *      non-delivery dates; fail-safe, CDB EARLIEST_FAILED), and the amount to pay for pay-up-front
+ *      orders (custscript_cdbsend_prepay_terms / _pay_account, as the dashboard decides it) — and the
+ *      "Before you book" icons (custscript_cdbsend_icon_*).
  *   6. email.send with relatedRecords { entityId: customer, transactionId: order }, so it shows on
  *      both Communication tabs. Any failure -> cdbsl=failed; CDB SEND_FAILED.
  *   7. CDB SEND_LINK: the order, the customer, the recipient, the author and the user who pressed.
@@ -44,15 +50,15 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.0.2
+ * @version 2.0.3
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_lib_config',
-    './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render'],
-    function (record, email, redirect, runtime, log, config, token, data, render) {
+    './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
+    function (record, email, redirect, runtime, log, config, token, dates, data, render) {
 
     'use strict';
 
-    var VERSION = '2.0.2';
+    var VERSION = '2.0.3';
 
     /** The banner codes cdb_ue_salesorder.js shows (config.SEND_LINK_BANNERS). */
     var OUTCOME = { SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' };
@@ -102,6 +108,27 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
                 parsed.detail });
         }
         return parsed.labels || {};
+    }
+
+    /**
+     * 2.0.3: the first date the delivery form would offer — the same calculation (notice days, weekends,
+     * the non-delivery dates, the booking horizon). '' when none is offered or the read fails: the
+     * "Earliest delivery" row is then left out and the send goes ahead (CDB EARLIEST_FAILED).
+     */
+    function earliestKey(orderId, cfg) {
+        var todayKey = dates.londonTodayKey(Date.now());
+        var lastKey;
+        var allowed;
+        try {
+            lastKey = dates.lastAllowedDate(todayKey, config.BOOKING_HORIZON_MONTHS);
+            allowed = dates.allowedDates(todayKey, cfg.NOTICE_DAYS, data.getNonDeliveryDates(todayKey, lastKey),
+                config.BOOKING_HORIZON_MONTHS);
+        } catch (e) {
+            log.audit({ title: title('EARLIEST_FAILED'), details: 'Sales order ' + orderId + ': ' + message(e) +
+                '. Sent without the earliest delivery date.' });
+            return '';
+        }
+        return allowed.length ? allowed[0] : '';
     }
 
     /** A plain answer when there is no order to go back to. */
@@ -155,6 +182,9 @@ define(['N/record', 'N/email', 'N/redirect', 'N/runtime', 'N/log', './lib/cdb_li
                 logoUrl: cfg.LOGO_URL,
                 opp: guard.opportunity,
                 order: order,
+                earliestKey: earliestKey(orderId, cfg),
+                noticeDays: cfg.NOTICE_DAYS,
+                icons: { LORRY: cfg.ICON_LORRY, PARCEL: cfg.ICON_PARCEL, PEOPLE: cfg.ICON_PEOPLE },
                 link: token.buildLink(owner.customerId, { a: 'delivery', so: order.id }),
                 dashboardLink: token.buildLink(owner.customerId),
                 am: data.emailAm(from, 'Delivery link, sales order ' + orderId)

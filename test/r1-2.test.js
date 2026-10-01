@@ -381,7 +381,7 @@ test('16. digest: split reference and short label in the email, no amounts; labe
     assert.ok(body.indexOf('>Manifolds only</b></font></p>') > 0);
     // No description in this fixture: line 1 falls back to the short label from the MR twin, and the
     // muted line does not repeat it.
-    assert.ok(body.indexOf('color="#2b2a2e">UFH</font></p>') > 0, 'short label as line 1');
+    assert.ok(body.indexOf('color="#2b2a2e"><b>UFH</b></font></p>') > 0, 'short label as line 1');
     assert.ok(body.indexOf('>Order SO100 · ready to arrange delivery</font></p>') > 0);
     assert.strictEqual(body.indexOf('£'), -1, 'no amounts in the email');
 });
@@ -476,7 +476,8 @@ test('B2. email contact: footer and AM card, phone / email only / neither / no n
         'the AM card keeps both when both exist');
 
     html = email({ name: 'Ray Rep', phone: '', email: 'ray@example.com' });
-    assert.ok(html.indexOf('reply to this email or email Ray Rep at <a href="mailto:ray@example.com" style="color:#59315f;">ray@example.com</a>.</font></p>') > 0);
+    assert.ok(html.indexOf('reply to this email or email Ray Rep at <a href="mailto:ray@example.com" style="color:#e6f3f1;"><font color="#e6f3f1">ray@example.com</font></a>.</font></p>') > 0,
+        '2.0.3: the link in the teal footer\'s text colour');
     assert.strictEqual(html.indexOf('or call'), -1);
 
     html = email({ name: 'Ray Rep', phone: '', email: '' });
