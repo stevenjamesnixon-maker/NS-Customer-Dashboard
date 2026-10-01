@@ -23,22 +23,36 @@
  * confirmed on the Estimate only; an unjoined sales order column could make the search throw.
  * cleanDescription() turns the stored HTML-ish value into plain text; render escapes it once.
  *
+ * THE EXTRAS (1.2) — terms, the split reference, the balance, the total and the deposit — come
+ * from ONE SEPARATE search, getOrderExtras(), run once per request for every order on the page.
+ * The main order searches never gain these columns: a custom field that does not apply to sales
+ * orders makes a search throw, and that must not take the dashboard down. If the extras search
+ * fails it logs CDB EXTRAS_FAILED and returns {}: no amount, no split reference, and every order
+ * treated as PAY UP FRONT (fail closed: the account option is offered to nobody).
+ *
+ * PAY UP FRONT vs ACCOUNT (1.2, amendment 2), isPrepay(): BOTH the customer and the order must say
+ * account. An order copies the customer's terms when it is created and keeps them, so a customer
+ * moved off credit terms would otherwise still be offered "Add to my account" on old orders. The
+ * account option needs the CUSTOMER's current terms set and not in custscript_cdb_prepay_terms, AND
+ * the ORDER's terms blank or not in that list. Every doubt — either parameter empty, the extras
+ * search failed, blank customer terms — means pay up front.
+ *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
- * validateDelivery — take plain rows and are node-tested (test/grouping.test.js,
+ * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * @version 1.2.0
  */
-define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates'],
-    function (search, record, format, config, dates) {
+define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
+    function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -47,6 +61,7 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
     var STATES = {
         BOOKED: 'booked',
         AWAITING_PAYMENT: 'awaiting_payment',
+        REQUESTED: 'requested',
         READY: 'ready',
         NEEDS_INFO: 'needs_info'
     };
@@ -56,7 +71,7 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
         DESIGNING: 'designing'
     };
 
-    var PAYMENT = { BACS: 'BACS', CARD: 'CARD' };
+    var PAYMENT = { BACS: 'BACS', CARD: 'CARD', ACCOUNT: 'ACCOUNT' };
 
     /** Why the guard refused. The customer sees a short notice, never these. */
     var GUARD = {
@@ -174,9 +189,13 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
      * @param {Object} order - { confirmedDateKey, payIntent, ready }
      * @returns {string} one of STATES
      */
-    function orderState(order) {
+    function orderState(order, cfg) {
         if (trim(order.confirmedDateKey) !== '') {
             return STATES.BOOKED;
+        }
+        // 1.2: an Add-to-account booking has nothing to pay; it is requested, not awaiting payment.
+        if (cfg && trim(cfg.PAY_ACCOUNT) !== '' && trim(order.payIntent) === String(cfg.PAY_ACCOUNT)) {
+            return STATES.REQUESTED;
         }
         if (trim(order.payIntent) !== '') {
             return STATES.AWAITING_PAYMENT;
@@ -239,7 +258,7 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             if (contains(cfg.DELIVERY_SUBSTATUS, opp.subStatus) && ordersByOpp[opp.id]) {
                 rows = [];
                 for (j = 0; j < ordersByOpp[opp.id].length; j++) {
-                    state = orderState(ordersByOpp[opp.id][j]);
+                    state = orderState(ordersByOpp[opp.id][j], cfg);
                     if (state === STATES.READY) {
                         result.anyReady = true;
                     }
@@ -360,13 +379,18 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             errors.requests = 'Please keep this under ' + limits.SPECIAL_REQUESTS + ' characters.';
         }
 
+        // 1.2: only the options this order was offered. A tampered CARD from an account order, or
+        // ACCOUNT from a pay-up-front one, is a field error and nothing is written.
         values.payment = trim(input.payment).toUpperCase();
-        if (values.payment === PAYMENT.BACS) {
+        if (!contains(ctx.paymentOptions || [PAYMENT.BACS, PAYMENT.CARD], values.payment)) {
+            errors.payment = values.payment === '' ? 'Please choose how you would like to pay.' :
+                'Please choose one of the payment options shown.';
+        } else if (values.payment === PAYMENT.BACS) {
             values.payIntent = String(ctx.payBacs);
         } else if (values.payment === PAYMENT.CARD) {
             values.payIntent = String(ctx.payCard);
         } else {
-            errors.payment = 'Please choose how you would like to pay.';
+            values.payIntent = String(ctx.payAccount);
         }
 
         for (key in errors) {
@@ -375,6 +399,142 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             }
         }
         return { ok: true, errors: errors, values: values };
+    }
+
+    // ---------------------------------------------------------------- money and terms (1.2)
+
+    /** Pure: a currency value as a number, or null when blank or not a number. 0 is a number. */
+    function toAmount(value) {
+        var text = trim(value).replace(/[\u00a3,\s]/g, '');
+        if (text === '' || !/^-?\d*\.?\d+$/.test(text)) {
+            return null;
+        }
+        return Math.round(parseFloat(text) * 100) / 100;
+    }
+
+    /**
+     * Pure: what the customer has to pay on an order.
+     *   1. balance set (0 is a real value)   -> balance,                 basis 'balance'
+     *   2. else total set                    -> total - (deposit || 0),  basis 'total_less_deposit'
+     *   3. else                              -> null
+     * A negative result is null; onOdd, if given, is told why (the caller logs CDB AMOUNT_ODD).
+     *
+     * @param {Object} extras - { balance, total, deposit } as the search returned them
+     * @param {function(string)} [onOdd]
+     * @returns {{amount: number, basis: string}|null}
+     */
+    function amountToPay(extras, onOdd) {
+        var balance;
+        var total;
+        var amount;
+        var basis;
+        if (!extras) {
+            return null;
+        }
+        balance = toAmount(extras.balance);
+        total = toAmount(extras.total);
+        if (balance !== null) {
+            amount = balance;
+            basis = 'balance';
+        } else if (total !== null) {
+            amount = Math.round((total - (toAmount(extras.deposit) || 0)) * 100) / 100;
+            basis = 'total_less_deposit';
+        } else {
+            return null;
+        }
+        if (amount < 0) {
+            if (onOdd) {
+                onOdd('negative amount ' + amount + ' (' + basis + '; balance "' + trim(extras.balance) +
+                    '", total "' + trim(extras.total) + '", deposit "' + trim(extras.deposit) + '")');
+            }
+            return null;
+        }
+        return { amount: amount, basis: basis };
+    }
+
+    /**
+     * Pure: does this order pay up front? (Amendment 2: the customer AND the order must say account.)
+     *
+     *   customer terms          order terms         result
+     *   in PREPAY_TERMS         anything            pay up front
+     *   blank                   anything            pay up front (fail closed)
+     *   credit (not in list)    in PREPAY_TERMS     pay up front (staff made this order pay up front)
+     *   credit                  credit or blank     ACCOUNT
+     *
+     * On top: an empty PAY_ACCOUNT or PREPAY_TERMS, or missing extras (the search failed), means pay
+     * up front. Every doubt resolves to "pay up front", which offers less.
+     *
+     * @param {string} customerTermsId - the customer's CURRENT terms (getCustomer().termsId)
+     * @param {Object|undefined} extras - { termsId } of the order; undefined when the search failed
+     * @param {Object} cfg - PREPAY_TERMS, PAY_ACCOUNT
+     * @returns {boolean}
+     */
+    function isPrepay(customerTermsId, extras, cfg) {
+        if (!extras || trim(cfg.PAY_ACCOUNT) === '' || !(cfg.PREPAY_TERMS || []).length) {
+            return true;
+        }
+        if (trim(customerTermsId) === '' || contains(cfg.PREPAY_TERMS, customerTermsId)) {
+            return true;
+        }
+        return contains(cfg.PREPAY_TERMS, extras.termsId);
+    }
+
+    /**
+     * Pure: adds the 1.2 values to an order row, in place.
+     *   typeLabel  the short label for its quote type (custscript_cdb_quote_type_labels), else the
+     *              quote type's own text
+     *   uniqueRef  custbody_unique_so_ref, cleaned like the description ('' when unknown)
+     *   termsId, customerTermsId  the order's and the customer's terms, for the logs (amendment 2)
+     *   prepay     isPrepay(customerTermsId, extras, cfg)
+     *   amount     amountToPay() for EVERY order when known (amendment 1: account customers paying
+     *              by BACS see it too); null when unknown. An Add-to-account booking never shows it:
+     *              render and the Task leave it out for that choice.
+     *
+     * @param {Object} order
+     * @param {Object} extrasById - from getOrderExtras(); {} when it failed
+     * @param {Object} labels - quote type id -> label
+     * @param {Object} cfg
+     * @param {string} customerTermsId - the customer's current terms
+     * @param {function(string)} [onOdd]
+     * @returns {Object} the order
+     */
+    function decorateOrder(order, extrasById, labels, cfg, customerTermsId, onOdd) {
+        var extras = extrasById ? extrasById[order.id] : undefined;
+        order.typeLabel = (labels && labels.hasOwnProperty(order.quoteType) && labels[order.quoteType]) ||
+            order.quoteTypeText || '';
+        order.uniqueRef = extras ? cleanDescription(extras.uniqueRef) : '';
+        order.termsId = extras ? trim(extras.termsId) : '';
+        order.customerTermsId = trim(customerTermsId);
+        order.prepay = isPrepay(customerTermsId, extras, cfg);
+        order.amount = amountToPay(extras, onOdd ? function (why) {
+            onOdd('Sales order ' + order.id + ': ' + why);
+        } : null);
+        return order;
+    }
+
+    /** Pure: every order in the delivery section. */
+    function decorateGroups(groups, extrasById, labels, cfg, customerTermsId, onOdd) {
+        var i;
+        var j;
+        for (i = 0; i < groups.forDelivery.length; i++) {
+            for (j = 0; j < groups.forDelivery[i].orders.length; j++) {
+                decorateOrder(groups.forDelivery[i].orders[j].order, extrasById, labels, cfg, customerTermsId, onOdd);
+            }
+        }
+        return groups;
+    }
+
+    /** Pure: the IDs of every order in the delivery section. */
+    function orderIdsOf(groups) {
+        var ids = [];
+        var i;
+        var j;
+        for (i = 0; i < groups.forDelivery.length; i++) {
+            for (j = 0; j < groups.forDelivery[i].orders.length; j++) {
+                ids.push(groups.forDelivery[i].orders[j].order.id);
+            }
+        }
+        return ids;
     }
 
     // ---------------------------------------------------------------- value shapes
@@ -431,7 +591,8 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             r = search.lookupFields({
                 type: search.Type.CUSTOMER,
                 id: customerId,
-                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email',
+                // terms: standard field, safe in lookupFields (amendment 2).
+                columns: ['entityid', 'companyname', 'firstname', 'lastname', 'isperson', 'email', 'terms',
                     'salesrep', 'isinactive', CUST.DASHBOARD_CONTACT]
             });
         } catch (e) {
@@ -448,6 +609,7 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
             greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
             email: trim(r.email),
             salesRep: lookupSelect(r.salesrep).value,
+            termsId: lookupSelect(r.terms).value,
             dashboardContact: lookupSelect(r[CUST.DASHBOARD_CONTACT]).value,
             isInactive: isTicked(r.isinactive)
         };
@@ -704,6 +866,42 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
     }
 
     /**
+     * The 1.2 extras for orders ALREADY FOUND by the main searches, in one separate search.
+     * FAIL-SAFE: any error is logged once as CDB EXTRAS_FAILED and {} is returned, so the page
+     * renders as in 1.1 and every order is treated as pay up front. Call it once per request.
+     *
+     * @param {string[]} orderIds
+     * @returns {Object} soId -> { termsId, uniqueRef, balance, total, deposit }
+     */
+    function getOrderExtras(orderIds) {
+        var result = {};
+        if (!orderIds || !orderIds.length) {
+            return result;
+        }
+        try {
+            collect(search.create({
+                type: search.Type.SALES_ORDER,
+                filters: [['mainline', 'is', 'T'], 'AND', ['internalid', 'anyof', orderIds]],
+                columns: [SO.TERMS, SO.UNIQUE_REF, SO.BALANCE, SO.TOTAL, SO.DEPOSIT]
+            }), function (r) {
+                result[String(r.id)] = {
+                    termsId: trim(r.getValue(SO.TERMS)),
+                    uniqueRef: trim(r.getValue(SO.UNIQUE_REF)),
+                    balance: trim(r.getValue(SO.BALANCE)),
+                    total: trim(r.getValue(SO.TOTAL)),
+                    deposit: trim(r.getValue(SO.DEPOSIT))
+                };
+            });
+        } catch (e) {
+            log.audit({ title: config.logTitle('EXTRAS_FAILED'), details: 'Orders ' + orderIds.join(',') +
+                ': ' + (e && e.message ? e.message : String(e)) + '. Shown without amounts or split ' +
+                'references; every order treated as pay up front.' });
+            return {};
+        }
+        return result;
+    }
+
+    /**
      * Non-delivery dates between two keys, inclusive.
      * @returns {Object} a set of keys
      */
@@ -789,6 +987,13 @@ define(['N/search', 'N/record', 'N/format', './cdb_lib_config', './cdb_lib_dates
         resolveRecipient: resolveRecipient,
         headerOpportunity: headerOpportunity,
         looksLikeEmail: looksLikeEmail,
+        toAmount: toAmount,
+        amountToPay: amountToPay,
+        isPrepay: isPrepay,
+        decorateOrder: decorateOrder,
+        decorateGroups: decorateGroups,
+        orderIdsOf: orderIdsOf,
+        getOrderExtras: getOrderExtras,
         decodeEntities: decodeEntities,
         cleanDescription: cleanDescription,
         orderColumns: orderColumns,

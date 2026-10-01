@@ -27,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * @version 1.2.0
  */
 define(['./cdb_lib_dates'], function (dates) {
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -78,6 +78,10 @@ define(['./cdb_lib_dates'], function (dates) {
         '2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 ' +
         '6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"></path></svg>';
 
+    var MAIL_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#59315f" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+        '<rect x="3" y="5" width="18" height="14" rx="2"></rect><polyline points="3 7 12 13 21 7"></polyline></svg>';
+
     var TICK_ICON = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1f5c3f" ' +
         'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
         '<polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -100,28 +104,75 @@ define(['./cdb_lib_dates'], function (dates) {
 
     /**
      * An order's main line: its quote description (already cleaned by cdb_lib_data), else its
-     * quote type, else "Your order". The one definition: the pages, the email and the Suitelet's
-     * Task title all use it.
+     * short type label (UFH, HP — 1.2, from custscript_cdb_quote_type_labels), else its quote
+     * type's text, else "Your order". The one definition: the pages, the email and the Suitelet's
+     * Task title all use it. Shown IN FULL: no clamp (1.2).
      * @param {Object} order
      * @returns {string} plain text, not escaped
      */
     function orderTitle(order) {
-        return (order && (order.description || order.quoteTypeText)) || 'Your order';
+        return (order && (order.description || order.typeLabel || order.quoteTypeText)) || 'Your order';
     }
 
-    /** "Order SO123 · Underfloor heating" — the muted line under an order's title. */
+    /** The short type label, else the quote type's text. */
+    function typeLabelOf(order) {
+        return order.typeLabel || order.quoteTypeText || '';
+    }
+
+    /**
+     * "Order SO239737 · UFH" — the muted line under an order. The label is left out when the main
+     * line already fell back to it, so it never shows twice.
+     */
     function orderMeta(order) {
-        return 'Order ' + order.tranId + (order.quoteTypeText && order.description ?
-            ' · ' + order.quoteTypeText : '');
+        var label = typeLabelOf(order);
+        return 'Order ' + order.tranId + (label && order.description ? ' \u00b7 ' + label : '');
+    }
+
+    /**
+     * An order's lines for the pages: the description in full, the split reference when set
+     * (medium weight, text colour: it says what this part of a split order contains), and the
+     * muted "Order SO… · UFH".
+     */
+    function orderLines(order) {
+        return '<span class="soname">' + esc(orderTitle(order)) + '</span>' +
+            (order.uniqueRef ? '<span class="soref">' + esc(order.uniqueRef) + '</span>' : '') +
+            '<span class="meta">' + esc(orderMeta(order)) + '</span>';
+    }
+
+    /**
+     * Pure: "£1,234.50" — pound sign, thousands commas, two decimals.
+     * @param {number} amount
+     * @returns {string}
+     */
+    function formatMoney(amount) {
+        var fixed = (Math.round(Number(amount) * 100) / 100).toFixed(2);
+        var parts = fixed.split('.');
+        return '\u00a3' + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + parts[1];
+    }
+
+    var NOTHING_TO_PAY = 'Nothing left to pay on this order';
+
+    /**
+     * Pure: an order's amount as the customer sees it — '' when there is none to show (unknown, or
+     * an account order), "Nothing left to pay on this order" at 0, else "£1,234.50".
+     * @param {{amount: number}|null} amount
+     */
+    function amountText(amount) {
+        if (!amount || typeof amount.amount !== 'number') {
+            return '';
+        }
+        return amount.amount === 0 ? NOTHING_TO_PAY : formatMoney(amount.amount);
+    }
+
+    /** Pure: the basis of an amount, for staff. */
+    function amountBasisText(amount) {
+        return amount && amount.basis === 'balance' ? 'balance inc VAT' :
+            amount && amount.basis === 'total_less_deposit' ? 'total inc VAT less deposit' : '';
     }
 
     /** A phone number as a tel: href value. */
     function telHref(phone) {
         return 'tel:' + String(phone || '').replace(/[^0-9+]/g, '');
-    }
-
-    function firstName(name) {
-        return String(name || '').split(' ')[0];
     }
 
     /** Short date for rows: "Tue 13 Oct". */
@@ -151,7 +202,7 @@ define(['./cdb_lib_dates'], function (dates) {
             'header.top{background:#fff;border-bottom:1px solid ' + c.BORDER + '}',
             'header.top .wrap{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:16px}',
             '.logo img{display:block;max-height:48px;max-width:180px;height:auto}',
-            '.brand{font-weight:700;font-size:22px;color:' + c.PURPLE + '}',
+            '.brand{font-weight:700;font-size:24px;color:' + c.PURPLE + '}',
             '.am{display:flex;flex-direction:column;text-align:right}',
             '.am-label{font-size:13px;color:' + c.MUTED + '}',
             '.am-name{font-size:15px;font-weight:600}',
@@ -183,7 +234,9 @@ define(['./cdb_lib_dates'], function (dates) {
             '.sorow{padding:12px 24px 12px 56px;background:#faf9f7;border-top:1px solid #efece8}',
             '.cell{display:flex;flex-direction:column;gap:3px;min-width:0}',
             '.name{font-size:17px;font-weight:700}',
-            '.soname{font-size:16px;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+            '.soname{font-size:16px;font-weight:600}',
+            '.soref{font-size:15px;font-weight:600;color:' + c.TEXT + '}',
+            '.amt{font-size:16px}',
             '.badge{display:inline-flex;align-self:flex-start;align-items:center;padding:3px 12px;border-radius:12px;font-size:13px;font-weight:600}',
             '.b-ready{background:' + BADGES.ready.bg + ';color:' + BADGES.ready.fg + '}',
             '.b-need{background:' + BADGES.need.bg + ';color:' + BADGES.need.fg + '}',
@@ -327,11 +380,54 @@ define(['./cdb_lib_dates'], function (dates) {
 
     /** The round phone button the phone layout shows; nothing when there is no number. */
     function callButton(am) {
-        if (!am || !am.phone) {
+        var c = contactParts(am);
+        if (c.kind === 'phone') {
+            return '<a class="am-call" href="' + esc(c.href) + '" aria-label="Call your account manager' +
+                (am.name ? ', ' + esc(am.name) : '') + '">' + PHONE_ICON + '</a>';
+        }
+        // Amendment 2: no phone, so the round button on phones emails instead.
+        if (c.kind === 'email') {
+            return '<a class="am-call" href="' + esc(c.href) + '" aria-label="Email your account manager' +
+                (am.name ? ', ' + esc(am.name) : '') + '">' + MAIL_ICON + '</a>';
+        }
+        return '';
+    }
+
+    /**
+     * Pure: how to reach the account manager (amendment 2). Phone first, then email, then nothing.
+     * @param {Object} am - { name, phone, email }
+     * @returns {{kind: string, text: string, href: string}} kind 'phone' | 'email' | 'none'
+     */
+    function contactParts(am) {
+        if (am && am.phone) {
+            return { kind: 'phone', text: am.phone, href: telHref(am.phone) };
+        }
+        if (am && am.email) {
+            return { kind: 'email', text: am.email, href: 'mailto:' + am.email };
+        }
+        return { kind: 'none', text: '', href: '' };
+    }
+
+    /**
+     * Pure: the "Questions?" line (amendment 2), escaped HTML, or '' with no name.
+     *   phone   "Questions? Call {name} on {phone}"   (tel: link)
+     *   email   "Questions? Email {name} at {email}"  (mailto: link)
+     *   neither "Questions? Contact {name}"
+     */
+    function questionsLine(am) {
+        var c = contactParts(am);
+        var link;
+        if (!am || !am.name) {
             return '';
         }
-        return '<a class="am-call" href="' + esc(telHref(am.phone)) + '" aria-label="Call your account manager' +
-            (am.name ? ', ' + esc(am.name) : '') + '">' + PHONE_ICON + '</a>';
+        link = '<a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        if (c.kind === 'phone') {
+            return 'Questions? Call ' + esc(am.name) + ' on ' + link;
+        }
+        if (c.kind === 'email') {
+            return 'Questions? Email ' + esc(am.name) + ' at ' + link;
+        }
+        return 'Questions? Contact ' + esc(am.name);
     }
 
     /**
@@ -341,17 +437,18 @@ define(['./cdb_lib_dates'], function (dates) {
      *   'none'      logo only (the confirmations)
      */
     function headerRight(kind, am) {
-        var phoneLink;
+        var c;
         if (kind === 'none' || !am || !am.name) {
             return '';
         }
-        phoneLink = am.phone ? '<a href="' + esc(telHref(am.phone)) + '">' + esc(am.phone) + '</a>' : '';
         if (kind === 'questions') {
-            return '<span class="hq">Questions? Call ' + esc(am.name) + (phoneLink ? ' on ' + phoneLink : '') +
-                '</span>' + callButton(am);
+            return '<span class="hq">' + questionsLine(am) + '</span>' + callButton(am);
         }
+        // Amendment 2: name · phone, else name · email, else the name alone.
+        c = contactParts(am);
         return '<div class="am"><span class="am-label">Your account manager</span><span class="am-name">' +
-            esc(am.name) + (phoneLink ? ' · ' + phoneLink : '') + '</span></div>' + callButton(am);
+            esc(am.name) + (c.kind !== 'none' ? ' · <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>' : '') +
+            '</span></div>' + callButton(am);
     }
 
     /**
@@ -400,17 +497,31 @@ define(['./cdb_lib_dates'], function (dates) {
         return '<span class="badge b-' + kind + '">' + esc(text) + '</span>';
     }
 
-    /** The bank rows, reference highlighted. No amount in release 1.x. */
-    function bankRows(bank, reference) {
+    /**
+     * The bank rows, reference highlighted, and (1.2) the amount to pay when there is one to show.
+     * @param {string} [amountShown] - from amountText(); '' leaves the row out
+     */
+    function bankRows(bank, reference, amountShown) {
         return '<div class="srow"><span>Bank name</span><span>' + esc(bank.name) + '</span></div>' +
             '<div class="srow"><span>Sort code</span><span>' + esc(bank.sort) + '</span></div>' +
             '<div class="srow"><span>Account number</span><span>' + esc(bank.account) + '</span></div>' +
-            '<div class="srow ref"><span>Reference</span><span>' + esc(reference) + '</span></div>';
+            '<div class="srow ref"><span>Reference</span><span>' + esc(reference) + '</span></div>' +
+            (amountShown ? '<div class="srow"><span>Amount to pay</span><span>' + esc(amountShown) + '</span></div>' : '');
     }
 
-    function cardPaymentText(am) {
-        return 'Your account manager' + (am && am.name ? ', ' + esc(am.name) + ',' : '') +
-            ' will call you to take payment. We never ask for card details online.';
+    /**
+     * Neutral card wording (amendment 1): it names nobody, because whoever gets the Task makes the
+     * call. "We'll call you to take £x. We never ask for card details online."; with no amount,
+     * "We'll call you to take payment."; at 0, "Nothing left to pay on this order."
+     */
+    function cardPaymentText(amountShown) {
+        if (amountShown === NOTHING_TO_PAY) {
+            return esc(NOTHING_TO_PAY) + '. We\u2019ll be in touch to confirm your delivery.';
+        }
+        if (amountShown) {
+            return 'We\u2019ll call you to take <strong>' + esc(amountShown) + '</strong>. We never ask for card details online.';
+        }
+        return 'We\u2019ll call you to take payment.';
     }
 
     function sectionHead(title, count, sub) {
@@ -443,8 +554,7 @@ define(['./cdb_lib_dates'], function (dates) {
     function orderRow(row, m) {
         var o = row.order;
         var title = orderTitle(o);
-        var name = '<div class="cell"><span class="soname" title="' + esc(title) + '">' + esc(title) + '</span>' +
-            '<span class="meta">' + esc(orderMeta(o)) + '</span></div>';
+        var name = '<div class="cell">' + orderLines(o) + '</div>';
         var state;
         var acts;
 
@@ -455,10 +565,15 @@ define(['./cdb_lib_dates'], function (dates) {
         } else if (row.state === 'awaiting_payment') {
             state = stateCell(badge('pay', 'Awaiting payment'), 'Requested ' +
                 (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
+            // The amount whenever it is known, whatever the terms (PR #3 amendment 1).
             acts = '<details class="paydet"><summary class="out">Payment details</summary><div class="panel">' +
-                (o.payIntent === String(m.payBacs) ? bankRows(m.bank, o.tranId) +
+                (o.payIntent === String(m.payBacs) ? bankRows(m.bank, o.tranId, amountText(o.amount)) +
                     '<p style="margin:8px 0 0">We’ll book your delivery once payment reaches us.</p>' :
-                    cardPaymentText(m.am)) + '</div></details>';
+                    cardPaymentText(amountText(o.amount))) + '</div></details>';
+        } else if (row.state === 'requested') {
+            state = stateCell(badge('work', 'Delivery requested'), 'Requested ' +
+                (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
+            acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
         } else if (row.state === 'ready') {
             state = stateCell(badge('ready', 'Ready to deliver'), '');
             acts = '<a class="cta" href="' + esc(m.deliveryUrl(o.id)) + '">Arrange delivery</a>';
@@ -532,9 +647,8 @@ define(['./cdb_lib_dates'], function (dates) {
                 'that’s wrong, please contact your account manager.</p></div>';
         }
 
-        body += '<footer class="foot">' + (m.am && m.am.name ? '<span>Questions? Call ' + esc(m.am.name) +
-            (m.am.phone ? ' on <a href="' + esc(telHref(m.am.phone)) + '">' + esc(m.am.phone) + '</a>' : '') +
-            '.</span>' : '<span></span>') + '<span>This link is personal to you. Please don’t share it.</span></footer>';
+        body += '<footer class="foot">' + (questionsLine(m.am) ? '<span>' + questionsLine(m.am) + '.</span>' : '<span></span>') +
+            '<span>This link is personal to you. Please don’t share it.</span></footer>';
 
         return page({ title: 'Your projects', logoUrl: m.logoUrl, am: m.am, header: 'am', width: 'w1200', body: body });
     }
@@ -651,7 +765,39 @@ define(['./cdb_lib_dates'], function (dates) {
         return html + '</div>';
     }
 
-    var PAYMENT_LABELS = { BACS: 'Bank transfer', CARD: 'Card' };
+    var PAYMENT_LABELS = { BACS: 'Bank transfer', CARD: 'Card', ACCOUNT: 'Add to my account' };
+
+    /** The radio card for each payment option (1.2: Account replaces Card for account orders). */
+    var PAYMENT_CARDS = {
+        BACS: { title: 'Bank transfer (BACS)',
+            hint: 'We\u2019ll show you our bank details next. Use your order number as the reference.' },
+        CARD: { title: 'Card', hint: 'Your account manager will call you to take payment.' },
+        ACCOUNT: { title: 'Add to my account', hint: 'We\u2019ll add this order to your account. No payment is needed now.' }
+    };
+
+    function paymentCards(options, selected) {
+        var html = '<div class="g2">';
+        var i;
+        var key;
+        for (i = 0; i < options.length; i++) {
+            key = options[i];
+            html += '<label class="pay"><input type="radio" name="payment" value="' + esc(key) + '"' +
+                (selected === key ? ' checked' : '') + ' required data-label="' + esc(PAYMENT_LABELS[key]) + '">' +
+                '<span><span class="ot">' + esc(PAYMENT_CARDS[key].title) + '</span><span class="oh">' +
+                esc(PAYMENT_CARDS[key].hint) + '</span></span></label>';
+        }
+        return html + '</div>';
+    }
+
+    /** "What happens next" for the aside: account orders have no payment step. */
+    function nextSteps(prepay) {
+        return prepay ?
+            '<li>We receive your request straight away.</li>' +
+            '<li>You pay by bank transfer, or we call you to take card payment.</li>' +
+            '<li>Once payment arrives we book your delivery and confirm the date by email.</li>' :
+            '<li>We receive your request straight away.</li>' +
+            '<li>We book your delivery and confirm the date by email.</li>';
+    }
 
     /** The inline script for the form: month switching and the live summary. ES5, no library. */
     var FORM_SCRIPT = [
@@ -692,13 +838,18 @@ define(['./cdb_lib_dates'], function (dates) {
      * The delivery form.
      * @param {Object} m - { logoUrl, am, order, opp, actionUrl, backUrl, token, months, allowedSet,
      *                       values, errors, options: {time, vehicle, unload, address}, hints:
-     *                       {vehicle, unload}, guidance, noticeDays, limits, hasErrors }
+     *                       {vehicle, unload}, guidance, noticeDays, limits, hasErrors,
+     *                       paymentOptions (1.2: ['BACS','CARD'] or ['BACS','ACCOUNT']) }
      */
     function deliveryForm(m) {
         var v = m.values || {};
         var e = m.errors || {};
         var o = m.order;
         var title = orderTitle(o);
+        var prepay = o.prepay !== false;
+        // Amendment 1: shown to every customer when known. Account customers are told it only
+        // applies to a bank transfer.
+        var amountShown = amountText(o.amount);
         var i;
         var addressOptions = '';
         var notice = '';
@@ -718,7 +869,8 @@ define(['./cdb_lib_dates'], function (dates) {
             '<a href="' + esc(m.backUrl) + '" style="font-size:15px;text-decoration:none">← Your projects</a>' +
             '<h1>Arrange delivery</h1>' +
             '<p class="lead" style="margin:0">' + esc([m.opp && m.opp.title, title, 'Order ' + o.tranId]
-                .filter(function (x) { return !!x; }).join(' · ')) + '</p></div>' +
+                .filter(function (x) { return !!x; }).join(' · ')) + '</p>' +
+            (o.uniqueRef ? '<p class="soref" style="margin:0">' + esc(o.uniqueRef) + '</p>' : '') + '</div>' +
             (m.hasErrors ? '<div class="notice" role="alert">Please check the highlighted answers below.</div>' : '') +
             '<div class="layout"><form class="fcol" id="dform" method="post" action="' + esc(m.actionUrl) +
             '" accept-charset="utf-8">' +
@@ -761,18 +913,15 @@ define(['./cdb_lib_dates'], function (dates) {
             m.limits.SPECIAL_REQUESTS + ' characters.</p></div></section>' +
 
             '<section class="card"><h2><span class="num">6</span>How would you like to pay?</h2>' +
+            (amountShown ? '<p class="amt" style="margin:0">' + (amountShown === NOTHING_TO_PAY ? esc(amountShown) + '.' :
+                'Amount to pay: <strong>' + esc(amountShown) + '</strong> including VAT') + '</p>' +
+                (prepay ? '' : '<p class="hint" style="margin:0">Only if you\u2019re paying by bank transfer. Choose ' +
+                    '\u2018Add to my account\u2019 and nothing is due now.</p>') : '') +
             '<fieldset><legend class="sr" style="position:absolute">Payment</legend>' + fieldError(e, 'payment') +
-            '<div class="g2">' +
-            '<label class="pay"><input type="radio" name="payment" value="BACS"' + (v.payment === 'BACS' ? ' checked' : '') +
-            ' required data-label="' + PAYMENT_LABELS.BACS + '"><span><span class="ot">Bank transfer (BACS)</span>' +
-            '<span class="oh">We’ll show you our bank details next. Use your order number as the reference.</span>' +
-            '</span></label>' +
-            '<label class="pay"><input type="radio" name="payment" value="CARD"' + (v.payment === 'CARD' ? ' checked' : '') +
-            ' required data-label="' + PAYMENT_LABELS.CARD + '"><span><span class="ot">Card</span>' +
-            '<span class="oh">Your account manager will call you to take payment.</span></span></label>' +
-            '</div></fieldset>' +
-            '<div class="tip">Your delivery is booked once we’ve received payment. We’ll email you to ' +
-            'confirm the date.</div></section>' +
+            paymentCards(m.paymentOptions || ['BACS', 'CARD'], v.payment) + '</fieldset>' +
+            '<div class="tip">' + (prepay ? 'Your delivery is booked once we’ve received payment. We’ll email you to ' +
+                'confirm the date.' : 'If you pay by bank transfer, we book your delivery once payment reaches us. ' +
+                'Either way, we’ll email you to confirm the date.') + '</div></section>' +
 
             '<div class="submitrow"><button type="submit" class="cta">Request delivery</button>' +
             '<a href="' + esc(m.backUrl) + '" style="font-size:16px">Cancel</a></div>' +
@@ -781,14 +930,12 @@ define(['./cdb_lib_dates'], function (dates) {
             '<aside class="card" aria-label="Your delivery"><h2>Your delivery</h2><div>' +
             '<div class="srow"><span>Order</span><span>' + esc(o.tranId) + '</span></div>' +
             '<div class="srow"><span>System</span><span>' + esc(title) + '</span></div>' +
+            (o.uniqueRef ? '<div class="srow"><span>Contains</span><span>' + esc(o.uniqueRef) + '</span></div>' : '') +
+            (amountShown ? '<div class="srow"><span>Amount to pay</span><span>' + esc(amountShown) + '</span></div>' : '') +
             summaryRow('Date', 'date', v.date ? dates.formatLong(v.date) : '') +
             summaryRow('Time', 'time', textOf(m.options.time, v.time)) +
             summaryRow('Payment', 'payment', PAYMENT_LABELS[v.payment] || '') +
-            '</div><h3>What happens next</h3><ol class="next">' +
-            '<li>We receive your request straight away.</li>' +
-            '<li>You pay by bank transfer, or we call you to take card payment.</li>' +
-            '<li>Once payment arrives we book your delivery and confirm the date by email.</li>' +
-            '</ol></aside></div>';
+            '</div><h3>What happens next</h3><ol class="next">' + nextSteps(prepay) + '</ol></aside></div>';
 
         return page({ title: 'Arrange delivery', logoUrl: m.logoUrl, am: m.am, header: 'questions',
             width: 'w1120', body: body, script: FORM_SCRIPT });
@@ -797,21 +944,25 @@ define(['./cdb_lib_dates'], function (dates) {
     // ---------------------------------------------------------------- confirmations
 
     /**
-     * The page after a successful request (ConfirmBacs / ConfirmCard).
-     * @param {Object} m - { logoUrl, am, payment ('BACS'|'CARD'), bank, tranId, orderTitle,
-     *                       backUrl, dateKey, timeText }
+     * The page after a successful request (ConfirmBacs / ConfirmCard, and 1.2's account page styled
+     * like the card one).
+     * @param {Object} m - { logoUrl, am, payment ('BACS'|'CARD'|'ACCOUNT'), bank, tranId, orderTitle,
+     *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only) }
      */
     function confirmation(m) {
         var noted = (m.dateKey ? dates.formatLong(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
-        var what = (m.orderTitle || 'your order') + ' (order ' + m.tranId + ')';
+        var what = (m.orderTitle || 'your order') + (m.uniqueRef ? ', ' + m.uniqueRef : '') + ' (order ' + m.tranId + ')';
+        var amountShown = m.payment === 'ACCOUNT' ? '' : amountText(m.amount);
         var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>Delivery requested</h1><p>' +
-            esc('Thanks. We’ve noted ' + noted + ', for ' + what + '. ') +
-            (m.payment === 'BACS' ? 'We’ll book it as soon as your payment reaches us.' :
-                cardPaymentText(m.am) + ' Once payment is taken, we’ll book your delivery.') +
+            (m.payment === 'ACCOUNT' ? esc('Delivery requested. We’ll add order ' + m.tranId + ' to your account and ' +
+                'email you to confirm the date.') :
+                esc('Thanks. We’ve noted ' + noted + ', for ' + what + '. ') +
+                (m.payment === 'BACS' ? 'We’ll book it as soon as your payment reaches us.' :
+                    cardPaymentText(amountShown) + ' Once payment is taken, we’ll book your delivery.')) +
             '</p></div>';
 
         if (m.payment === 'BACS') {
-            body += '<div class="card bank"><h2>Pay by bank transfer</h2>' + bankRows(m.bank, m.tranId) +
+            body += '<div class="card bank"><h2>Pay by bank transfer</h2>' + bankRows(m.bank, m.tranId, amountShown) +
                 '<p style="margin:8px 0 0;font-size:15px;color:#4a4650">Please use the reference exactly as shown so ' +
                 'we can match your payment. We’ll book your delivery once payment reaches us.</p></div>' +
                 '<div class="card"><h2 style="font-size:18px">What happens next</h2><ol class="next" style="font-size:16px">' +
@@ -819,7 +970,8 @@ define(['./cdb_lib_dates'], function (dates) {
                 '<li>When your payment arrives, we book the delivery.</li>' +
                 '<li>We email you to confirm the date.</li></ol></div>';
         } else {
-            if (m.am && m.am.name) {
+            // The account page names the customer's rep; the card page names nobody (amendment 1).
+            if (m.payment === 'ACCOUNT' && m.am && m.am.name) {
                 body += '<div class="card amcard"><div class="cell"><span class="cap">Your account manager</span>' +
                     '<span class="amn">' + esc(m.am.name) + '</span><span style="font-size:16px;color:#4a4650">' +
                     [m.am.phone ? '<a href="' + esc(telHref(m.am.phone)) + '">' + esc(m.am.phone) + '</a>' : '',
@@ -827,10 +979,13 @@ define(['./cdb_lib_dates'], function (dates) {
                         .filter(function (x) { return !!x; }).join(' · ') + '</span></div></div>';
             }
             body += '<div class="card"><h2 style="font-size:18px">What happens next</h2><ol class="next" style="font-size:16px">' +
-                '<li>' + (m.am && m.am.name ? esc(firstName(m.am.name)) + ' calls' : 'Your account manager calls') +
-                ' you to take payment. We never ask for card details online.</li>' +
-                '<li>Once payment is taken, we book the delivery.</li>' +
-                '<li>We email you to confirm the date.</li></ol></div>';
+                (m.payment === 'ACCOUNT' ?
+                    '<li>Your account manager has your request.</li>' +
+                    '<li>We add the order to your account and book the delivery.</li>' +
+                    '<li>We email you to confirm the date.</li>' :
+                    '<li>We call you to take payment. We never ask for card details online.</li>' +
+                    '<li>Once payment is taken, we book the delivery.</li>' +
+                    '<li>We email you to confirm the date.</li>') + '</ol></div>';
         }
         body += '<a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>';
         return page({ title: 'Delivery requested', logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600', body: body });
@@ -850,29 +1005,36 @@ define(['./cdb_lib_dates'], function (dates) {
         var o;
         var opp;
         var st;
-        var what;
+        var row;
+        var when;
 
         for (i = 0; i < groups.forDelivery.length; i++) {
             opp = groups.forDelivery[i].opp;
             for (j = 0; j < groups.forDelivery[i].orders.length; j++) {
                 st = groups.forDelivery[i].orders[j];
                 o = st.order;
-                what = orderTitle(o);
+                // 1.2: the order's own lines, as on the page: description in full, split reference,
+                // then "Order SO… · UFH · <where it's up to>".
+                row = { title: opp.title || opp.tranId, line1: orderTitle(o), ref: o.uniqueRef || '', sub: orderMeta(o) };
+                when = (dates.formatLong(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : '');
                 if (st.state === 'ready') {
-                    rows.push({ title: opp.title || opp.tranId, sub: what + ' · ready to arrange delivery',
-                        badgeKind: 'ready', badgeText: 'Action needed' });
+                    row.sub += ' \u00b7 ready to arrange delivery';
+                    row.badgeKind = 'ready'; row.badgeText = 'Action needed';
                 } else if (st.state === 'awaiting_payment') {
-                    rows.push({ title: opp.title || opp.tranId, sub: what + ' · ' + (o.payIntent === String(payBacs) ?
-                        'awaiting your bank transfer · ref ' + o.tranId : 'your account manager will call to take payment'),
-                        badgeKind: 'pay', badgeText: 'Awaiting payment' });
+                    row.sub += ' \u00b7 ' + (o.payIntent === String(payBacs) ? 'awaiting your bank transfer \u00b7 ref ' +
+                        o.tranId : 'your account manager will call to take payment');
+                    row.badgeKind = 'pay'; row.badgeText = 'Awaiting payment';
+                } else if (st.state === 'requested') {
+                    row.sub += ' \u00b7 requested ' + when;
+                    row.badgeKind = 'work'; row.badgeText = 'Delivery requested';
                 } else if (st.state === 'booked') {
-                    rows.push({ title: opp.title || opp.tranId, sub: what + ' · delivery booked for ' +
-                        dates.formatLong(o.confirmedDateKey), badgeKind: 'ready', badgeText: 'Delivery booked' });
+                    row.sub += ' \u00b7 delivery booked for ' + dates.formatLong(o.confirmedDateKey);
+                    row.badgeKind = 'ready'; row.badgeText = 'Delivery booked';
                 } else {
-                    rows.push({ title: opp.title || opp.tranId, sub: what + ' · ' + (o.holdReason ?
-                        o.holdReason : 'your account manager will be in touch'), badgeKind: 'need',
-                        badgeText: 'Needs information' });
+                    row.sub += ' \u00b7 ' + (o.holdReason ? o.holdReason : 'your account manager will be in touch');
+                    row.badgeKind = 'need'; row.badgeText = 'Needs information';
                 }
+                rows.push(row);
             }
         }
         for (i = 0; i < groups.inDesign.length; i++) {
@@ -922,6 +1084,25 @@ define(['./cdb_lib_dates'], function (dates) {
         return parts.join(' ');
     }
 
+    /**
+     * Pure: the end of the email footer's opt-out sentence (amendment 2): " or call {name} on {phone}",
+     * " or email {name} at {email}", " or contact {name}", or '' with no name.
+     */
+    function emailFooterContact(am) {
+        var c = contactParts(am);
+        if (!am || !am.name) {
+            return '';
+        }
+        if (c.kind === 'phone') {
+            return ' or call ' + esc(am.name) + ' on ' + esc(c.text);
+        }
+        if (c.kind === 'email') {
+            return ' or email ' + esc(am.name) + ' at <a href="mailto:' + esc(c.text) + '" style="color:' + COLORS.PURPLE +
+                ';">' + esc(c.text) + '</a>';
+        }
+        return ' or contact ' + esc(am.name);
+    }
+
     /** "every 2 weeks" for 14, "every 7 days" otherwise. */
     function everyText(days) {
         var n = parseInt(days, 10) || 14;
@@ -950,8 +1131,8 @@ define(['./cdb_lib_dates'], function (dates) {
 
         // 1. logo
         html += '<tr><td align="center" style="padding:24px 16px;border-bottom:1px solid #ece8e3;">' +
-            (m.logoUrl ? '<img src="' + esc(m.logoUrl) + '" alt="Nu-Heat" width="170" style="display:block;width:170px;' +
-                'max-width:100%;height:auto;border:0;">' :
+            (m.logoUrl ? '<img src="' + esc(m.logoUrl) + '" alt="Nu-Heat" height="60" style="display:block;height:60px;' +
+                'max-height:60px;width:auto;max-width:100%;border:0;margin:0 auto;">' :
                 '<span style="' + f + 'font-size:24px;font-weight:bold;color:' + COLORS.PURPLE + ';">Nu-Heat</span>') +
             '</td></tr>';
 
@@ -984,6 +1165,9 @@ define(['./cdb_lib_dates'], function (dates) {
                 '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>' +
                 '<td valign="middle" style="' + f + 'text-align:left;">' +
                 '<p style="margin:0;' + f + 'font-size:17px;font-weight:bold;color:' + COLORS.TEXT + ';">' + esc(r.title) + '</p>' +
+                (r.line1 ? '<p style="margin:2px 0 0;' + f + 'font-size:15px;color:' + COLORS.TEXT + ';">' + esc(r.line1) + '</p>' : '') +
+                (r.ref ? '<p style="margin:2px 0 0;' + f + 'font-size:15px;font-weight:bold;color:' + COLORS.TEXT + ';">' +
+                    esc(r.ref) + '</p>' : '') +
                 '<p style="margin:2px 0 0;' + f + 'font-size:15px;color:' + COLORS.MUTED + ';">' + esc(r.sub) + '</p></td>' +
                 '<td valign="middle" align="right" style="padding-left:12px;white-space:nowrap;">' +
                 '<span style="' + f + 'display:inline-block;background-color:' + b.bg + ';color:' + b.fg +
@@ -1022,7 +1206,7 @@ define(['./cdb_lib_dates'], function (dates) {
         html += '<tr><td align="center" style="padding:24px 32px;border-top:1px solid #ece8e3;' + f +
             'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">You get this update ' + everyText(m.digestDays) +
             ' while you have an open project or order with us. To stop these updates, reply to this email' +
-            (m.am && m.am.name ? ' or call ' + esc(m.am.name) : '') + '.</td></tr>';
+            emailFooterContact(m.am) + '.</td></tr>';
 
         return html + '</table></td></tr></table>';
     }
@@ -1034,6 +1218,12 @@ define(['./cdb_lib_dates'], function (dates) {
         INVALID_LINK_TEXT: INVALID_LINK_TEXT,
         esc: esc,
         orderTitle: orderTitle,
+        contactParts: contactParts,
+        questionsLine: questionsLine,
+        formatMoney: formatMoney,
+        amountText: amountText,
+        amountBasisText: amountBasisText,
+        NOTHING_TO_PAY: NOTHING_TO_PAY,
         css: css,
         page: page,
         invalidPage: invalidPage,

@@ -46,8 +46,9 @@ test('Suitelet: empty pe_valueprops and logo mean none, logged', function () {
     assert.deepStrictEqual(r.missing, []);
     assert.deepStrictEqual(r.config.PE_VALUEPROPS, []);
     assert.strictEqual(r.config.LOGO_URL, '', 'http is not https');
-    // 1.1: option hints and the EDD value are also empty in this fixture, so five notes, not three.
-    assert.strictEqual(r.notes.length, 5);
+    // 1.1: option hints and the EDD value are also empty in this fixture (5 notes); 1.2 adds the
+    // prepay terms, the account pay value and the type labels (8).
+    assert.strictEqual(r.notes.length, 8);
 });
 
 function mrValues() {

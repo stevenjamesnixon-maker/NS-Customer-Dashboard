@@ -20,6 +20,8 @@
  *   author     the customer's sales rep if active, otherwise the fallback employee. Never the
  *              current user.
  *   skip       no recipient, or nothing to show — logged at audit with the reason
+ *   extras     1.2: data.getOrderExtras() once per customer (fail-safe) for the split reference;
+ *              the short type labels come from custscript_cdbmr_quote_type_labels. No amounts.
  *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1)
  *   send       email.send with relatedRecords.entityId = customer, so it lands on the customer's
  *              Communication tab
@@ -31,7 +33,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * @version 1.2.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -39,7 +41,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -145,12 +147,19 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     function getInputData() {
         var cfg = config.load(log);
+        var labels = config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS);
         var todayKey = dates.londonTodayKey(Date.now());
         var withOpp;
         var withOrder;
         var eligible;
         var chosen = [];
         var i;
+
+        // Once per run, not once per customer: map() parses the same value quietly.
+        if (labels.status === 'invalid') {
+            log.audit({ title: title('TYPE_LABELS_INVALID'), details: 'custscript_cdbmr_quote_type_labels ignored: ' +
+                labels.detail });
+        }
 
         if (cfg.DIGEST_MODE === config.DIGEST_MODES.TEST) {
             log.audit({ title: title('DIGEST_INPUT'), details: 'TEST mode: customers ' +
@@ -225,6 +234,10 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 return;
             }
             groups = data.getProjects(customerId, cfg);
+            // 1.2: the split reference and short type label, from the one fail-safe extras search.
+            // The email never shows amounts, so no amount is read from it.
+            data.decorateGroups(groups, data.getOrderExtras(data.orderIdsOf(groups)),
+                config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS).labels, cfg, customer.termsId);
             if (groups.isEmpty) {
                 skip(context, customerId, 'nothing to show');
                 return;

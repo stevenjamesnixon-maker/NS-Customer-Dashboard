@@ -45,13 +45,15 @@ function form(extra) {
     return f;
 }
 
-test('dashboard: sections, billed SO hidden, AM is the PE', function () {
+test('dashboard: sections, billed SO hidden, header is the customer\'s rep', function () {
     var s = setup();
     var html = run(s.sl, 'GET', { t: s.tok });
     assert.ok(html.indexOf('Projects for delivery') > 0, html);
     assert.ok(html.indexOf('SO100') > 0);
     assert.ok(html.indexOf('SO101') === -1, 'billed order not shown');
-    assert.ok(html.indexOf('Pem Engineer') > 0, 'PE case');
+    // 1.2 (§4): the header shows the customer's own sales rep, not the opportunity's PE.
+    assert.ok(html.indexOf('Ray Rep') > 0, 'customer rep');
+    assert.strictEqual(html.indexOf('Pem Engineer'), -1);
     assert.ok(s.w.logs.some(function (l) { return l[1] === 'CDB USAGE'; }));
 });
 
@@ -99,7 +101,8 @@ test('valid BACS POST: SO fields, no del_date/finance status, Task to the PE, co
     assert.strictEqual(s.w.tasks[0].values.assigned, '77');
     assert.strictEqual(s.w.tasks[0].values.transaction, '4', 'the opportunity');
     assert.strictEqual(s.w.tasks[0].values.company, '42');
-    assert.strictEqual(s.w.tasks[0].values.title, 'Delivery requested: SO100 – Acme Ltd');
+    // 1.2 (§7): the title carries the description, not the customer name.
+    assert.strictEqual(s.w.tasks[0].values.title, 'Delivery requested: SO100 · Underfloor heating system');
     assert.ok(s.w.tasks[0].values.message.indexOf('Old Name → Sam Site') > 0);
 
     html = run(s.sl, 'POST', form({ t: s.tok }));
@@ -111,7 +114,8 @@ test('valid BACS POST: SO fields, no del_date/finance status, Task to the PE, co
 test('card booking: card confirmation', function () {
     var s = setup();
     var html = run(s.sl, 'POST', form({ t: s.tok, payment: 'CARD' }));
-    assert.ok(html.indexOf('Pem Engineer, will call you to take payment') > 0);
+    // PR #3 amendment 1: neutral wording, with the amount when known (none in this fixture).
+    assert.ok(html.indexOf('We’ll call you to take payment.') > 0);
 });
 
 test('another customer\'s SO in the URL is refused', function () {
