@@ -11,6 +11,7 @@ function keyOf(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
 function world() {
     var w = {
         logs: [], tasks: [], saves: [], emails: [], submits: [], contacts: {}, missingFields: [],
+        redirects: [], urls: [], user: { id: 7, name: 'Sam Staff' },
         customers: {
             42: { isinactive: false, custentity_cdb_link_version: '', entityid: 'C42', companyname: 'Acme Ltd',
                 isperson: false, email: 'acme@example.com', salesrep: [{ value: '88', text: 'Rep' }],
@@ -68,13 +69,19 @@ function stubs(w) {
         Summary: { GROUP: 'GROUP' },
         createColumn: function (c) { return c; },
         lookupFields: function (o) {
-            var src = { customer: w.customers, employee: w.employees, opportunity: w.opps, contact: w.contacts }[o.type];
+            var src = { customer: w.customers, employee: w.employees, opportunity: w.opps, contact: w.contacts,
+                salesorder: w.orders }[o.type];
             var r = src && src[o.id];
             var out = {};
             if (!r) { throw new Error('RCRD_DSNT_EXIST'); }
+            // 2.0.2: model an account where the photo field does not exist on the employee.
+            if (o.type === 'employee' && w.photoFieldThrows && o.columns.indexOf('custentity_employee_photo_link') >= 0) {
+                throw new Error('An nlobjSearchColumn contains an invalid column: custentity_employee_photo_link.');
+            }
             o.columns.forEach(function (c) {
                 var v = r[c];
-                out[c] = (o.type === 'opportunity' && v && ['entity', 'salesrep', 'custbody_pe', 'custbody_value_proposition', 'entitystatus'].indexOf(c) >= 0) ?
+                out[c] = (((o.type === 'opportunity' && ['entity', 'salesrep', 'custbody_pe', 'custbody_value_proposition', 'entitystatus'].indexOf(c) >= 0) ||
+                        (o.type === 'salesorder' && c === 'opportunity')) && v) ?
                     [{ value: v, text: '' }] : (v === undefined ? '' : v);
             });
             return out;
@@ -139,6 +146,11 @@ function stubs(w) {
                             if (n === 'custbody_del_time_per') { return w.lists.customlist_del_time_per[o[n]] || ''; }
                             return '';
                         } });
+                });
+            } else if (def.type === 'customrecord_cdb_nondelivery') {
+                // 2.0.3: non-delivery dates, as keys (the format stub reads and writes keys).
+                (w.nonDelivery || []).forEach(function (key, i) {
+                    rows.push({ id: String(i + 1), getValue: function () { return key; } });
                 });
             } else if (w.lists[def.type]) {
                 var ids = asList(findClause(def.filters, 'internalid')[2]);
@@ -207,14 +219,34 @@ function stubs(w) {
             Object.keys(w.paramOverrides || {}).forEach(function (k) { p[k] = w.paramOverrides[k]; });
             return { id: w.scriptId || 'customscript_cdb_sl_dashboard', getParameter: function (o) { return p[o.name]; },
                 getRemainingUsage: function () { return 900; } };
-        } },
+        },
+        // 2.0: only the login-required Send delivery link Suitelet reads it, for its log.
+        getCurrentUser: function () { return w.user; },
+        executionContext: w.executionContext || 'USERINTERFACE',
+        ContextType: { USER_INTERFACE: 'USERINTERFACE', CSV_IMPORT: 'CSVIMPORT', WEBSERVICES: 'WEBSERVICES' } },
         'N/log': {
             audit: function (o) { w.logs.push(['audit', o.title, o.details]); },
             error: function (o) { w.logs.push(['error', o.title, o.details]); },
             debug: function () {}
         },
-        'N/email': { send: function (o) { w.emails.push(o); } },
-        'N/url': { resolveScript: function (o) { return 'https://acct.extforms.netsuite.com/sl?t=' + o.params.t; } },
+        'N/email': { send: function (o) {
+            if (w.emailThrow) { throw new Error('SSS_AUTHOR_MUST_BE_EMPLOYEE'); }
+            w.emails.push(o);
+        } },
+        // The dashboard link as before; 2.0: any further parameter appended, encoded, in order; an
+        // internal URL (no returnExternalUrl) for the Send delivery link Suitelet.
+        'N/url': { resolveScript: function (o) {
+            var extra = Object.keys(o.params || {}).filter(function (k) { return k !== 't'; }).map(function (k) {
+                return '&' + encodeURIComponent(k) + '=' + encodeURIComponent(o.params[k]);
+            }).join('');
+            w.urls.push(o);
+            if (!o.returnExternalUrl) {
+                return '/app/site/hosting/scriptlet.nl?script=' + o.scriptId + '&deploy=' + o.deploymentId + extra;
+            }
+            return 'https://acct.extforms.netsuite.com/sl?t=' + o.params.t + extra;
+        } },
+        'N/redirect': { toRecord: function (o) { w.redirects.push(o); } },
+        'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', ERROR: 'error', INFORMATION: 'information' } },
         'N/encode': { Encoding: { UTF_8: 'UTF_8', BASE_64: 'BASE_64' } },
         'N/crypto': {
             HashAlg: { SHA256: 'SHA256' },

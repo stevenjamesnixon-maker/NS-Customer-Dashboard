@@ -94,7 +94,9 @@ function emailModel() {
     ], fx.CFG);
     return { customerName: 'Acme Ltd', greetingName: 'Acme Ltd', logoUrl: 'https://www.nu-heat.co.uk/logo.png',
         groups: groups, payBacs: '1', link: 'https://acct.extforms.netsuite.com/sl?t=TOKEN&h=1',
-        am: { name: 'Pat Lee', phone: '01234 567890', email: 'pat@example.com' }, digestDays: 14 };
+        am: { name: 'Pat Lee', phone: '01234 567890', email: 'pat@example.com' }, digestDays: 14,
+        // 2.0.3: each ready order's own direct link, for the action box.
+        orderLink: function (id) { return 'https://acct.extforms.netsuite.com/sl?t=TOKEN&a=delivery&so=' + id; } };
 }
 
 // ---------------------------------------------------------------- 1-4 quote description
@@ -305,30 +307,40 @@ test('12. no dead links in any page or the email', function () {
     });
 });
 
-test('13. email: tables, Outlook-safe, the link once, the AM block, the footer; snapshot', function () {
+test('13. email: tables, Outlook-safe, the link once, the AM card, the footer; snapshot', function () {
+    // 2.0.2 (PR #5 amendment 2): the email is a whole document in the customer email standard (Send
+    // Quote 2.2.0's card): the preheader is the one display:none outside the phone media query, the
+    // CTA URL appears in the visible markup once (and once more inside its [if mso] twin), and the
+    // footer, the social icons and an AM photo are images too.
     var m = emailModel();
     var html = render.digestEmail(m);
     var snap = path.join(__dirname, 'snapshots', 'digest-email.html');
-    assert.ok(/^<table role="presentation"/.test(html));
+    var body = html.slice(html.indexOf('<body'));
+    var visible = body.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/g, '');
+    assert.ok(/^<!DOCTYPE html>/.test(html));
     assert.strictEqual(/display:\s*flex|grid/i.test(html), false);
-    assert.strictEqual(/display:\s*none/i.test(html), false);
+    assert.strictEqual((body.match(/display:\s*none/gi) || []).length, 1, 'only the preheader span');
     assert.strictEqual(html.indexOf('<div'), -1);
     assert.strictEqual(html.indexOf('fonts.googleapis'), -1, 'no web font in the email');
-    assert.strictEqual(html.split(render.esc(m.link)).length - 1, 1, 'the CTA URL once (escaped in the href)');
-    assert.ok(html.indexOf('>VIEW YOUR PROJECTS</a>') > 0);
+    assert.strictEqual(visible.split(render.esc(m.link)).length - 1, 1, 'the CTA URL once in the visible markup');
+    assert.strictEqual(html.split(render.esc(m.link)).length - 1, 2, 'and once in its Outlook twin');
+    assert.ok(html.indexOf('><b>VIEW ALL YOUR PROJECTS</b></font></a>') > 0, '2.0.3 wording');
     assert.ok(html.indexOf('YOUR PROJECTS UPDATE') > 0);
     assert.ok(html.indexOf('Here’s where everything stands') > 0);
-    assert.ok(html.indexOf('<strong>1 order is ready to arrange delivery.</strong> Choose a date that suits you. 1 order is awaiting your bank transfer.') > 0);
-    assert.ok(html.indexOf('Your account manager</p>') > 0 && html.indexOf('>Pat Lee</p>') > 0 && html.indexOf('mailto:pat@example.com') > 0);
+    // 2.0.3: the v2 action box replaces the callout sentences.
+    assert.ok(html.indexOf('<b>1 order is ready to deliver</b>') > 0);
+    assert.ok(html.indexOf('href="https://acct.extforms.netsuite.com/sl?t=TOKEN&amp;a=delivery&amp;so=100"') > 0);
+    assert.ok(html.indexOf('<b>YOUR ACCOUNT MANAGER</b>') > 0 && html.indexOf('<b>Pat Lee</b>') > 0);
+    assert.ok(html.indexOf('mailto:pat@example.com') > 0 && html.indexOf('tel:01234567890') > 0);
     assert.ok(html.indexOf('This link is personal to you. Please don’t forward this email.') > 0);
-    assert.ok(html.indexOf('You get this update every 2 weeks while you have an open project or order with us. ' +
+    assert.ok(html.indexOf('You get this update every 2 weeks while you have an open project or order with us.<br>' +
         // PR #3 amendment 2: the contact rule — a phone number, so "call … on …".
         'To stop these updates, reply to this email or call Pat Lee on 01234 567890.') > 0);
     // 1.2 (§6): the order's own lines — description in full, then the muted "Order SO… · type · state".
-    assert.ok(html.indexOf('>Underfloor heating Ground floor</p>') > 0, 'description line');
+    assert.ok(html.indexOf('>Underfloor heating Ground floor</b></font></p>') > 0, 'description line');
     assert.ok(html.indexOf('Order SO100 · Underfloor heating system · ready to arrange delivery') > 0, 'order line');
-    assert.strictEqual(html.indexOf('<img src="https://www.nu-heat.co.uk/logo.png"'), html.indexOf('<img'), 'only the logo');
-    assert.strictEqual((html.match(/<img/g) || []).length, 1, 'no photo');
+    assert.strictEqual(body.indexOf('<img src="https://www.nu-heat.co.uk/logo.png"'), body.indexOf('<img'), 'the logo first');
+    assert.strictEqual((html.match(/<img/g) || []).length, 7, 'the logo, the footer logo and five social icons; no photo');
     if (process.env.UPDATE_SNAPSHOTS || !fs.existsSync(snap)) {
         fs.writeFileSync(snap, html + '\n');
     }

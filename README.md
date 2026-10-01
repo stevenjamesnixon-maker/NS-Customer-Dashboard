@@ -20,6 +20,8 @@ the code, the code wins — and the document gets fixed in the same PR.
 src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/
     cdb_sl_dashboard.js        Suitelet, Available Without Login
     cdb_mr_digest.js           Map/Reduce: the digest email
+    cdb_ue_salesorder.js       User Event (2.0): the sales order's "Send delivery link" button
+    cdb_sl_send_link.js        Suitelet (2.0), login required: emails a direct delivery link
     lib/                       shared modules — uploaded, no script record needed
 test/                          node tests for the pure parts
 docs/context.md                canonical project context

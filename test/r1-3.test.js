@@ -222,7 +222,8 @@ test('14b. a digest that is sent ends with a Recently delivered group, outside t
         custscript_cdbmr_fallback_employee: '500', custscript_cdb_digest_mode: 'TEST', custscript_cdb_digest_test_customers: '42' };
     amd.load('cdb_mr_digest', ns.stubs(w)).map({ value: JSON.stringify({ customerId: '42' }), write: function () {} });
     var body = w.emails[0].body;
-    assert.ok(body.indexOf('>Booked deliveries</td>') > body.indexOf('SO100'), 'at the end');
+    // 2.0.3: one card per project; the delivered order is a row on its project's card, after SO100.
+    assert.ok(body.indexOf('SO300') > body.indexOf('SO100'), 'at the end');
     assert.ok(body.indexOf('>Delivered</span>') > 0);
     assert.ok(body.indexOf('delivered ' + dates.formatDisplay(TODAY, TODAY)) > 0);
     assert.strictEqual(body.indexOf('2 orders are ready'), -1, 'the delivered order is not counted');
@@ -392,11 +393,14 @@ test('B6. email: "For delivery" rows, then "Booked deliveries" last; the callout
     assert.strictEqual(render.digestCallout(groups, '1'), before, 'callout unchanged');
     assert.ok(before.indexOf('1 order is ready to arrange delivery') >= 0 && before.indexOf('1 order is awaiting your bank transfer') >= 0);
     var html = render.digestEmail({ customerName: 'A', groups: groups, payBacs: '1', link: 'https://x/l', am: {}, digestDays: 14 });
-    var heading = html.indexOf('>Booked deliveries</td>');
-    assert.ok(heading > 0);
-    ['SO100', 'SO101'].forEach(function (t) { assert.ok(html.indexOf(t) > 0 && html.indexOf(t) < heading, t + ' before'); });
-    ['SO103', 'SO102', 'SO300'].forEach(function (t) { assert.ok(html.indexOf(t) > heading, t + ' after'); });
-    assert.ok(html.indexOf('>Loft<') < heading, 'design rows are not under the booked heading');
+    // 2.0.3: one card per project, its orders in the section order: what needs the customer first,
+    // then what is in hand. The Barn card (orders to do) comes before the Loft card (design).
+    var cards = html.slice(html.indexOf('Your projects'));
+    var loft = cards.indexOf('>Loft<');
+    assert.ok(loft > 0);
+    ['SO100', 'SO101', 'SO102', 'SO103', 'SO300'].forEach(function (t) { assert.ok(cards.indexOf(t) > 0 && cards.indexOf(t) < loft, t + ' on the Barn card'); });
+    var heading = cards.indexOf('SO101');
+    ['SO103', 'SO102', 'SO300'].forEach(function (t) { assert.ok(cards.indexOf(t) > heading, t + ' after'); });
     // SO102 is booked for 20 Oct; SO103 is released with no ship date, so it sorts after the dated one.
     assert.ok(html.indexOf('SO102') < html.indexOf('SO103') && html.indexOf('SO103') < html.indexOf('SO300'), 'booked order');
 });
@@ -413,6 +417,6 @@ test('B7. who gets a digest is unchanged: booked or released orders alone still 
     var written = [];
     amd.load('cdb_mr_digest', ns.stubs(w)).map({ value: JSON.stringify({ customerId: '42' }), write: function (o) { written.push(o); } });
     assert.deepStrictEqual(written, [{ key: 'sent', value: '42' }], 'a booked open order alone: sent, as in 1.3.0');
-    assert.ok(w.emails[0].body.indexOf('>Booked deliveries</td>') > 0);
+    assert.ok(w.emails[0].body.indexOf('<b>Booked</b>') > 0, '2.0.3: the project is at Booked');
     assert.strictEqual(w.emails[0].body.indexOf('#fffaf0'), -1, 'no callout');
 });

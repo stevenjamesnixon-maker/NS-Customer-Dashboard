@@ -23,7 +23,7 @@
  * confirmed on the Estimate only; an unjoined sales order column could make the search throw.
  * cleanDescription() turns the stored HTML-ish value into plain text; render escapes it once.
  *
- * THE EXTRAS (1.2) — terms, the split reference, the balance, the total and the deposit — come
+ * THE EXTRAS (1.2) — terms, the split reference, and (2.0.5) the two system balances — come
  * from ONE SEPARATE search, getOrderExtras(), run once per request for every order on the page.
  * The main order searches never gain these columns: a custom field that does not apply to sales
  * orders makes a search throw, and that must not take the dashboard down. If the extras search
@@ -51,6 +51,15 @@
  * the excluded list — shipped orders usually carry a completed Record Status — only the optional
  * custscript_cdb_recent_hidden_statuses. A failure logs CDB RECENT_FAILED and returns no rows.
  *
+ * EMAILS TO THE CUSTOMER (2.0) share two rules, so the customer sees the same person and the same
+ * inbox everywhere: emailRecipient() — the dashboard contact's email, else the customer's email —
+ * and emailAuthor() — the customer's sales rep if active, else the fallback employee. The digest
+ * and the Send delivery link Suitelet both use them. 2.0.2: emailAuthor() also reads the author's
+ * firstname and custentity_employee_photo_link in the SAME lookup, and emailAm() turns the author
+ * into the email card's account manager — the Send Quote 2.2.0 card — logging CDB AM_PHOTO once per
+ * email (photo used, or skipped and why). orderCustomer() gives the customer an order
+ * belongs to for links: its OPPORTUNITY's customer (the guard's rule), never the order's entity.
+ *
  * The pure functions — isOpenOrder, orderState, groupProjects, resolveRecipient,
  * validateDelivery, amountToPay, isPrepay, decorateOrder — take plain rows and are node-tested (test/grouping.test.js,
  * test/validation.test.js). The search functions only fetch and shape.
@@ -59,14 +68,14 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.4
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.4';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -509,43 +518,36 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
-     * Pure: what the customer has to pay on an order.
-     *   1. balance set (0 is a real value)   -> balance,                 basis 'balance'
-     *   2. else total set                    -> total - (deposit || 0),  basis 'total_less_deposit'
-     *   3. else                              -> null
-     * A negative result is null; onOdd, if given, is told why (the caller logs CDB AMOUNT_ODD).
+     * Pure (2.0.5): what the customer has to pay on an order — the SYSTEM BALANCES ONLY (Steve, 1 Oct):
+     *   incVat  custbodycustbody_sys_bal_incvat, the amount to pay including VAT, after any deposits
+     *   exVat   custbody_sys_bal_exvat, the same excluding VAT; null when blank
+     * The inc-VAT balance blank (or not a number) -> null: NO FALLBACK (the old total - deposit sum gave
+     * wrong figures). 0 is a real value ("Nothing left to pay on this order"). A negative inc-VAT
+     * balance is null and onOdd, if given, is told why (the caller logs CDB AMOUNT_ODD); a negative
+     * ex-VAT balance alone is dropped (exVat null).
      *
-     * @param {Object} extras - { balance, total, deposit } as the search returned them
+     * @param {Object} extras - { balance, balanceEx } as the extras search returned them
      * @param {function(string)} [onOdd]
-     * @returns {{amount: number, basis: string}|null}
+     * @returns {{incVat: number, exVat: (number|null)}|null}
      */
     function amountToPay(extras, onOdd) {
-        var balance;
-        var total;
-        var amount;
-        var basis;
+        var inc;
+        var ex;
         if (!extras) {
             return null;
         }
-        balance = toAmount(extras.balance);
-        total = toAmount(extras.total);
-        if (balance !== null) {
-            amount = balance;
-            basis = 'balance';
-        } else if (total !== null) {
-            amount = Math.round((total - (toAmount(extras.deposit) || 0)) * 100) / 100;
-            basis = 'total_less_deposit';
-        } else {
+        inc = toAmount(extras.balance);
+        if (inc === null) {
             return null;
         }
-        if (amount < 0) {
+        if (inc < 0) {
             if (onOdd) {
-                onOdd('negative amount ' + amount + ' (' + basis + '; balance "' + trim(extras.balance) +
-                    '", total "' + trim(extras.total) + '", deposit "' + trim(extras.deposit) + '")');
+                onOdd('negative balance: inc VAT "' + trim(extras.balance) + '", ex VAT "' + trim(extras.balanceEx) + '"');
             }
             return null;
         }
-        return { amount: amount, basis: basis };
+        ex = toAmount(extras.balanceEx);
+        return { incVat: inc, exVat: ex !== null && ex >= 0 ? ex : null };
     }
 
     /**
@@ -855,10 +857,21 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * One lookup on an employee. The phone is the employee `phone` field — the field Send Quote's card
+     * reads (master proposal loadSalesRepData) — else `mobilephone`, this repo's fallback.
+     *
+     * 2.0.2: withPhoto adds custentity_employee_photo_link to the SAME lookup, for the email card. If
+     * that lookup throws (say, the field is missing in an account) it is retried once without the
+     * photo, so a photo problem never costs the author or the send; photoError says why.
+     *
      * @param {string} employeeId
-     * @returns {Object|null} { id, name, phone, email, isInactive }
+     * @param {boolean} [withPhoto]
+     * @returns {Object|null} { id, name, firstName, phone, email, isInactive, photoLink, photoError }
      */
-    function getEmployee(employeeId) {
+    function getEmployee(employeeId, withPhoto) {
+        var columns = ['entityid', 'firstname', 'lastname', 'phone', 'mobilephone', 'email', 'isinactive'];
+        var photoField = config.FIELDS.EMPLOYEE.PHOTO_LINK;
+        var photoError = '';
         var r;
         if (trim(employeeId) === '') {
             return null;
@@ -867,19 +880,64 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             r = search.lookupFields({
                 type: search.Type.EMPLOYEE,
                 id: employeeId,
-                columns: ['entityid', 'firstname', 'lastname', 'phone', 'mobilephone', 'email',
-                    'isinactive']
+                columns: withPhoto ? columns.concat([photoField]) : columns
             });
         } catch (e) {
-            return null;
+            if (!withPhoto) {
+                return null;
+            }
+            photoError = 'employee lookup with the photo field failed: ' + (e && e.message ? e.message : String(e));
+            try {
+                r = search.lookupFields({ type: search.Type.EMPLOYEE, id: employeeId, columns: columns });
+            } catch (e2) {
+                return null;
+            }
         }
         return {
             id: String(employeeId),
             name: trim(trim(r.firstname) + ' ' + trim(r.lastname)) || trim(r.entityid),
+            firstName: trim(r.firstname),
             phone: trim(r.phone) || trim(r.mobilephone),
             email: trim(r.email),
-            isInactive: isTicked(r.isinactive)
+            isInactive: isTicked(r.isinactive),
+            photoLink: withPhoto && !photoError ? trim(r[photoField]) : '',
+            photoError: photoError
         };
+    }
+
+    /**
+     * Pure (Send Quote's checkPhotoUrl): the photo URL if an email can use it — absolute https://, no
+     * spaces, quotes or angle brackets.
+     * @returns {{url: string, reason: string}} reason says why not, when url is ''
+     */
+    function checkPhotoUrl(value) {
+        var text = trim(value);
+        if (!text) {
+            return { url: '', reason: config.FIELDS.EMPLOYEE.PHOTO_LINK + ' is empty' };
+        }
+        if (!/^https:\/\//i.test(text)) {
+            return { url: '', reason: 'not an https:// URL' };
+        }
+        if (/[\s"'<>]/.test(text)) {
+            return { url: '', reason: 'URL contains spaces, quotes or angle brackets' };
+        }
+        return { url: text, reason: '' };
+    }
+
+    /**
+     * 2.0.2: the account manager for an email's card, from emailAuthor()'s result. Logs CDB AM_PHOTO
+     * once — photo used, or skipped and why (the Send Quote pattern). Call once per email.
+     * @param {Object} author - from emailAuthor()
+     * @param {string} what - for the log, e.g. 'Digest, customer 42'
+     * @returns {Object} { name, phone, email, firstName, photoUrl }
+     */
+    function emailAm(author, what) {
+        var a = author || {};
+        var photo = a.photoError ? { url: '', reason: a.photoError } : checkPhotoUrl(a.photoLink);
+        log.audit({ title: config.logTitle('AM_PHOTO'), details: what + ', employee ' + (a.id || 'none') +
+            (photo.url ? ': photo used' : ': photo skipped: ' + photo.reason) });
+        return { name: a.name || '', phone: a.phone || '', email: a.email || '', firstName: a.firstName || '',
+            photoUrl: photo.url };
     }
 
     /**
@@ -897,6 +955,64 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             return '';
         }
         return trim(r.email);
+    }
+
+    /**
+     * 2.0, the digest's rule: who a customer email goes to — the dashboard contact's email, else the
+     * customer's own. The caller decides what an unusable result means.
+     * @param {Object} customer - from getCustomer()
+     * @returns {string} '' when neither is set
+     */
+    function emailRecipient(customer) {
+        return getContactEmail(customer.dashboardContact) || customer.email;
+    }
+
+    /**
+     * 2.0, the digest's rule (moved here from cdb_mr_digest.js unchanged): who a customer email comes
+     * from and whose card it shows — the customer's sales rep if active, else the fallback employee.
+     * Never the current user.
+     * @param {Object} customer - from getCustomer()
+     * @param {Object} cfg - FALLBACK_EMPLOYEE
+     * 2.0.2: the lookup also reads the photo link (getEmployee(id, true)).
+     * @returns {Object} { id, name, firstName, phone, email, photoLink, photoError }
+     */
+    function emailAuthor(customer, cfg) {
+        var rep = customer.salesRep ? getEmployee(customer.salesRep, true) : null;
+        if (rep && !rep.isInactive) {
+            return rep;
+        }
+        return getEmployee(String(cfg.FALLBACK_EMPLOYEE), true) ||
+            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', firstName: '', phone: '', email: '', photoLink: '',
+                photoError: 'the employee could not be read' };
+    }
+
+    /**
+     * 2.0: the customer a sales order's links belong to — its OPPORTUNITY's customer, the guard's
+     * rule, never the order's own entity. Two lookups. Never throws.
+     * @param {string} orderId
+     * @returns {{opportunityId: string, customerId: string}|null} null when the order or its
+     *   opportunity cannot be read, or the order has no opportunity
+     */
+    function orderCustomer(orderId) {
+        var so;
+        var opp;
+        var oppId;
+        var customerId;
+        if (!/^\d+$/.test(trim(orderId))) {
+            return null;
+        }
+        try {
+            so = search.lookupFields({ type: search.Type.SALES_ORDER, id: trim(orderId), columns: [SO.OPPORTUNITY] });
+            oppId = lookupSelect(so[SO.OPPORTUNITY]).value;
+            if (oppId === '') {
+                return null;
+            }
+            opp = search.lookupFields({ type: search.Type.OPPORTUNITY, id: oppId, columns: ['entity'] });
+            customerId = lookupSelect(opp.entity).value;
+        } catch (e) {
+            return null;
+        }
+        return customerId === '' ? null : { opportunityId: oppId, customerId: customerId };
     }
 
     /** Runs a search to completion, mapping each result. */
@@ -1065,8 +1181,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             opp = search.lookupFields({
                 type: search.Type.OPPORTUNITY,
                 id: result.order.opportunityId,
+                // 2.0.3: the site address too, for the delivery-link email's "Project" row.
                 columns: ['entity', 'title', 'tranid', 'salesrep', OPP.PE, OPP.VALUE_PROPOSITION,
-                    OPP.STATUS]
+                    OPP.STATUS, OPP.SITE_ADDRESS]
             });
         } catch (e) {
             result.reason = GUARD.NOT_OPEN;
@@ -1081,6 +1198,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             id: result.order.opportunityId,
             title: trim(opp.title),
             tranId: trim(opp.tranid),
+            siteAddress: trim(opp[OPP.SITE_ADDRESS]),
             status: oppStatus,
             salesRep: lookupSelect(opp.salesrep).value,
             pe: lookupSelect(opp[OPP.PE]).value,
@@ -1119,7 +1237,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * renders as in 1.1 and every order is treated as pay up front. Call it once per request.
      *
      * @param {string[]} orderIds
-     * @returns {Object} soId -> { termsId, uniqueRef, balance, total, deposit }
+     * @returns {Object} soId -> { termsId, uniqueRef, balance, balanceEx }
      */
     function getOrderExtras(orderIds) {
         var result = {};
@@ -1130,14 +1248,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             collect(search.create({
                 type: search.Type.SALES_ORDER,
                 filters: [['mainline', 'is', 'T'], 'AND', ['internalid', 'anyof', orderIds]],
-                columns: [SO.TERMS, SO.UNIQUE_REF, SO.BALANCE, SO.TOTAL, SO.DEPOSIT]
+                columns: [SO.TERMS, SO.UNIQUE_REF, SO.BALANCE, SO.BALANCE_EX]
             }), function (r) {
                 result[String(r.id)] = {
                     termsId: trim(r.getValue(SO.TERMS)),
                     uniqueRef: trim(r.getValue(SO.UNIQUE_REF)),
                     balance: trim(r.getValue(SO.BALANCE)),
-                    total: trim(r.getValue(SO.TOTAL)),
-                    deposit: trim(r.getValue(SO.DEPOSIT))
+                    balanceEx: trim(r.getValue(SO.BALANCE_EX))
                 };
             });
         } catch (e) {
@@ -1296,6 +1413,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getCustomer: getCustomer,
         getEmployee: getEmployee,
         getContactEmail: getContactEmail,
+        emailRecipient: emailRecipient,
+        emailAuthor: emailAuthor,
+        emailAm: emailAm,
+        checkPhotoUrl: checkPhotoUrl,
+        orderCustomer: orderCustomer,
         getOpportunities: getOpportunities,
         getOrdersForOpportunities: getOrdersForOpportunities,
         getProjects: getProjects,

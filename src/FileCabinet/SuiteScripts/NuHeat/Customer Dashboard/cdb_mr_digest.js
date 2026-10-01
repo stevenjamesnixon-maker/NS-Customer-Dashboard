@@ -17,12 +17,18 @@
  *
  * PER CUSTOMER (map):
  *   recipient  the dashboard contact's email, otherwise the customer's email
+ *              (data.emailRecipient(), 2.0: shared with the Send delivery link email)
  *   author     the customer's sales rep if active, otherwise the fallback employee. Never the
- *              current user.
+ *              current user. (data.emailAuthor(), 2.0: moved there unchanged, and shared)
  *   skip       no recipient, or nothing to show — logged at audit with the reason
  *   extras     1.2: data.getOrderExtras() once per customer (fail-safe) for the split reference;
  *              the short type labels come from custscript_cdbmr_quote_type_labels. No amounts.
- *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1)
+ *   body       render.digestEmail(): the Email artboard of docs/design/canvas/ (1.1), in the customer
+ *              email standard (2.0.2: Send Quote 2.2.0's card, footer and robustness rules). The AM
+ *              card is the author, with firstname and photo from the same lookup (data.emailAm(),
+ *              CDB AM_PHOTO once per email). 2.0.3: the v2 design (EmailDigestV2.dc.html): summary
+ *              tiles, the ready orders each with its own direct delivery link (at most 3), one card
+ *              per project with a progress bar
  *   send       email.send with relatedRecords.entityId = customer, so it lands on the customer's
  *              Communication tab
  *   stamp      custentity_cdb_last_digest = today (London). THE ONLY CUSTOMER FIELD THIS REPO
@@ -33,7 +39,7 @@
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 1.3.2
+ * @version 2.0.3
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -41,7 +47,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '1.3.2';
+    var VERSION = '2.0.3';
 
     var CUST = config.FIELDS.CUSTOMER;
     var OPP = config.FIELDS.OPPORTUNITY;
@@ -190,18 +196,6 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         });
     }
 
-    /**
-     * The sales rep if active, otherwise the fallback employee.
-     */
-    function author(customer, cfg) {
-        var rep = customer.salesRep ? data.getEmployee(customer.salesRep) : null;
-        if (rep && !rep.isInactive) {
-            return rep;
-        }
-        return data.getEmployee(String(cfg.FALLBACK_EMPLOYEE)) ||
-            { id: String(cfg.FALLBACK_EMPLOYEE), name: '', phone: '', email: '' };
-    }
-
     function skip(context, customerId, reason) {
         log.audit({ title: title('DIGEST_SKIPPED'), details: 'Customer ' + customerId + ': ' + reason });
         context.write({ key: OUTCOME.SKIPPED_PREFIX + reason, value: customerId });
@@ -228,7 +222,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 skip(context, customerId, 'customer inactive');
                 return;
             }
-            recipient = data.getContactEmail(customer.dashboardContact) || customer.email;
+            recipient = data.emailRecipient(customer);
             if (!recipient) {
                 skip(context, customerId, 'no recipient email');
                 return;
@@ -247,7 +241,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             // 1.3.2: the email follows the page's two delivery groups. Who gets a digest is unchanged:
             // groups.isEmpty was decided above, before this split.
             data.arrangeSections(groups);
-            from = author(customer, cfg);
+            from = data.emailAuthor(customer, cfg);
 
             body = render.digestEmail({
                 customerName: customer.name,
@@ -256,7 +250,12 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 groups: groups,
                 payBacs: cfg.PAY_BACS,
                 link: token.buildLink(customerId),
-                am: from,
+                // 2.0.3: each ready order's own direct link, for the action box (at most 3 calls).
+                orderLink: function (soId) {
+                    return token.buildLink(customerId, { a: 'delivery', so: soId });
+                },
+                title: SUBJECT,
+                am: data.emailAm(from, 'Digest, customer ' + customerId),
                 digestDays: cfg.DIGEST_DAYS
             });
 

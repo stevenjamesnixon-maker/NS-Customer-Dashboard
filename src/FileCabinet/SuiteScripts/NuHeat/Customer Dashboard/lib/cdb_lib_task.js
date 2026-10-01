@@ -20,13 +20,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.2.1
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.2.1';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -49,7 +49,8 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @param {string} paymentText
      * @param {string} requests
      * @param {Object} [order] - 1.2: { description, uniqueRef, paymentChoice ('BACS' | 'Card' |
-     *                           'Add to account'), amountText (pay-up-front only; '' otherwise),
+     *                           'Add to account'), amountText (render.amountText(): "£x inc VAT (£y ex VAT)";
+     *                           2.0.5 — '' for Add to account or an unknown amount),
      *                           account (true for an Add-to-account booking) }
      * @returns {string}
      */

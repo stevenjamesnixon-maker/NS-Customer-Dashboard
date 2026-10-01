@@ -6,8 +6,23 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (release 1.3, `feat/dashboard-r1-3`). **Status:** releases 1 and 1.1 passed their Production
-tests on 30 Sep 2026; release 1.2 merged; release 1.3 not deployed.
+**Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**2.0.5 (PR #5 amendment 5):** the amount to pay is the system balances only, shown everywhere as
+*£x inc VAT (£y ex VAT)*; the `total − deposit` fallback is removed (section 4, *Amount to pay*).
+
+**2.0.4 (PR #5 amendment 4):** the delivery-link email's hero and "Before you book" icons are
+constants in `cdb_lib_config.js`, not parameters (Steve, 1 Oct: fixed branding images are constants).
+
+**2.0.3 (PR #5 amendment 3):** customer emails v2 — both emails built to the approved designs
+`docs/design/canvas/EmailDeliveryLink.dc.html` and `EmailDigestV2.dc.html` (section 4, *Customer emails v2*).
+
+**2.0.2 (PR #5 amendment 2):** one customer email standard — both emails follow Send Quote 2.2.0's
+email card (section 4, *The customer email standard*).
+
+**2.0.1 (PR #5 amendment 1):** `custscript_cdbsend_quote_type_labels` added; the delivery-link email
+shows the short type label (*Order SO… · UFH*).
 
 **Versions:** every amendment to an open release PR bumps the patch version (1.3.1, 1.3.2…) of
 every file it changes. Steve tells deployed copies apart by version.
@@ -71,6 +86,11 @@ every file it changes. Steve tells deployed copies apart by version.
     list (section 4). NS-Opportunity-SO-Sync's excluded list is **unchanged** and still means "don't
     evaluate readiness". Do not "tidy" the two lists into one.
 
+13. **Every customer action has its own direct link (2.0).** `?t=<token>&a=<action>&<id>=<value>`
+    (today: `a=delivery&so=<sales order>`). Emails link to the action; confirmation pages link back to
+    the dashboard. The link's customer is **always the order's opportunity's customer** (the guard's
+    rule), never the order's `entity`. Section 4, *Direct links*.
+
 ---
 
 ## 1. What this solves
@@ -94,14 +114,16 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 1.3.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 1.3.2 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
-| Config library | 1.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix | Not deployed |
-| Token library | 1.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId)` | Not deployed |
+| Dashboard Suitelet | 2.0.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
+| Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
+| Config library | 2.0.5 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
-| Data library | 1.3.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation | Not deployed |
-| Render library | 1.3.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, email | Not deployed |
-| Task library | 1.2.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
+| Data library | 2.0.4 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
+| Render library | 2.0.5 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Task library | 1.2.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE | Not deployed |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
 
@@ -116,6 +138,13 @@ Production.
 |---|---|
 | Script IDs — `custbody_*`, `custentity_*`, `custrecord_*`, `customrecord_*`, `customlist_*`, `customscript_*`, `customdeploy_*`, `custscript_*`, `custsecret_*` | Internal IDs — list option IDs, status IDs, employee IDs, quote type record IDs, customer IDs |
 | NetSuite's standard status codes (`SalesOrd:B`) and text values (`NOTSTART`, `HIGH`) | Account numbers, account-specific URLs, bank details |
+
+**Fixed branding images are constants, not parameters (Steve, 1 Oct 2026, amendment 4).** Parameters
+are for values that differ by account or that the business changes (internal IDs). The public image
+addresses in `cdb_lib_config.js` — `EMAIL_STANDARD` (Send Quote's image host, footer logo and social
+icons), `EMAIL_HERO_URL` and `EMAIL_ICONS` (File Cabinet `media.nl?id=…&c=472052&h=…` URLs) — are a
+**stated exception to "no numeric IDs in code"**: the numbers in them are part of a public URL, not
+record IDs the code reads or writes.
 
 Everything variable is a script parameter set on the deployment, so each account carries its
 own values. The bank details are parameters too: they are not secret, but they are not code.
@@ -141,11 +170,179 @@ url     = url.resolveScript({ scriptId: 'customscript_cdb_sl_dashboard',
   → `update({ input, inputEncoding: UTF_8 })` → `digest({ outputEncoding: BASE_64 })`.
   `encoding` on `createSecretKey` says how the secret's clear text is read; it defaults to HEX,
   and UTF_8 lets the secret be any random string.
+- **The API Secret is "Allow for all scripts"** (2.0 correction). Restricting it to the named scripts
+  failed in Production with *"An error occurred while decrypting a secret"*, probably because
+  `N/crypto` is called from a library file (`cdb_lib_token.js`) rather than from a script record. It
+  is still never restricted by employee.
 - **Verify** checks, in order: shape, payload, HMAC (constant-time compare), the customer exists,
   is not inactive, and its version matches. Any failure shows **one** page — *"This link is no
   longer valid. Please contact your account manager"* — and logs `CDB INVALID_LINK` at audit with
   the reason.
-- `buildLink(customerId)` is exported for the digest and future email templates.
+- `buildLink(customerId, extra)` is exported for the digest, the *Send delivery link* email and
+  future email templates. `extra` is passed through to `url.resolveScript`, which encodes it; with
+  no `extra` the link is byte-identical to 1.x. An extra `t` is ignored.
+
+### Direct links (2.0)
+
+**Every customer action gets its own direct link**: `?t=<token>&a=<action>&<id>=<value>`. The token
+still names only the customer; the action and its ID are plain parameters, and the dashboard
+Suitelet guards them against the token's customer exactly as before. Emails link **to the action**
+(the *Send delivery link* email's button is `?t=…&a=delivery&so=<id>`), with a secondary link to the
+dashboard; confirmation pages link back to the dashboard.
+
+**The customer for a link is always the order's opportunity's customer** (`data.orderCustomer()`,
+the guard's rule), never the order's own `entity`. A link built for any other customer would be
+refused by the guard as *another customer*.
+
+### Send delivery link (2.0)
+
+Staff send a customer a *book your delivery* link for **one** sales order. Automatic sending comes
+later.
+
+**`cdb_ue_salesorder.js`** — User Event on Sales Order, `beforeLoad`, **VIEW only, internal UI only**
+(any other event or execution context does nothing). It adds **Send delivery link** when all five
+hold, read from the record's own fields (no search, no parameter, no units): `opportunity` set; the
+native `orderstatus` is A, B, D or E (`config.SHIPPABLE_STATUSES`); `custbody_del_date` empty;
+`custbody_cust_pay_intent` empty; `custbody_ready_for_delivery` ticked. The button is a convenience,
+not the check: a released or excluded order can show it and is then refused by the Suitelet. Clicking
+goes to the internal Suitelet with `so=<id>` (URL from `url.resolveScript`, an inline
+`window.location.assign` handler, no client script file).
+
+**The banner.** The Suitelet redirects back with `cdbsl=sent|refused|failed` and `cdblt=<ms>`. The
+text comes only from `config.SEND_LINK_BANNERS`, a fixed whitelist keyed by the code; an unknown code
+shows nothing and nothing from the URL is displayed. It shows for 300 seconds after `cdblt` (60
+seconds of clock difference tolerated the other way). The recipient's email is **not** in the
+banner: no record holds it, and reading the script log costs a search; it is in `CDB SEND_LINK` and
+on the Communication tab.
+
+**`cdb_sl_send_link.js`** — internal Suitelet, **login required, GET only**:
+
+1. `config.load()` — the `custscript_cdbsend_` parameters (below).
+2. `data.orderCustomer(so)` (the opportunity's customer), then `data.guardOrder()` for that customer:
+   open, ready, not booked, not requested, not released. Refused → back to the order with
+   `cdbsl=refused`; `CDB SEND_REFUSED` with the guard's reason. An inactive customer is refused too
+   (the link would show the invalid page).
+3. Recipient: `data.emailRecipient()` — the dashboard contact's email, else the customer's (the
+   digest's rule). Missing or not an email → `refused`; `CDB SEND_NO_RECIPIENT`.
+4. Author: `data.emailAuthor()` — the customer's sales rep if active, else the fallback employee (the
+   digest's rule, moved to the data library and shared). **Not the user who pressed the button.**
+5. The email: `render.deliveryLinkEmail()` with the direct link
+   `buildLink(oppCustomer, { a: 'delivery', so })` and the dashboard link `buildLink(oppCustomer)`;
+   the extras (description, split reference, type label) as the dashboard reads them. The short type
+   label comes from `custscript_cdbsend_quote_type_labels` (2.0.1) with the dashboard's parser and
+   fallback: empty or invalid → the quote type's own text, logged once (`CDB PARAMETER_DEFAULT` /
+   `CDB TYPE_LABELS_INVALID`), never failing the send.
+6. `email.send` with `relatedRecords: { entityId: customer, transactionId: so }` — on both
+   Communication tabs. Any failure → `cdbsl=failed`; `CDB SEND_FAILED`.
+7. `CDB SEND_LINK`: the order, the customer, the recipient, the author and **the user who pressed**.
+8. `redirect.toRecord` to the order with `cdbsl=sent`.
+
+**No record writes.** Sending changes nothing on the order; a resend is just another email.
+
+**The email** (`render.deliveryLinkEmail`, snapshot `test/snapshots/delivery-link-email.html`):
+subject *"Your order {SO} is ready to deliver: choose your date"*; the logo; the band *READY TO
+DELIVER / Choose your delivery date / Hello {name}*; the intro; one order block (project title, order
+title, split reference, *Order SO… · UFH*); the yellow **ARRANGE DELIVERY** button; *Or view all your
+projects*; the personal-link line; the AM card (the author); the footer *"You're receiving this
+because you have an order with Nu-Heat."* — **no opt-out wording**. Every word is in
+`config.DELIVERY_LINK_EMAIL`, so it changes in one place. It is built from the shared email blocks
+(below), as the digest is.
+
+### The customer email standard (2.0.2)
+
+**Every customer email from the dashboard — the digest and the delivery link — follows Send Quote
+2.2.0's email card** (Steve, 1 Oct 2026), so a customer gets one family of emails. Copied from
+`stevenjamesnixon-maker/2026.03-Online-quote` `main` at **commit `4463cfa`** (1 Oct 2026; Send Quote SL
+2.3.1, where the 2.2.0 email builder now lives in `nuheat_opp_update_lib.js` 1.1.0 — `emailShell`,
+`emailRepCard`, `emailButton`, `checkPhotoUrl`, `resolveFirstName` — moved there byte-identical).
+The patterns and constants are copied; the proposal content (hero, *Your quote*, *Why choose
+Nu-Heat?*, the Send Quote logo and purple header) is not. Constants: `config.EMAIL_STANDARD`.
+
+- **The document** (`render.emailShell`): a whole HTML document, Send Quote's head (meta, the Outlook
+  `OfficeDocumentSettings`, the phone media query, the Outlook font rule), the hidden **preheader**,
+  white page, the centred `width="600"` column. Inside it, unchanged in content: our logo
+  (`custscript_cdb_logo_url`), our band, the rows, the button(s), the links.
+- **The account manager card** (`render.emailRepCard`, replaces 2.0's `emailAmBlock`): a 96 px
+  circular photo only when `custentity_employee_photo_link` (trimmed) is an `https://` URL with no
+  spaces, quotes or angle brackets — otherwise no photo row at all; *YOUR ACCOUNT MANAGER*; the name;
+  phone · email (two lines on phones); **CALL {FIRST}** (`tel:`, digits and + only) and **EMAIL
+  {FIRST}** (`mailto:`) side by side, full width and stacked on phones. FIRST is the employee's
+  `firstname`, else the first word of the name, else the buttons read *CLICK TO CALL* / *SEND AN
+  EMAIL*. A button without its value is left out. No name, phone or email at all: no card.
+- **The AM** is the email's author, as before (`data.emailAuthor()`: the customer's rep if active,
+  else the fallback employee). The author lookup now also reads `custentity_employee_photo_link` in the
+  **same** `search.lookupFields` (`getEmployee(id, true)`); if that lookup throws it is retried once
+  without the photo, so a photo problem never costs the author or the send. **The phone** is the
+  employee `phone` field, else `mobilephone` (this repo's fallback). Send Quote's card reads the same
+  `phone` field (not `officephone`), after an Opportunity override this repo does not have.
+- **`CDB AM_PHOTO`**, once per email at audit: *photo used*, or *photo skipped: <why>* (the Send Quote
+  pattern, `data.emailAm()`).
+- **The footer**: Send Quote's footer — its logo and the five social icons and links (Facebook,
+  Instagram, LinkedIn, Twitter, YouTube) from Send Quote's image host — and one line per email. 2.0.3:
+  teal `#25847a` as drawn, with the line inside it: the digest's *"You get this update every {N} weeks … reply to this email or call / email /
+  contact {AM}."* (the 1.2 wording rules), the delivery link's *"You’re receiving this because you
+  have an order with Nu-Heat."*
+- **Preheaders**: digest *"Here’s where your Nu-Heat projects are up to."*; delivery link *"Your order
+  is ready: choose your delivery date."*
+
+### Customer emails v2 (2.0.3)
+
+Both emails are built to Steve's approved designs (`docs/design/canvas/EmailDeliveryLink.dc.html`,
+`EmailDigestV2.dc.html`, merged from `design/emails-v2`), keeping every 2.0.2 rule. Where the drawings
+use flex or grid, the emails use table cells. Wording lives in `config.DELIVERY_LINK_EMAIL` and
+`config.DIGEST_EMAIL`; colours in `config.EMAIL_STANDARD` (purple `#59315f`, magenta `#a3155f`, panels
+`#f4f4f4`, teal `#25847a`).
+
+**Shared.** The AM card's CALL button is filled purple, EMAIL a purple outline (an outer purple cell
+round a white one, so the outline survives stripped styles); both bulletproof. **Contact fallback**
+(Send Quote's): no phone on the employee → `01404 540604`; no email → `info@nu-heat.co.uk`, in the card's
+text and buttons and the "need it sooner" line (`EMAIL_STANDARD.FALLBACK_PHONE` / `FALLBACK_EMAIL`), so
+the card always shows both buttons. The personal-link line now sits under the card, as drawn.
+
+**"Book your delivery"** (`render.deliveryLinkEmail`): logo; band *READY TO DELIVER / Your order is
+ready, {name} / Choose a delivery date…*; **hero** — `config.EMAIL_HERO_URL`, a constant: 2.0.4 uses
+Send Quote 2.2.0's hero (*Order conformation.jpg*), its URL and `width="600" height="337"` copied
+exactly from 2026.03-Online-quote `nuheat_send_quote_sl.js` **line 1278** (commit `4463cfa`; the image
+host is `EMAIL_IMG`, `nuheat_opp_update_lib.js` line 858), full width, `alt=""`, only for an https
+address; **Your order** — the label, the order title, then the facts: *Order* (SO… · UFH), *Project*
+(QR… · site address, `guardOrder()` now reads `custbody_opp_site_adress`), *This order* (the split
+reference, only when set), *Earliest delivery* (the delivery form's own first allowed date —
+`custscript_cdbsend_notice_days`, weekends, the non-delivery dates, the 6-month horizon — shown as on
+the form, then *(sooner? call us)*; left out if none or the read fails, `CDB EARLIEST_FAILED`), *Amount
+to pay* (`£x inc VAT`, only when the amount is known and the order pays up front — decided as on the
+dashboard from `custscript_cdbsend_prepay_terms` and `_pay_account`; 0 reads *Nothing left to pay*);
+**CHOOSE MY DELIVERY DATE** and *Or view all your projects*; **How it works** — three numbered steps,
+step 1 with *Need it sooner? … call {first} on {phone}* (`tel:`), step 3 worded for pay-up-front or
+account; **Before you book** — the grey panel, three tips, each with its icon from `config.EMAIL_ICONS`
+(2.0.4: LORRY, PARCEL, PEOPLE — square teal-on-transparent PNGs in the File Cabinet), `width="48"
+height="48"`, `alt=""`, URL escaped (`&` → `&amp;`), centred above the tip; a blank or non-https
+constant shows the tip as text only; **Questions?** and the AM card; the personal
+line; the footer.
+
+**The projects update** (`render.digestEmail`): logo and band as before; **summary tiles**, one equal
+cell per non-zero count in one row — ready to book (`#fff5dc`), awaiting payment (`#e3edf7`), in design
+(`#efe9f1`, projects), booked (`#e6f2ec`, released or booked orders) — none when all are zero; the
+**action box**, only with ready orders: *{n} order(s) ready to deliver*, at most 3 rows (description,
+*project · Order SO… · UFH · split reference*, **CHOOSE DATE** to that order's own direct link), then
+*and {n} more on your projects page* linked to the dashboard; **Your projects** — one card per project
+in the section order (what needs the customer, design, quotes, then what is in hand), with a five-step
+**progress bar** (Quote → Ordered → Design → Delivery → Delivered/Booked: current yellow `#ffb500` and
+bold, earlier teal, later `#e2ded9`; `render.projectStage()`), and for delivery projects the order rows
+with their badges (awaiting BACS: *ref SO… for payment*); **VIEW ALL YOUR PROJECTS** (purple); the AM
+card, the personal line, the footer with the digest's wording. Who gets a digest, the subject and the
+14-day rule are unchanged. The old callout sentences (`digestCallout()`) are no longer rendered.
+
+**Robustness (Online-quote `AI_AGENT_CONTEXT.md` §9, pitfall 25).** The email must stay centred and
+single-column with every `style` attribute and every `<style>` block removed — NetSuite's message view
+on the Communication tab is such a viewer. So: layout by tables and attributes (`align`, `width`,
+`bgcolor`, `valign` on every structural `table` and `td`), CSS only polishing; no floats and no
+percentage-width side-by-side tables (two-up is one row of two `td width="50%"`, stacked on phones);
+centred by attribute at every level; the container `width="600"` with `style="width:100%;max-width:600px"`;
+**buttons are bulletproof tables with exactly one `[if !mso]` / `[if mso]` pair each** (this replaces
+1.1's "plain table cell, no VML": Send Quote's is proven in Outlook; still exactly one visible link per
+button in every client), no `display:none` wrappers (the preheader span excepted); colours as
+attributes too (`bgcolor`, `<font color>`); every value escaped. A stripped viewer shows the preheader
+text at the top — accepted, as in Send Quote. `test/r2-0-2.test.js` checks both emails stripped.
 
 ### Stages (`cdb_lib_data.groupProjects`, pure)
 
@@ -181,18 +378,37 @@ are hidden.
 
 `getOrderExtras(orderIds)` is **one** sales order search, run **once per request** for every order
 already on the page (`mainline T`, `internalid anyof`), reading `terms`, `custbody_unique_so_ref`,
-`custbodycustbody_sys_bal_incvat`, `total` and `custbody_deposit_total`. **The main order searches
+`custbodycustbody_sys_bal_incvat` and (2.0.5) `custbody_sys_bal_exvat`. **The main order searches
 never gain these columns.** It exists because a custom field that does not apply to sales orders
 makes a search throw: here that is caught, logged once as `CDB EXTRAS_FAILED`, and `{}` comes back —
 the page renders as in 1.1, with no amount, no split reference and **every order treated as pay up
 front**.
 
-### Amount to pay (1.2)
+### Amount to pay (2.0.5 — the system balances only)
 
-`amountToPay(extras)` (pure): `balance` when set (0 is real) → basis `balance`; else `total −
-(deposit || 0)` → basis `total_less_deposit`; else `null`. A negative result is `null` and logs
-`CDB AMOUNT_ODD`. Shown as `£1,234.50` (`render.formatMoney`), or *Nothing left to pay on this order*
-at 0, and left out entirely when `null`. **Steve's rule: the amount is always shown when a delivery is
+**Field meanings (Steve, 1 Oct 2026):**
+
+| Field | Meaning |
+|---|---|
+| `custbodycustbody_sys_bal_incvat` | **The amount to pay, including VAT, after any deposits** (doubled prefix: the real ID) |
+| `custbody_sys_bal_exvat` | The amount to pay, **excluding VAT**, after deposits |
+| `subtotal` | The order total before VAT, discounts and deposits — not read |
+| discount, VAT | Separate amounts — not read |
+
+`amountToPay(extras)` (pure) returns `{ incVat, exVat }` or `null`:
+
+- the inc-VAT balance blank (or not a number) → `null` — **no fallback**. The old fallback,
+  `total − custbody_deposit_total`, gave inconsistent, wrong figures and is removed; neither field is
+  read any more;
+- `exVat` is `null` when its field is blank (or negative);
+- **0** is a real balance: *Nothing left to pay on this order*;
+- **negative** inc VAT → `null`, logged once as `CDB AMOUNT_ODD` (dashboard and send link).
+
+**One text, everywhere an amount shows** (`render.amountText()`): *£1,234.50 inc VAT*, followed by
+*(£1,028.75 ex VAT)* when the ex-VAT balance is known; nothing when `null`. The Task shows the same
+text (no "basis" wording since 2.0.5).
+
+**Steve's rule: the amount is always shown when a delivery is
 being arranged** (PR #3 amendment 1). It is shown to **every** customer, whatever the terms, in:
 
 - section 6 and the aside of the form (an account customer also gets the hint *"Only if you're
@@ -200,13 +416,14 @@ being arranged** (PR #3 amendment 1). It is shown to **every** customer, whateve
 - the bank panel of the BACS confirmation;
 - the card confirmation;
 - the *Payment details* panel of an order awaiting payment;
-- the Task, whenever the choice is BACS or Card.
+- the Task, whenever the choice is BACS or Card;
+- (2.0.3) the delivery-link email's *Amount to pay* row, for pay-up-front orders only.
 
 **An Add-to-account booking shows no amount anywhere** and does not tick *Awaiting customer
 payment*; a BACS or Card booking ticks it, whatever the terms. **The digest shows no amounts.**
 
-**The card wording names nobody**: *"We'll call you to take £x. We never ask for card details
-online."* (or *"We'll call you to take payment."* with no amount). Whoever gets the Task makes the
+**The card wording names nobody**: *"We'll call you to take £x inc VAT (£y ex VAT). We never ask for
+card details online."* (or *"We'll call you to take payment."* with no amount). Whoever gets the Task makes the
 call, and on a PE-case opportunity that is not the rep in the header.
 
 ### Pay up front or add to account (1.2)
@@ -337,8 +554,8 @@ is no longer used for the header.
 at {email}"* (`mailto:`); neither gives *"Questions? Contact {name}"*; no name leaves the line out.
 The page footer, the delivery header and the main header (*name · phone*, else *name · email*) all
 use it, and on phones the round button calls or, with no phone, emails. The email's opt-out
-sentence uses the same rule (*"…or call / email / contact {name}"*); its AM block shows the phone,
-the email, or both when both exist. So a customer whose rep is A, with a PE-case opportunity whose PE
+sentence uses the same rule (*"…or call / email / contact {name}"*); its AM card (2.0.2, the Send
+Quote card) shows the phone, the email, or both when both exist, and a CALL / EMAIL button for each. So a customer whose rep is A, with a PE-case opportunity whose PE
 is B, sees A on every page, and the Task still goes to B.
 
 ### The delivery form and the guard
@@ -449,6 +666,21 @@ and names every missing parameter.
 | — | `custscript_cdb_digest_days` | Integer | 14; audit |
 | — | `custscript_cdb_digest_cap` | Integer | 200; audit |
 
+**The Send delivery link Suitelet's twins (2.0)** — prefix `custscript_cdbsend_`, the same value as
+their `custscript_cdb_` original, and **empty means what it means on the dashboard Suitelet**:
+
+| Parameter (Send link Suitelet) | Type | Value | Empty means |
+|---|---|---|---|
+| `custscript_cdbsend_excluded_statuses` | Free-Form Text, comma list | same as `custscript_cdb_excluded_statuses` | throw |
+| `custscript_cdbsend_excluded_quote_types` | Free-Form Text, comma list | same as `custscript_cdb_excluded_quote_types` | throw |
+| `custscript_cdbsend_released_statuses` | Free-Form Text, comma list | same as `custscript_cdb_released_statuses` | none: released orders count as excluded, so are refused as not open (the guard refuses them as released when it is set) |
+| `custscript_cdbsend_fallback_employee` | List/Record → Employee | same as `custscript_cdb_fallback_employee` | throw |
+| `custscript_cdbsend_logo_url` | Free-Form Text, https | same as `custscript_cdb_logo_url` | no logo; audit |
+| `custscript_cdbsend_notice_days` (2.0.3) | Integer | same as `custscript_cdb_notice_days` | 3; audit |
+| `custscript_cdbsend_prepay_terms` (2.0.3) | Free-Form Text, comma list of `terms` IDs | same as `custscript_cdb_prepay_terms` | everyone pays up front (the amount row shows; step 3 reads pay up front) |
+| `custscript_cdbsend_pay_account` (2.0.3) | Integer | same as `custscript_cdb_pay_account` | everyone pays up front |
+| `custscript_cdbsend_quote_type_labels` (2.0.1) | Long Text, JSON `{"<quote type id>": "UFH"}` | same as `custscript_cdb_quote_type_labels` | each quote type's own text; audit. Invalid JSON also logs `CDB TYPE_LABELS_INVALID` once. Never fails the send |
+
 The numeric defaults above are the values the brief gives for Production. **Read the IDs off each
 account's lists before setting them**; they are not guaranteed to match between accounts.
 
@@ -459,8 +691,9 @@ account's lists before setting them**; they are not guaranteed to match between 
 **Security — do not relax:**
 
 - **No current user.** A no-login Suitelet runs as user −4. `runtime.getCurrentUser()` appears
-  nowhere in this repo (a node test enforces it). Authors and assignees come from records and
-  parameters.
+  nowhere in this repo **except once in the login-required `cdb_sl_send_link.js` (2.0), for its
+  `CDB SEND_LINK` log line only** (a node test enforces both). Authors and assignees come from
+  records and parameters, never from the current user.
 - **The customer is the token's.** The customer ID is never read from a request parameter.
 - **Ownership on every write.** The order ID comes from the request, so the guard checks that the
   order's opportunity belongs to the token's customer, on GET and again on POST, and the loaded
@@ -470,7 +703,8 @@ account's lists before setting them**; they are not guaranteed to match between 
 - **Output is escaped.** Every value from a record or a request goes through `esc()`.
 - **Almost nothing loads from a third-party host.** Inline CSS. From 1.1 the **pages** load Source
   Sans 3 from Google Fonts (the email does not); otherwise the only external resource is the logo
-  from `custscript_cdb_logo_url`. The delivery form carries a small inline script (month switching,
+  from `custscript_cdb_logo_url`. **The emails (2.0.2)** also load Send Quote's footer logo and social
+  icons from its image host (`config.EMAIL_STANDARD.IMG_BASE`), the delivery-link email's hero (same host) and its three icons (`EMAIL_ICONS`, the File Cabinet), and, when set, the AM's https photo. The delivery form carries a small inline script (month switching,
   the live summary); the form works and submits without it.
 - Responses carry `Cache-Control: no-store`, `X-Frame-Options: DENY`, `robots noindex` and
   `referrer no-referrer` so the token is not cached, framed, indexed or leaked in a Referer.
@@ -533,47 +767,127 @@ Every title starts `CDB `.
 | `CDB RECENT_FAILED` | audit | The 1.3 recently delivered search threw; the page or digest carries on without the section | Check the search in `getRecentlyDelivered()` |
 | `CDB EXTRAS_FAILED` | audit | The 1.2 extras search threw; the page shows no amounts or split references and treats every order as pay up front | Check the field IDs in `getOrderExtras()` against the account |
 | `CDB AMOUNT_ODD` | audit | An amount to pay came out negative, so it is not shown | Check the order's balance, total and deposit |
-| `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR twin) is not a JSON object; each type shows its own text | Fix the JSON |
+| `CDB EARLIEST_FAILED` (2.0.3) | audit | The non-delivery dates could not be read for the delivery-link email; it was sent without the earliest date | Check `customrecord_cdb_nondelivery` |
+| `CDB AM_PHOTO` (2.0.2) | audit | Once per customer email: the AM's photo used, or skipped and why | Set `custentity_employee_photo_link` to an https URL if a photo is wanted |
+| `CDB TYPE_LABELS_INVALID` | audit | `custscript_cdb_quote_type_labels` (or its MR or SEND twin) is not a JSON object; each type shows its own text | Fix the JSON |
 | `CDB FIELD_MISSING` | audit | An optional field is not on the loaded sales order; it was skipped and the booking went ahead | Check the field's Applies To and the form |
 | `CDB USAGE` | audit | Remaining governance at the end of every request | Should stay well above 800 |
 | `CDB DIGEST_INPUT` | audit | Mode, and in LIVE how many are due, sent and left over | — |
 | `CDB DIGEST_SENT` / `DIGEST_SKIPPED` | audit | Per customer | — |
 | `CDB DIGEST_FAILED` / `DIGEST_STAMP_FAILED` | error | Not sent / sent but not stamped (it will send again next LIVE run) | Stamp by hand if needed |
 | `CDB DIGEST_SUMMARY` | audit | Counts per outcome | — |
+| `CDB SEND_LINK` (2.0) | audit | A delivery link was emailed: order, customer, recipient, author, the user who pressed | — |
+| `CDB SEND_REFUSED` (2.0) | audit | Not sent: the guard's reason, no opportunity, an inactive customer, or a bad request | Expected for a booked, requested, released or not-ready order |
+| `CDB SEND_NO_RECIPIENT` (2.0) | audit | Not sent: no dashboard contact email and no valid customer email | Add an email to the customer or the dashboard contact |
+| `CDB SEND_FAILED` (2.0) | error | `email.send` (or a read before it) threw; nothing was sent | Read the details; often the author is not a valid employee |
+| `CDB UE_FAILED` (2.0) | error | The sales order User Event threw; the order still opened, without the button or banner | Read the details |
 
 ---
 
 ## 8. Deployment sequence
 
-Steve deploys. Manual File Cabinet upload to
-`SuiteScripts/NuHeat/Customer Dashboard/`, keeping the `lib/` subfolder.
+Steve deploys. Manual File Cabinet upload to `SuiteScripts/NuHeat/Customer Dashboard/`, keeping the
+`lib/` subfolder.
 
-**Account objects checklist, in this order:**
+**Which list to follow.** The account already has release 1.x installed (section 0: releases 1 and 1.1
+passed their Production tests on 30 Sep 2026). **Follow 8.1 to install 2.0.** 8.2 is the first-install
+list, kept for a new account only — do not follow it for 2.0: it creates objects that already exist.
+
+**Entering IDs in NetSuite.** NetSuite adds the prefix itself. In each ID field type **only the part
+after the prefix**, starting with the underscore:
+
+| Object | Prefix NetSuite adds | You type | Result |
+|---|---|---|---|
+| Script record | `customscript` | `_cdb_sl_send_link` | `customscript_cdb_sl_send_link` |
+| Script deployment | `customdeploy` | `_cdb_sl_send_link` | `customdeploy_cdb_sl_send_link` |
+| Script parameter | `custscript` | `_cdbsend_notice_days` | `custscript_cdbsend_notice_days` |
+
+Typing the full ID gives `customscriptcustomscript_…` or an *ID already in use* error, and then the code
+cannot find the script or the parameter (`CDB_UNKNOWN_SCRIPT`, `CDB_PARAMETER_MISSING`).
+
+**Check before you create.** Before creating any script record, deployment or parameter, search for its
+ID (*Customization › Scripting › Scripts*, filter by ID; for a parameter, open the script record's
+*Parameters* subtab). **If it exists, do not create it again**: open it and check its settings against
+the list below.
+
+### 8.1 Install release 2.0 on the existing account
+
+**Already in the account — do not create; check only:**
+
+| Object | 2.0 change | What to do |
+|---|---|---|
+| Customer, sales order and employee fields (`custentity_cdb_*`, `custbody_*`, `custentity_employee_photo_link`) | none | nothing |
+| Custom record `customrecord_cdb_nondelivery` | none (2.0 also reads it for the delivery-link email's earliest date) | keep the dates current |
+| API Secret `custsecret_cdb_link_key` | **setting only** | open it; set **Allow for all scripts**; do not change its value (that revokes every link) |
+| Script record `customscript_cdb_sl_dashboard` and deployment `customdeploy_cdb_sl_dashboard` | file replaced; **no new parameters** | do not create; replace the file (below) |
+| Script record `customscript_cdb_mr_digest` and deployment `customdeploy_cdb_mr_digest` | file replaced; **no new parameters** | do not create; replace the file (below) |
+
+**1. Replace the files** in `SuiteScripts/NuHeat/Customer Dashboard/`. Upload each with the same name
+and choose to overwrite: the existing script records keep pointing at the file, so nothing else
+changes. Libraries first:
+- `lib/cdb_lib_config.js`, `lib/cdb_lib_data.js`, `lib/cdb_lib_render.js`, `lib/cdb_lib_token.js`
+  (changed); `lib/cdb_lib_dates.js`, `lib/cdb_lib_task.js` (unchanged — re-upload only if unsure);
+- then `cdb_sl_dashboard.js` and `cdb_mr_digest.js` (overwrite);
+- then the two **new** files, `cdb_sl_send_link.js` and `cdb_ue_salesorder.js`.
+
+**2. The Send link Suitelet — new** (skip any part that already exists; check its settings instead).
+- Script record: *Customization › Scripting › Scripts › New*, file `cdb_sl_send_link.js`, type Suitelet.
+  ID `_cdb_sl_send_link` → `customscript_cdb_sl_send_link`.
+- Parameters on the **script record** (*Parameters* subtab), each ID typed without `custscript`. Set the
+  values on the deployment. "Same as" means copy the value from the dashboard Suitelet's deployment:
+
+| You type (ID) | Full ID | Type | Value | Empty means |
+|---|---|---|---|---|
+| `_cdbsend_excluded_statuses` | `custscript_cdbsend_excluded_statuses` | Free-Form Text | same as `custscript_cdb_excluded_statuses` | the script refuses to run (`CDB PARAMETER_MISSING`) |
+| `_cdbsend_excluded_quote_types` | `custscript_cdbsend_excluded_quote_types` | Free-Form Text | same as `custscript_cdb_excluded_quote_types` | refuses to run |
+| `_cdbsend_fallback_employee` | `custscript_cdbsend_fallback_employee` | List/Record → Employee | same as `custscript_cdb_fallback_employee` | refuses to run |
+| `_cdbsend_released_statuses` | `custscript_cdbsend_released_statuses` | Free-Form Text | same as `custscript_cdb_released_statuses` | none |
+| `_cdbsend_prepay_terms` | `custscript_cdbsend_prepay_terms` | Free-Form Text | same as `custscript_cdb_prepay_terms` | everyone pays up front |
+| `_cdbsend_pay_account` | `custscript_cdbsend_pay_account` | Integer | same as `custscript_cdb_pay_account` | everyone pays up front |
+| `_cdbsend_notice_days` | `custscript_cdbsend_notice_days` | Integer | same as `custscript_cdb_notice_days` | 3 |
+| `_cdbsend_quote_type_labels` | `custscript_cdbsend_quote_type_labels` | Long Text | same as `custscript_cdb_quote_type_labels` | each quote type's own text |
+| `_cdbsend_logo_url` | `custscript_cdbsend_logo_url` | Free-Form Text | same as `custscript_cdb_logo_url` | no logo |
+
+  Nine parameters, no more: the hero and the icons are constants (2.0.4), not parameters.
+- Deployment: ID `_cdb_sl_send_link` → `customdeploy_cdb_sl_send_link`. **Not** Available Without Login.
+  Audience: the sales roles. Status Released. Log level Audit.
+
+**3. The sales order User Event — new** (skip any part that already exists).
+- Script record: file `cdb_ue_salesorder.js`, type User Event. ID `_cdb_ue_salesorder` →
+  `customscript_cdb_ue_salesorder`. No parameters.
+- Deployment: ID `_cdb_ue_salesorder` → `customdeploy_cdb_ue_salesorder`. Applies To **Sales Order**.
+  Event Type **View**. Audience all roles. Status **Testing** first; **Released** after testing.
+
+**4. Check.** View a ready, unbooked sales order with an opportunity: *Send delivery link* shows.
+Press it (testing on a test customer): the green banner, the email on the customer's and the order's
+Communication tabs, and `CDB SEND_LINK` in the Suitelet's execution log. A `CDB PARAMETER_MISSING` or
+`CDB_UNKNOWN_SCRIPT` entry names the ID to fix. Then the scenarios in section 9 (16–20).
+
+### 8.2 First install on a new account (reference — not for 2.0)
+
+For an account with no customer dashboard at all. On the existing account these all exist already.
 
 1. **The fields.**
    - Customer: `custentity_cdb_link_version` (Integer; empty = 0), `custentity_cdb_dashboard_contact`
      (List/Record → Contact; empty = the customer's email), `custentity_cdb_digest_optout`
      (Checkbox), `custentity_cdb_last_digest` (Date).
-   - Sales order (Steve has created these): `custbody_cust_pay_intent` → `customlist_cust_pay_intent`
-     (BACS / Card, account manager to call), `custbody_cust_booking_req` (Date/Time).
-   - Sales order, 1.1 (Steve has created it): `custbody_cdb_awaiting_payment` (Check Box). Also
-     read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
+   - Sales order: `custbody_cust_pay_intent` → `customlist_cust_pay_intent` (BACS / Card, account
+     manager to call), `custbody_cust_booking_req` (Date/Time), `custbody_cdb_awaiting_payment` (Check
+     Box). Also read-and-written: `custbody_edd_certainty` → `customlist955` (existing).
 2. **The custom record** `customrecord_cdb_nondelivery` (*Non-delivery date*), field
    `custrecord_cdb_nd_date` (Date) plus its name. Add bank holidays and shutdowns for the next year.
-3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters,
-   restricted to `customscript_cdb_sl_dashboard` and `customscript_cdb_mr_digest` — **never** by
-   employee.
-4. **Upload the libs, then the scripts.** All six `lib/` files first; then `cdb_sl_dashboard.js`
-   and `cdb_mr_digest.js`.
-5. **The Suitelet** `customscript_cdb_sl_dashboard`, deployment `customdeploy_cdb_sl_dashboard`:
-   Available Without Login, Execute As Administrator, Released, log level Audit. Define and set every
-   `custscript_cdb_*` parameter in section 4.
-6. **The Map/Reduce** `customscript_cdb_mr_digest`, deployment `customdeploy_cdb_mr_digest`: Not
-   Scheduled, `custscript_cdb_digest_mode` = TEST, test customers set. Define every
-   `custscript_cdbmr_*` twin **with the same value as its `custscript_cdb_*` original**.
-7. **A run by hand** (Save and Execute). Check `CDB DIGEST_SUMMARY` and the test customer's
-   Communication tab.
-8. **Then schedule it daily**, and switch to LIVE when Steve says.
+3. **The API Secret** `custsecret_cdb_link_key`: a random value of at least 32 characters, set to
+   **Allow for all scripts** — **never** restricted by employee. (Restricting it to the two scripts
+   failed in Production: *"An error occurred while decrypting a secret"*; section 4.)
+4. **Upload the libs, then the scripts.** All six `lib/` files first; then the four scripts.
+5. **The dashboard Suitelet** `customscript_cdb_sl_dashboard`, deployment `customdeploy_cdb_sl_dashboard`:
+   Available Without Login, Execute As Administrator, Released, log level Audit. Every `custscript_cdb_*`
+   parameter in section 4.
+6. **The digest Map/Reduce** `customscript_cdb_mr_digest`, deployment `customdeploy_cdb_mr_digest`: Not
+   Scheduled, `custscript_cdb_digest_mode` = TEST, test customers set. Every `custscript_cdbmr_*` twin
+   **with the same value as its `custscript_cdb_*` original**. Run by hand (Save and Execute), check
+   `CDB DIGEST_SUMMARY`, then schedule daily and switch to LIVE when Steve says.
+7. **The Send link Suitelet and the sales order User Event**: as 8.1 steps 2 and 3.
 
 ---
 
@@ -584,7 +898,7 @@ six-month limit, London across BST changes), the token (payload, base64url, sign
 failure, crypto stubbed), stage grouping and order states from fixtures, the addendum's native
 status rule (a Billed SO with a blank Record Status is not shown; a Pending Fulfillment SO is),
 the C6 recipient, validation, configuration (every throw case), the rendered HTML (escaping, no
-third-party URLs, no `display:none` in the email), house style (ES5, no current user, versions in
+third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub.
 
 **Sandbox / Production, digest in TEST mode:**
@@ -606,6 +920,11 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 13 | A **Billed** SO with a blank Record Status on a delivery-stage opportunity | Not shown; its delivery URL refused |
 | 14 | A **Pending Fulfillment** SO | Shown |
 | 15 | Mobile width; email with images and styles off | Usable; readable |
+| 16 (2.0) | View a ready, unbooked order with an opportunity; then edit it | *Send delivery link* in VIEW only |
+| 17 (2.0) | Press it | One email from the rep to the dashboard contact / customer, on the customer's and the order's Communication tabs; the green banner; `CDB SEND_LINK` names you; the button opens the delivery form directly; the secondary link opens the dashboard |
+| 18 (2.0) | A released order with the box ticked; a customer with no email | The button shows; pressing gives the warning banner and no email; `CDB SEND_REFUSED` / `SEND_NO_RECIPIENT` |
+| 19 (2.0) | Reload the order after 5 minutes | No banner |
+| 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
 
@@ -626,6 +945,10 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 1.1: `record.getField({ fieldId })` on a record loaded in standard mode | Returns `null` for a field the record does not carry | Documented behaviour; not verified here |
 | 1.1: `getText` on `custbody_edd_certainty` after `setValue` in standard mode | Returns the new option's text, for the change log | Falls back to `ID <n>` if not |
 | Search type = a custom list's script ID (`customlist_del_time_per`), column `name` | Returns the options | Not verified |
+| 2.0: `newRecord.getValue({ fieldId: 'orderstatus' })` in beforeLoad VIEW | Returns the letter (`A`…`H`) | Not verified |
+| 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
+| 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
+| 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
 
 ### Contradictions in the brief — for Steve
 
@@ -655,6 +978,77 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Release 2.0 — contradictions and decisions for Steve
+
+1. **"No current user" vs logging who pressed the button.** Section 5 and a node test said
+   `getCurrentUser()` appears nowhere in the repo; the brief asks `CDB SEND_LINK` to log the user who
+   pressed. The rule exists for the no-login page, so it is kept there and everywhere else; the
+   login-required Send link Suitelet reads the user once, for the log only. The style test allows it in
+   that one file and checks it is read exactly once.
+2. ~~The type label needs a parameter the brief does not list.~~ **Decided (amendment 1, 2.0.1):**
+   `custscript_cdbsend_quote_type_labels` added, with the dashboard's parser and fallback.
+3. **The recipient's email is not in the banner.** No record holds it and reading the log costs a
+   search; the brief allowed leaving it out.
+4. ~~The AM block "contact fallback".~~ **Superseded (amendment 2, 2.0.2):** both emails use the Send
+   Quote card.
+5. **The author.** Moved from the digest to `data.emailAuthor()` unchanged, so both emails use one
+   rule (the page's `customerManager()` is the same rule).
+6. **The button's five conditions do not include the Record Status**, as briefed (record fields only):
+   a released or excluded order with the box ticked shows the button and is then refused, with the
+   warning banner.
+7. **Apostrophes.** The wording uses the typographic ’ (*you’d*, *don’t*, *You’re*), as the digest does.
+8. **A missing `cdbsend_` parameter** sends nothing and redirects with `cdbsl=failed`
+   (`CDB PARAMETER_MISSING` names it).
+
+### Release 2.0.3 (amendment 3) — notes for Steve
+
+1. **Four parameters the note did not list were needed** for what it asks, all twins on the send-link
+   Suitelet: `custscript_cdbsend_notice_days` (the form's calculation needs the notice days), and
+   `custscript_cdbsend_prepay_terms` / `_pay_account` (without them every order counts as pay up front,
+   so account customers would see an amount and the pay-up-front step 3). Empty means what it means on
+   the dashboard.
+2. ~~Icons as parameters.~~ **Decided (amendment 4, 2.0.4):** constants (`EMAIL_ICONS`), File Cabinet
+   images Steve supplied; the three `custscript_cdbsend_icon_*` parameters are removed.
+3. ~~The hero's height is a guess.~~ **Decided (amendment 4, 2.0.4):** the hero is now Send Quote's own
+   image, whose 600 × 337 attributes are copied from Send Quote.
+4. **The project title is not in the delivery email**: the drawing shows *Project: QR… · site
+   address* only, so the opportunity's name no longer appears there.
+5. **Digest badges and order lines stay as today** (the note's rule): *Action needed*, *Delivery
+   booked* and the date in the line, where the drawing has *Ready to book* and *Booked · Thu 8 Oct*. The
+   line keeps today's detail (requested date, booked date, hold reason) after *Order SO… · UFH*; the
+   split reference is its own line as before. The BACS wording is now *ref SO… for payment*.
+6. **Card order follows the note** (needs the customer, design, quotes, then booked-only), where the
+   drawing shows the booked project second.
+7. **The quote card has no date or link**: *Quote sent 12 Sep · View your quote* in the drawing needs
+   data the digest does not read. It shows *QR… · Quote sent*.
+8. **"Requested" orders** (Add to account) count in no tile: the four tiles have no place for them.
+9. **"Ordered" is never current.** No data marks an order placed but not yet in design: a Won
+   opportunity is in design (design sub-status) or in delivery (delivery sub-status). No case found.
+10. **Step 3** is completed from the drawing: *Pay by bank transfer or card. We book your delivery and
+    email you the confirmed date.* / *Choose how you’d like to pay, or add it to your account. We book
+    …*. The drawing's step 1 says *from 3 working days’ time*; the email uses the notice-days parameter.
+
+### Release 2.0.2 (amendment 2) — notes for Steve
+
+1. **Send Quote is at 2.3.1, not 2.2.0, and its email builder moved.** `buildEmailBody()` in
+   `nuheat_send_quote_sl.js` now supplies copy only; `emailShell`, `emailRepCard`, `emailButton` and the
+   constants are in `nuheat_opp_update_lib.js` 1.1.0 (moved byte-identical in 2.3.1, so the 2.2.0
+   design). Copied from there, commit `4463cfa`.
+2. **The phone field is `phone`, not `officephone`.** Send Quote's card reads the employee `phone`
+   field (master proposal `loadSalesRepData`), after an Opportunity override (`custbody_sales_rep_phone`)
+   this repo has no equivalent for. `officephone` is what Send Design reads. This repo keeps `phone`,
+   else `mobilephone`.
+3. ~~Send Quote's fallbacks are not copied.~~ **Decided (amendment 3, 2.0.3):** copied —
+   `01404 540604` and `info@nu-heat.co.uk` when the employee has none.
+4. **Not carried over:** the Calibri web-font stylesheet link in Send Quote's `<head>` (the emails load
+   no web font, as before); Send Quote's own top logo and purple header (our logo parameter and band
+   stay). Our logo has a `height` attribute only: it is a parameter of unknown width.
+5. **The page background is now white** (Send Quote's), not the grey around a white card.
+6. **The digest's footer line can repeat the EMAIL button's target.** With no phone, the 1.2 wording
+   is *"…or email {AM} at {address}"* with a mailto link, so the address is linked twice (footer text
+   and button). Kept: the note keeps today's wording rules.
+7. **Preheader apostrophe.** *Here’s* uses the typographic ’, as the rest of the wording does.
 
 ### Release 1.3.2 — notes for Steve
 
@@ -706,8 +1100,8 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 - Add *Add to account* to `customlist_cust_pay_intent` and set its ID on both scripts
   (`custscript_cdb_pay_account`, `custscript_cdbmr_pay_account`).
 - Replace `custscript_cdb_logo_url` / `custscript_cdbmr_logo_url` with the **coloured** logo.
-- Confirm in Sandbox that `terms`, `total`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat`
-  and `custbody_deposit_total` are valid **sales order** search columns (a failure only logs
+- Confirm in Sandbox that `terms`, `custbody_unique_so_ref`, `custbodycustbody_sys_bal_incvat` and
+  (2.0.5) `custbody_sys_bal_exvat` are valid **sales order** search columns (a failure only logs
   `CDB EXTRAS_FAILED`, but then nobody is offered the account option).
 
 ### Release 1.1 — contradictions and decisions for Steve
@@ -752,5 +1146,5 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 
 ### NetSuite configuration tasks for Steve
 
-Section 8, plus: keep each `custscript_cdbmr_*` equal to its `custscript_cdb_*` original, and
+Section 8, plus: keep each `custscript_cdbmr_*` and `custscript_cdbsend_*` equal to its `custscript_cdb_*` original, and
 `custscript_cdb_excluded_statuses` equal to the sync's `custscript_opsync_excluded_statuses`.

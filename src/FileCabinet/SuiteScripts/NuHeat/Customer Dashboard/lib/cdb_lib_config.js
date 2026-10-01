@@ -12,8 +12,9 @@
  * PARAMETER IDS DIFFER BY SCRIPT. A script parameter is a custom field, and custom field IDs are
  * unique across the account, so the Map/Reduce cannot define a parameter with the Suitelet's ID.
  * (NS-Opportunity-SO-Sync tried it and NetSuite refused.) The Map/Reduce therefore carries twins
- * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original.
- * PARAMETERS below names both, explicitly, per script: no derivation and no fallback, because a
+ * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original, and
+ * (2.0) the internal Send delivery link Suitelet carries more prefixed custscript_cdbsend_.
+ * PARAMETERS below names each, explicitly, per script: no derivation and no fallback, because a
  * fallback reads the wrong script's value and hides the misconfiguration. See docs/context.md
  * section 4.
  *
@@ -26,13 +27,13 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 2.0.5
  */
 define(['N/runtime'], function (runtime) {
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '2.0.5';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -41,10 +42,19 @@ define(['N/runtime'], function (runtime) {
         SUITELET: 'customscript_cdb_sl_dashboard',
         SUITELET_DEPLOYMENT: 'customdeploy_cdb_sl_dashboard',
         DIGEST: 'customscript_cdb_mr_digest',
-        DIGEST_DEPLOYMENT: 'customdeploy_cdb_mr_digest'
+        DIGEST_DEPLOYMENT: 'customdeploy_cdb_mr_digest',
+        // 2.0: the internal Suitelet behind the sales order's "Send delivery link" button, and the
+        // User Event that adds the button.
+        SEND_LINK: 'customscript_cdb_sl_send_link',
+        SEND_LINK_DEPLOYMENT: 'customdeploy_cdb_sl_send_link',
+        SALES_ORDER_UE: 'customscript_cdb_ue_salesorder'
     };
 
-    /** The API Secret. Restricted in the account to the two scripts above, never by employee. */
+    /**
+     * The API Secret. Set to "Allow for all scripts" in the account (2.0 correction): restricting it
+     * to named scripts failed in Production ("An error occurred while decrypting a secret"), probably
+     * because N/crypto is called from a library file. Never restricted by employee.
+     */
     var SECRET_ID = 'custsecret_cdb_link_key';
 
     var RECORD_TYPES = {
@@ -100,9 +110,11 @@ define(['N/runtime'], function (runtime) {
             // account. It is the real ID: do not "fix" it.
             TERMS: 'terms',
             UNIQUE_REF: 'custbody_unique_so_ref',
+            // 2.0.5 (Steve, 1 Oct): the system balances are THE amount to pay, after any deposits —
+            // BALANCE including VAT, BALANCE_EX excluding VAT. Nothing else is read for the amount: the
+            // old total - custbody_deposit_total fallback gave inconsistent, wrong figures.
             BALANCE: 'custbodycustbody_sys_bal_incvat',
-            TOTAL: 'total',
-            DEPOSIT: 'custbody_deposit_total'
+            BALANCE_EX: 'custbody_sys_bal_exvat'
         },
         /**
          * Read from the sales order's ORIGINATING QUOTE through the createdFrom join. Confirmed
@@ -115,6 +127,10 @@ define(['N/runtime'], function (runtime) {
         },
         NON_DELIVERY: {
             DATE: 'custrecord_cdb_nd_date'
+        },
+        /** 2.0.2: the account manager's photo for the email card (Send Quote 2.2.0 reads the same field). */
+        EMPLOYEE: {
+            PHOTO_LINK: 'custentity_employee_photo_link'
         }
     };
 
@@ -173,6 +189,153 @@ define(['N/runtime'], function (runtime) {
     ];
 
     /**
+     * 2.0: the "Send delivery link" email's wording, in one place. Plain text: render escapes every
+     * value. {SO} in SUBJECT is the order number; {name} in HELLO the greeting name.
+     */
+    var DELIVERY_LINK_EMAIL = {
+        SUBJECT: 'Your order {SO} is ready to deliver: choose your date',
+        // 2.0.3: the v2 design (docs/design/canvas/EmailDeliveryLink.dc.html).
+        EYEBROW: 'READY TO DELIVER',
+        HEADING: 'Your order is ready, {name}',
+        HEADING_NO_NAME: 'Your order is ready',
+        SUB: 'Choose a delivery date that suits you. It only takes a couple of minutes.',
+        ORDER_LABEL: 'YOUR ORDER',
+        FACT_ORDER: 'Order',
+        FACT_PROJECT: 'Project',
+        FACT_THIS_ORDER: 'This order',
+        FACT_EARLIEST: 'Earliest delivery',
+        EARLIEST_SOONER: '(sooner? call us)',
+        FACT_AMOUNT: 'Amount to pay',
+        BUTTON: 'CHOOSE MY DELIVERY DATE',
+        DASHBOARD_LINK: 'Or view all your projects',
+        HOW_HEADING: 'How it works',
+        STEP1_TITLE: 'Pick a date',
+        STEP1_TEXT: 'Any weekday from {n} working days’ time, morning, afternoon or any time.',
+        // {first} the AM's first name ("us" when none); {phone} becomes a tel: link.
+        SOONER: 'Need it sooner? That’s fine, just call {first} on {phone} and we’ll do our best.',
+        SOONER_NO_NAME: 'us',
+        STEP2_TITLE: 'Tell us about access',
+        STEP2_TEXT: 'The largest lorry that can reach you, how we unload, and who to call on the day.',
+        STEP3_TITLE: 'Pay, and we confirm',
+        STEP3_PREPAY: 'Pay by bank transfer or card. We book your delivery and email you the confirmed date.',
+        STEP3_ACCOUNT: 'Choose how you’d like to pay, or add it to your account. We book your delivery and ' +
+            'email you the confirmed date.',
+        TIPS_HEADING: 'Before you book',
+        // [title, text, icon key (EMAIL_ICONS)]
+        TIPS: [
+            ['Lorry access', 'Most deliveries come on an articulated lorry up to 16 m long. Narrow lanes or low ' +
+                'branches? Tell us and we’ll send a smaller one.', 'LORRY'],
+            ['Where it’s left', 'The driver unloads at the nearest flat, hard surface, such as the kerbside or ' +
+                'driveway.', 'PARCEL'],
+            ['People on site', 'Pallets can weigh up to 1,250 kg, so please have help to move everything into dry ' +
+                'storage.', 'PEOPLE']
+        ],
+        QUESTIONS: 'Questions?',
+        PERSONAL: 'This link is personal to you. Please don’t forward this email.',
+        FOOTER: 'You’re receiving this because you have an order with Nu-Heat.',
+        // 2.0.2: the hidden preview text.
+        PREHEADER: 'Your order is ready: choose your delivery date.'
+    };
+
+    /**
+     * 2.0.3: the digest v2 wording (docs/design/canvas/EmailDigestV2.dc.html).
+     */
+    var DIGEST_EMAIL = {
+        TILES: { READY: 'ready to book', PAY: 'awaiting payment', DESIGN: 'in design', BOOKED: 'booked' },
+        ACTION_ONE: '1 order is ready to deliver',
+        ACTION_MANY: '{n} orders are ready to deliver',
+        ACTION_BUTTON: 'CHOOSE DATE',
+        ACTION_MAX: 3,
+        ACTION_MORE: 'and {n} more on your projects page',
+        PROJECTS_HEADING: 'Your projects',
+        STAGES: ['Quote', 'Ordered', 'Design', 'Delivery', 'Delivered'],
+        STAGE_BOOKED: 'Booked',
+        DESIGNING: 'Our design team is working on it. Nothing needed from you.',
+        NEEDS_INFO: 'We need some information from you for the design.',
+        QUOTE_SENT: 'Quote sent',
+        BUTTON: 'VIEW ALL YOUR PROJECTS'
+    };
+
+    /**
+     * FIXED BRANDING IMAGES ARE CONSTANTS, NOT PARAMETERS (Steve, 1 Oct 2026, amendment 4). Parameters are
+     * for values that differ by account or that the business changes; these are public image
+     * addresses — a stated exception to "no numeric IDs in code" (docs/context.md section 3).
+     *
+     * 2.0.4: the delivery-link email's hero is Send Quote 2.2.0's hero ("Order conformation.jpg"), its
+     * URL and width/height attributes copied exactly from 2026.03-Online-quote nuheat_send_quote_sl.js
+     * line 1278 (commit 4463cfa; the image host is EMAIL_IMG, nuheat_opp_update_lib.js line 858). Used
+     * only when it starts with https://, so a blank value just leaves the image out.
+     */
+    var EMAIL_HERO_URL = 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/1613738610524_Order%20conformation.jpg';
+    var EMAIL_HERO_WIDTH = 600;
+    var EMAIL_HERO_HEIGHT = 337;
+
+    /**
+     * 2.0.4: the "Before you book" icons — square PNGs, teal on transparent, in the File Cabinet.
+     * Rendered 48 x 48, alt="". https only; a blank value shows that tip as text only.
+     */
+    var EMAIL_ICONS = {
+        LORRY: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288884&c=472052&h=YG3D77A_OOKzKO9LzdSh8qCBM_Qr_En-TPwnaNAj05uNwXTt',
+        PARCEL: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288882&c=472052&h=LYL2p04TmhzcuKyFJgXMvB494htOkdY4CtKz2NtMjNuki5Xh',
+        PEOPLE: 'https://472052.app.netsuite.com/core/media/media.nl?id=45288883&c=472052&h=C5AaAsJ443aW4Ynf8xeMzviVQiVXnajV6qhnVZQCv8dGaTx2'
+    };
+
+    /**
+     * 2.0.2: THE CUSTOMER EMAIL STANDARD — Send Quote 2.2.0's email card, constants copied unchanged
+     * from 2026.03-Online-quote nuheat_opp_update_lib.js 1.1.0 (commit 4463cfa): the image host, the
+     * green footer, its logo and the five social links, and the button colours. Every customer email
+     * from the dashboard (the digest and the delivery link) uses them, so they are one family with the
+     * quote email. Change them here and in the Online-quote library together.
+     */
+    var EMAIL_STANDARD = {
+        IMG_BASE: 'https://images.chamaileon.io/5b1fac592f38b800113c85ca/5ca8626420e2346b3ee9a013/',
+        FOOTER_LOGO: '1604422010305_Nu-Heat%20Master%20logo%20wht%20on%20green.png',
+        FOOTER_BG: '#25847a',
+        SOCIAL_LINKS: [
+            ['https://www.facebook.com/nuheatuk/', '1604502171665_white%20-%20facebook.png'],
+            ['https://www.instagram.com/nuheatufh/', '1604502172039_white%20-%20instagram.png'],
+            ['https://www.linkedin.com/company/nu-heat/', '1604502171857_white%20-%20linkedin.png'],
+            ['https://twitter.com/nuheatuk', '1604502172417_white%20-%20twitter.png'],
+            ['https://youtube.com/channel/UCsfB8s56fcERuaBFovwYnGQ', '1604502172308_white%20-%20youtube.png']
+        ],
+        BUTTON_BG: '#ffb500',
+        BUTTON_TEXT: '#3e3b39',
+        // 2.0.3 (v2 designs): the AM card's CALL (filled) and EMAIL (outline) buttons, the purple button,
+        // the section heading colours, the panels and the footer.
+        PURPLE: '#59315f',
+        MAGENTA: '#a3155f',
+        TEAL: '#25847a',
+        PANEL: '#f4f4f4',
+        FOOTER_TEXT: '#e6f3f1',
+        // 2.0.3: Send Quote's contact fallback, when the AM employee has no phone or no email.
+        FALLBACK_PHONE: '01404 540604',
+        FALLBACK_EMAIL: 'info@nu-heat.co.uk',
+        // The card's name when the employee has none (Send Quote's GENERIC_REP_NAME); never a first name.
+        GENERIC_AM_NAME: 'Your Account Manager',
+        DIGEST_PREHEADER: 'Here\u2019s where your Nu-Heat projects are up to.'
+    };
+
+    /**
+     * 2.0: the sales order banner after "Send delivery link". A FIXED WHITELIST keyed by the cdbsl
+     * code in the URL: only these texts are ever shown, and an unknown code shows nothing. Nothing
+     * from the URL is shown. type is an N/ui/message Type key.
+     */
+    var SEND_LINK_BANNERS = {
+        sent: { type: 'CONFIRMATION', title: 'Delivery link sent',
+            message: 'The customer has been emailed a link to arrange delivery for this order. ' +
+                'The email is on the Communication tab.' },
+        refused: { type: 'WARNING', title: 'Delivery link not sent',
+            message: 'This order can\u2019t be booked online right now (it may already be booked, requested, ' +
+                'released or not ready), or the customer has no email address. Details are in the script ' +
+                'log (CDB SEND_REFUSED or CDB SEND_NO_RECIPIENT).' },
+        failed: { type: 'ERROR', title: 'Delivery link not sent',
+            message: 'The email could not be sent. Details are in the script log (CDB SEND_FAILED).' }
+    };
+
+    /** 2.0: how long the banner shows after the redirect (cdblt, milliseconds since the epoch). */
+    var SEND_LINK_BANNER_SECONDS = 300;
+
+    /**
      * Parameter kinds:
      *   idlist  comma list of whole numbers -> string[]
      *   id      one whole number (Integer, or a List/Record select) -> string
@@ -201,25 +364,35 @@ define(['N/runtime'], function (runtime) {
         DELIVERY_SUBSTATUS: { kind: 'idlist', empty: 'throw',
             ids: { SL: 'custscript_cdb_delivery_substatus', MR: 'custscript_cdbmr_delivery_substatus' } },
         EXCLUDED_STATUSES: { kind: 'idlist', empty: 'throw',
-            ids: { SL: 'custscript_cdb_excluded_statuses', MR: 'custscript_cdbmr_excluded_statuses' } },
+            ids: { SL: 'custscript_cdb_excluded_statuses', MR: 'custscript_cdbmr_excluded_statuses',
+                SEND: 'custscript_cdbsend_excluded_statuses' } },
         EXCLUDED_QUOTE_TYPES: { kind: 'idlist', empty: 'throw',
-            ids: { SL: 'custscript_cdb_excluded_quote_types', MR: 'custscript_cdbmr_excluded_quote_types' } },
+            ids: { SL: 'custscript_cdb_excluded_quote_types', MR: 'custscript_cdbmr_excluded_quote_types',
+                SEND: 'custscript_cdbsend_excluded_quote_types' } },
+        // 2.0: the Send delivery link Suitelet (SEND) reads six of these, as custscript_cdbsend_ twins:
+        // the guard's three lists, the fallback author, the logo and (2.0.1) the type labels. Empty
+        // means what it means on the dashboard Suitelet.
         PAY_BACS: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_pay_bacs', MR: 'custscript_cdbmr_pay_bacs' } },
         PAY_CARD: { kind: 'id', empty: 'throw',
             ids: { SL: 'custscript_cdb_pay_card', MR: 'custscript_cdbmr_pay_card' } },
         FALLBACK_EMPLOYEE: { kind: 'id', empty: 'throw',
-            ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee' } },
+            ids: { SL: 'custscript_cdb_fallback_employee', MR: 'custscript_cdbmr_fallback_employee',
+                SEND: 'custscript_cdbsend_fallback_employee' } },
         // 1.2. Pay up front vs account. Empty prepay terms -> everyone pays up front; empty account
         // value -> the account option is never offered. Both fail closed: they offer less.
         // Suitelet only: nothing in the digest reads it (amendment 1).
-        PREPAY_TERMS: { kind: 'idlist', empty: 'none', ids: { SL: 'custscript_cdb_prepay_terms' } },
+        // 2.0.3: SEND twins too, for the delivery-link email's "Amount to pay" row and step 3 wording.
+        PREPAY_TERMS: { kind: 'idlist', empty: 'none',
+            ids: { SL: 'custscript_cdb_prepay_terms', SEND: 'custscript_cdbsend_prepay_terms' } },
         PAY_ACCOUNT: { kind: 'id', empty: 'none',
-            ids: { SL: 'custscript_cdb_pay_account', MR: 'custscript_cdbmr_pay_account' } },
+            ids: { SL: 'custscript_cdb_pay_account', MR: 'custscript_cdbmr_pay_account',
+                SEND: 'custscript_cdbsend_pay_account' } },
         // 1.3. Record Statuses that stay visible although they are in EXCLUDED_STATUSES ("Release to
         // Warehouse": staff set it when payment arrives). Empty -> released orders stay hidden.
         RELEASED_STATUSES: { kind: 'idlist', empty: 'none',
-            ids: { SL: 'custscript_cdb_released_statuses', MR: 'custscript_cdbmr_released_statuses' } },
+            ids: { SL: 'custscript_cdb_released_statuses', MR: 'custscript_cdbmr_released_statuses',
+                SEND: 'custscript_cdbsend_released_statuses' } },
         // 1.3. "Recently delivered": how many days back, and the Record Statuses never shown there.
         RECENT_DAYS: { kind: 'int', empty: 'default', defaultValue: 7,
             ids: { SL: 'custscript_cdb_recent_days', MR: 'custscript_cdbmr_recent_days' } },
@@ -227,16 +400,19 @@ define(['N/runtime'], function (runtime) {
             ids: { SL: 'custscript_cdb_recent_hidden_statuses', MR: 'custscript_cdbmr_recent_hidden_statuses' } },
         // 1.2. JSON {"<quote type id>": "UFH", ...}. Parsed by parseTypeLabels(); never fails the page.
         QUOTE_TYPE_LABELS: { kind: 'text', empty: 'none',
-            ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels' } },
+            ids: { SL: 'custscript_cdb_quote_type_labels', MR: 'custscript_cdbmr_quote_type_labels',
+                SEND: 'custscript_cdbsend_quote_type_labels' } },
         LOGO_URL: { kind: 'https', empty: 'none',
-            ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url' } },
+            ids: { SL: 'custscript_cdb_logo_url', MR: 'custscript_cdbmr_logo_url',
+                SEND: 'custscript_cdbsend_logo_url' } },
 
         TIME_VALUES: { kind: 'idlist', empty: 'throw', ids: { SL: 'custscript_cdb_time_values' } },
         VEHICLE_VALUES: { kind: 'idlist', empty: 'throw', ids: { SL: 'custscript_cdb_vehicle_values' } },
         UNLOAD_VALUES: { kind: 'idlist', empty: 'throw', ids: { SL: 'custscript_cdb_unload_values' } },
         PE_VALUEPROPS: { kind: 'idlist', empty: 'none', ids: { SL: 'custscript_cdb_pe_valueprops' } },
+        // 2.0.3: SEND twin for the delivery-link email's "Earliest delivery" (the form's calculation).
         NOTICE_DAYS: { kind: 'int', empty: 'default', defaultValue: 3,
-            ids: { SL: 'custscript_cdb_notice_days' } },
+            ids: { SL: 'custscript_cdb_notice_days', SEND: 'custscript_cdbsend_notice_days' } },
         BANK_NAME: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_name' } },
         BANK_SORT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_sort' } },
         BANK_ACCOUNT: { kind: 'text', empty: 'throw', ids: { SL: 'custscript_cdb_bank_account' } },
@@ -259,6 +435,7 @@ define(['N/runtime'], function (runtime) {
     var SCRIPT_KEYS = {};
     SCRIPT_KEYS[SCRIPTS.SUITELET] = 'SL';
     SCRIPT_KEYS[SCRIPTS.DIGEST] = 'MR';
+    SCRIPT_KEYS[SCRIPTS.SEND_LINK] = 'SEND';
 
     /**
      * @param {*} value
@@ -326,7 +503,7 @@ define(['N/runtime'], function (runtime) {
      * Pure: reads and validates every parameter for one script column.
      *
      * @param {function(string): *} getParameter - returns the raw value for a parameter ID
-     * @param {string} column - 'SL' or 'MR'
+     * @param {string} column - 'SL', 'MR' or 'SEND'
      * @returns {{config: Object, missing: string[], notes: string[]}}
      *   config  keyed by logical key
      *   missing parameter IDs that are empty (or invalid) where empty means throw
@@ -553,6 +730,15 @@ define(['N/runtime'], function (runtime) {
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
+        DELIVERY_LINK_EMAIL: DELIVERY_LINK_EMAIL,
+        EMAIL_STANDARD: EMAIL_STANDARD,
+        DIGEST_EMAIL: DIGEST_EMAIL,
+        EMAIL_HERO_URL: EMAIL_HERO_URL,
+        EMAIL_HERO_WIDTH: EMAIL_HERO_WIDTH,
+        EMAIL_HERO_HEIGHT: EMAIL_HERO_HEIGHT,
+        EMAIL_ICONS: EMAIL_ICONS,
+        SEND_LINK_BANNERS: SEND_LINK_BANNERS,
+        SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
         PARAMETERS: PARAMETERS,
