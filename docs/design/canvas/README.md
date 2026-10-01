@@ -16,3 +16,12 @@ Exported 30 Sep 2026 from the Design canvas "Customer dashboard" (8 artboards). 
 | `ConfirmCard.dc.html` | Confirmation, card |
 | `Order.dc.html` | Place order (release 2, not 1.1) |
 | `Update.dc.html` | Tell us where you're up to (release 2, not 1.1) |
+
+## Customer emails v2 (added 1 Oct 2026)
+
+| File | Screen |
+|---|---|
+| `EmailDeliveryLink.dc.html` | "Book your delivery" email for one sales order (send-link Suitelet) |
+| `EmailDigestV2.dc.html` | The 14-day projects update (digest), v2 with progress bars |
+
+These two replace `Email.dc.html` as the email spec. Grey boxes are image placeholders. Emails are built with tables and HTML attributes (Send Quote 2.2.0 robustness rules), not the flex/grid used to draw them here.
