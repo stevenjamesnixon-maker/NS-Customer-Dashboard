@@ -147,6 +147,20 @@ function stubs(w) {
                             return '';
                         } });
                 });
+            } else if (def.type === 'customrecord_cdb_setting') {
+                // 3.0: the settings record. w.settings = [{id, name, value, isinactive}]; the search
+                // keeps active rows only when it filters on isinactive F, as NetSuite does.
+                if (w.settingsThrow) {
+                    throw new Error('SSS_INVALID_SRCH_TYPE: customrecord_cdb_setting');
+                }
+                var activeOnly = findClause(def.filters, 'isinactive');
+                (w.settings || []).forEach(function (row) {
+                    if (activeOnly && row.isinactive) { return; }
+                    rows.push({ id: String(row.id), getValue: function (n) {
+                        var name = n && typeof n === 'object' ? n.name : n;
+                        return name === 'name' ? row.name : (name === 'custrecord_cdb_setting_value' ? row.value : '');
+                    } });
+                });
             } else if (def.type === 'customrecord_cdb_nondelivery') {
                 // 2.0.3: non-delivery dates, as keys (the format stub reads and writes keys).
                 (w.nonDelivery || []).forEach(function (key, i) {

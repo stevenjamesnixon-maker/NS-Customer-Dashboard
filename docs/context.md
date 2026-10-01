@@ -6,8 +6,13 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 1 Oct 2026 (config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**Config 3.0 (1 Oct 2026, new PR):** every setting is held **once**, as a row of the custom record
+*Customer Dashboard Setting* (`customrecord_cdb_setting`) that every dashboard script reads; the script
+parameters stay as the transition fallback until every key reads from the record (section 4,
+*Settings*; section 8.3). No behaviour change: the same values give the same pages, emails and writes.
 
 **2.0.5 (PR #5 amendment 5):** the amount to pay is the system balances only, shown everywhere as
 *£x inc VAT (£y ex VAT)*; the `total − deposit` fallback is removed (section 4, *Amount to pay*).
@@ -38,10 +43,13 @@ every file it changes. Steve tells deployed copies apart by version.
    The only thing between the internet and a customer's orders is the signed link and the
    ownership check. Section 5 lists the rules that keep it that way. Do not relax any of them.
 
-2. **Parameter IDs differ between the two scripts.** A script parameter is a custom field, and
-   custom field IDs are unique across the account, so the Map/Reduce cannot reuse the Suitelet's
-   IDs. Its copies are prefixed `custscript_cdbmr_` and **must hold the same values** as their
-   `custscript_cdb_` originals. Nothing in NetSuite links them. See section 4.
+2. **Each setting is held once, on the settings record (3.0).** `customrecord_cdb_setting`, one
+   active row per key, read by every dashboard script. Until a row is set, each script falls back to
+   its own script parameter — and those IDs differ by script (a script parameter is a custom field,
+   and custom field IDs are unique across the account): `custscript_cdb_` on the dashboard Suitelet,
+   `custscript_cdbmr_` twins on the digest, `custscript_cdbsend_` on the Send link Suitelet. While a
+   key is still on parameters, its copies **must hold the same value**; nothing in NetSuite links them.
+   Section 4, *Settings*.
 
 3. **No internal IDs in code.** Statuses, list values, employees and quote types come from
    parameters. The `SalesOrd:A/B/D/E` status codes are NetSuite's own and the same in every
@@ -118,7 +126,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 2.0.5 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.0.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.2 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`) | Not deployed |
 | Data library | 2.0.4 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guard, validation; the email recipient, author and AM card data | Not deployed |
@@ -146,8 +154,9 @@ icons), `EMAIL_HERO_URL` and `EMAIL_ICONS` (File Cabinet `media.nl?id=…&c=4720
 **stated exception to "no numeric IDs in code"**: the numbers in them are part of a public URL, not
 record IDs the code reads or writes.
 
-Everything variable is a script parameter set on the deployment, so each account carries its
-own values. The bank details are parameters too: they are not secret, but they are not code.
+Everything variable is a **setting** — a row of `customrecord_cdb_setting` in each account (3.0), or,
+until that row is set, a script parameter on the deployment — so each account carries its own values.
+The bank details are settings too: they are not secret, but they are not code.
 
 ---
 
@@ -629,7 +638,166 @@ Refreshing or resubmitting is safe: the guard fails once `custbody_cust_pay_inte
   `custentity_cdb_last_digest` = today.
 - **Skips** — not found, inactive, no recipient email, nothing to show — log `CDB DIGEST_SKIPPED`.
 
-### Parameters — IDs per script
+### Settings — one record (3.0)
+
+**Why.** Up to 2.0.5 the same value was a script parameter on up to three scripts (`custscript_cdb_`,
+`custscript_cdbmr_`, `custscript_cdbsend_`), and a missed copy made one script quietly behave
+differently. From 3.0 each setting is held **once** (Steve, 1 Oct 2026).
+
+**The record** (Steve creates it; the code expects exactly this):
+
+| Item | Value |
+|---|---|
+| Record type | **Customer Dashboard Setting**, ID `customrecord_cdb_setting` |
+| Name field | **on**. The **Name** is the setting key, e.g. `WON_STATUSES` — exactly as written, upper case |
+| `custrecord_cdb_setting_value` | Long Text: the value, written exactly as the parameter is today (`13,65,66`, `{"23":"UFH"}`, `TEST`, an employee's internal ID) |
+| `custrecord_cdb_setting_notes` | Text Area, optional: what the setting means, for people. The code never reads it |
+| Inactive | Standard. **Inactive rows are ignored** |
+
+**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 31 in
+`docs/settings-seed.csv` — and no others. `SCRIPT_KEYS` says which keys each script needs.
+
+**How `config.load()` chooses each value** — for every key the script needs, first match wins:
+
+| # | Where | Source in the log |
+|---|---|---|
+| 1 | The key's active row, when its value is not blank | `record` |
+| 2 | Otherwise the script's own parameter (the IDs below, unchanged) — the **transition fallback** | `parameter` |
+| 3 | Otherwise the key's empty rule, unchanged: throw / the default / none | `missing` / `default` / `none` |
+
+- **The same parser** reads the value whichever the source (idlist, id, int, https, text, mode), so the
+  same value gives the same configuration. A node test moves every value of every script to the record
+  and compares.
+- **A blank row falls back; an invalid one does not.** Once a row has a value, it *is* the setting: an
+  invalid value (`13,abc`, an `http://` logo) goes to the empty rule as an invalid parameter always has,
+  and the message names `setting <KEY>`, not the parameter. (Deliberate: falling back would hide the typo.)
+- **`DIGEST_TEST_CUSTOMERS`** is read only in TEST mode, as before; in LIVE its source is `unused`.
+
+**The rules:**
+
+- **Duplicates.** Two active rows for a key the script needs → `CDB SETTING_DUPLICATE` (error) and the
+  script throws `CDB_SETTING_DUPLICATE: <KEY> (<id>, <id>)` with both internal IDs. It never picks one.
+  A duplicate of a key the script does **not** need does not stop it (the bank details duplicated stop
+  the dashboard, not the digest).
+- **Unknown keys.** A row whose Name is not a key (`WON_STATUS`, `won_statuses`) is ignored and logged
+  once per execution: `CDB SETTING_UNKNOWN` (audit) with the name and internal ID. Names are matched
+  exactly after trimming spaces: lower case is a different name.
+- **No search.** If the settings search itself fails (the record type does not exist yet, or the role
+  cannot see it) → `CDB SETTINGS_UNAVAILABLE` (audit) once, and every key falls back to its parameter.
+  This never stops a script that has its parameters.
+- **What it read.** Once per execution, at audit: `CDB SETTINGS_SOURCE` with `KEY=source` for every
+  key the script needs, in `PARAMETERS` order, e.g.
+  `WON_STATUSES=record, LOST_STATUSES=parameter, …, LOGO_URL=none, RECENT_DAYS=default`. This is how to
+  watch the switch-over.
+- **Quiet mode** (the digest's map stage, once per customer) logs none of these lines, as it already
+  skipped the default notes; the input stage logs them once per run.
+- **Missing.** `CDB_PARAMETER_MISSING` still throws once and names everything missing. A parameter
+  is named as before, followed by its key (`custscript_cdb_won_statuses [setting WON_STATUSES]`); a
+  key with no parameter, or an invalid row, is named `setting <KEY>`.
+
+**Governance.** One paged search of `customrecord_cdb_setting`, about **10 units**, once per script
+execution — cached in module scope, so a Suitelet request, or a Map/Reduce stage, searches once however
+often `load()` is called. A failed search is cached too, not retried. NetSuite may run each digest map
+call as its own execution: then each pays the 10 units (out of 1,000 per map call).
+
+**Who can read the record.** The dashboard Suitelet runs as Administrator and the digest as its owner.
+The **Send link Suitelet runs as the user's role** (it is not Available Without Login and has no
+*Execute As*), so the sales roles must be able to **view** the record: on the record type, *Access Type*
+**Use Permission List**, with those roles at **View** (Administrator Full). Otherwise that script logs
+`CDB SETTINGS_UNAVAILABLE` and uses its `custscript_cdbsend_` parameters — and once those are removed, it
+stops with `CDB_PARAMETER_MISSING`. Check this **before** removing any parameter.
+
+**New scripts** get their settings from the record with **no new parameters**: add the script and the
+keys it needs to `SCRIPT_KEYS`, and give it no `PARAMETER_COLUMNS` entry. A script in neither table
+throws `CDB_UNKNOWN_SCRIPT`.
+
+**The seed file** `docs/settings-seed.csv` (`Name,Value,Notes`): one row per key, Value blank, Notes a
+one-line meaning. Fill in each Value from the current parameter (the dashboard Suitelet's, or the
+digest's for the `DIGEST_` keys), then import it (section 8.3).
+
+### Removing the parameters (later, separately)
+
+Only after **every** key shows `record` in `CDB SETTINGS_SOURCE` on **every** script (the digest's
+`DIGEST_TEST_CUSTOMERS` may show `unused` in LIVE: check it in a TEST run, or that its row is set), and
+the sales roles can view the record (above). Then these parameters can be deleted from the script
+records — the values on the deployments first, then the parameter. Run each script once more and check
+`SETTINGS_SOURCE` again. A later code release then drops the `ids` and `PARAMETER_COLUMNS` fallback;
+until then, a deleted parameter just reads as empty.
+
+**Dashboard Suitelet (customscript_cdb_sl_dashboard)** — 27 parameters:
+
+| Key | Parameter ID |
+|---|---|
+| `WON_STATUSES` | `custscript_cdb_won_statuses` |
+| `LOST_STATUSES` | `custscript_cdb_lost_statuses` |
+| `DESIGN_SUBSTATUS` | `custscript_cdb_design_substatus` |
+| `NEEDINFO_SUBSTATUS` | `custscript_cdb_needinfo_substatus` |
+| `DELIVERY_SUBSTATUS` | `custscript_cdb_delivery_substatus` |
+| `EXCLUDED_STATUSES` | `custscript_cdb_excluded_statuses` |
+| `EXCLUDED_QUOTE_TYPES` | `custscript_cdb_excluded_quote_types` |
+| `PAY_BACS` | `custscript_cdb_pay_bacs` |
+| `PAY_CARD` | `custscript_cdb_pay_card` |
+| `FALLBACK_EMPLOYEE` | `custscript_cdb_fallback_employee` |
+| `PREPAY_TERMS` | `custscript_cdb_prepay_terms` |
+| `PAY_ACCOUNT` | `custscript_cdb_pay_account` |
+| `RELEASED_STATUSES` | `custscript_cdb_released_statuses` |
+| `RECENT_DAYS` | `custscript_cdb_recent_days` |
+| `RECENT_HIDDEN_STATUSES` | `custscript_cdb_recent_hidden_statuses` |
+| `QUOTE_TYPE_LABELS` | `custscript_cdb_quote_type_labels` |
+| `LOGO_URL` | `custscript_cdb_logo_url` |
+| `TIME_VALUES` | `custscript_cdb_time_values` |
+| `VEHICLE_VALUES` | `custscript_cdb_vehicle_values` |
+| `UNLOAD_VALUES` | `custscript_cdb_unload_values` |
+| `PE_VALUEPROPS` | `custscript_cdb_pe_valueprops` |
+| `NOTICE_DAYS` | `custscript_cdb_notice_days` |
+| `BANK_NAME` | `custscript_cdb_bank_name` |
+| `BANK_SORT` | `custscript_cdb_bank_sort` |
+| `BANK_ACCOUNT` | `custscript_cdb_bank_account` |
+| `OPTION_HINTS` | `custscript_cdb_option_hints` |
+| `EDD_DEFINITE` | `custscript_cdb_edd_definite_value` |
+
+**Digest Map/Reduce (customscript_cdb_mr_digest)** — 20 parameters:
+
+| Key | Parameter ID |
+|---|---|
+| `WON_STATUSES` | `custscript_cdbmr_won_statuses` |
+| `LOST_STATUSES` | `custscript_cdbmr_lost_statuses` |
+| `DESIGN_SUBSTATUS` | `custscript_cdbmr_design_substatus` |
+| `NEEDINFO_SUBSTATUS` | `custscript_cdbmr_needinfo_substatus` |
+| `DELIVERY_SUBSTATUS` | `custscript_cdbmr_delivery_substatus` |
+| `EXCLUDED_STATUSES` | `custscript_cdbmr_excluded_statuses` |
+| `EXCLUDED_QUOTE_TYPES` | `custscript_cdbmr_excluded_quote_types` |
+| `PAY_BACS` | `custscript_cdbmr_pay_bacs` |
+| `PAY_CARD` | `custscript_cdbmr_pay_card` |
+| `FALLBACK_EMPLOYEE` | `custscript_cdbmr_fallback_employee` |
+| `PAY_ACCOUNT` | `custscript_cdbmr_pay_account` |
+| `RELEASED_STATUSES` | `custscript_cdbmr_released_statuses` |
+| `RECENT_DAYS` | `custscript_cdbmr_recent_days` |
+| `RECENT_HIDDEN_STATUSES` | `custscript_cdbmr_recent_hidden_statuses` |
+| `QUOTE_TYPE_LABELS` | `custscript_cdbmr_quote_type_labels` |
+| `LOGO_URL` | `custscript_cdbmr_logo_url` |
+| `DIGEST_MODE` | `custscript_cdb_digest_mode` |
+| `DIGEST_TEST_CUSTOMERS` | `custscript_cdb_digest_test_customers` |
+| `DIGEST_DAYS` | `custscript_cdb_digest_days` |
+| `DIGEST_CAP` | `custscript_cdb_digest_cap` |
+
+**Send link Suitelet (customscript_cdb_sl_send_link)** — 9 parameters:
+
+| Key | Parameter ID |
+|---|---|
+| `EXCLUDED_STATUSES` | `custscript_cdbsend_excluded_statuses` |
+| `EXCLUDED_QUOTE_TYPES` | `custscript_cdbsend_excluded_quote_types` |
+| `FALLBACK_EMPLOYEE` | `custscript_cdbsend_fallback_employee` |
+| `PREPAY_TERMS` | `custscript_cdbsend_prepay_terms` |
+| `PAY_ACCOUNT` | `custscript_cdbsend_pay_account` |
+| `RELEASED_STATUSES` | `custscript_cdbsend_released_statuses` |
+| `QUOTE_TYPE_LABELS` | `custscript_cdbsend_quote_type_labels` |
+| `LOGO_URL` | `custscript_cdbsend_logo_url` |
+| `NOTICE_DAYS` | `custscript_cdbsend_notice_days` |
+
+56 parameters in all. The digest's `custscript_cdb_digest_*` four are on the digest only, without the `mr`.
+
+### Parameters — IDs per script (the transition fallback)
 
 **A missing parameter whose empty value would remove a restriction throws.** `load()` throws once
 and names every missing parameter.
@@ -752,8 +920,12 @@ Every title starts `CDB `.
 
 | Key | Level | Meaning | What to do |
 |---|---|---|---|
-| `CDB PARAMETER_MISSING` / `CONFIG_FAILED` | error | A required parameter is empty or invalid; the details name them | Set them on the deployment |
-| `CDB PARAMETER_DEFAULT` | audit | A defaulted or none parameter is empty | Nothing, unless it should be set |
+| `CDB PARAMETER_MISSING` / `CONFIG_FAILED` | error | A required setting is empty or invalid on the record and the parameter; the details name them (`custscript_… [setting KEY]` or `setting KEY`) | Set the row's value (or, until then, the parameter) |
+| `CDB PARAMETER_DEFAULT` | audit | A defaulted or none setting is empty (or invalid) | Nothing, unless it should be set |
+| `CDB SETTINGS_SOURCE` (3.0) | audit | Once per execution, not in quiet mode: `KEY=record\|parameter\|default\|none\|missing\|unused` for every key the script needs | Watch it reach `record` for every key before removing the parameters |
+| `CDB SETTINGS_UNAVAILABLE` (3.0) | audit | The `customrecord_cdb_setting` search failed; every setting came from the parameters | Create the record type, or let the role view it |
+| `CDB SETTING_UNKNOWN` (3.0) | audit | Active rows whose Name is not a setting key; ignored | Fix the Name, or make the row inactive |
+| `CDB SETTING_DUPLICATE` (3.0) | error | Two or more active rows for one key; the script stopped. Names the key and the internal IDs | Make all but one inactive |
 | `CDB INVALID_LINK` | audit | A link failed; the reason is in the details | A version bump or a customer made inactive is expected; a signature mismatch repeatedly from one customer is worth a look |
 | `CDB GUARD_REFUSED` | audit | The guard refused an order | *another customer* means someone edited the URL |
 | `CDB FORM_REJECTED` | audit | Validation failed; the errors are in the details | — |
@@ -790,7 +962,7 @@ Steve deploys. Manual File Cabinet upload to `SuiteScripts/NuHeat/Customer Dashb
 `lib/` subfolder.
 
 **Which list to follow.** The account already has release 1.x installed (section 0: releases 1 and 1.1
-passed their Production tests on 30 Sep 2026). **Follow 8.1 to install 2.0.** 8.2 is the first-install
+passed their Production tests on 30 Sep 2026). **Follow 8.1 to install 2.0**, then **8.3 for config 3.0**. 8.2 is the first-install
 list, kept for a new account only — do not follow it for 2.0: it creates objects that already exist.
 
 **Entering IDs in NetSuite.** NetSuite adds the prefix itself. In each ID field type **only the part
@@ -863,6 +1035,28 @@ Press it (testing on a test customer): the green banner, the email on the custom
 Communication tabs, and `CDB SEND_LINK` in the Suitelet's execution log. A `CDB PARAMETER_MISSING` or
 `CDB_UNKNOWN_SCRIPT` entry names the ID to fix. Then the scenarios in section 9 (16–20).
 
+### 8.3 Config 3.0: the settings record (after 2.0)
+
+In order. Nothing changes for customers at any step.
+
+1. **Create the record type and fields** (*Customization › Lists, Records, & Fields › Record Types ›
+   New*): name *Customer Dashboard Setting*, ID `_cdb_setting` → `customrecord_cdb_setting`, **Include
+   Name Field** on. *Access Type* **Use Permission List**: Administrator Full, the sales roles that use
+   *Send delivery link* View (section 4, *Who can read the record*). Fields: `_cdb_setting_value` →
+   `custrecord_cdb_setting_value`, **Long Text**; `_cdb_setting_notes` → `custrecord_cdb_setting_notes`,
+   **Text Area**, optional. Check before you create.
+2. **Import the CSV.** Fill in each Value in `docs/settings-seed.csv` from the current parameter
+   (written exactly as the parameter is: `13,65,66`, the JSON as it is, `TEST`, an employee's internal
+   ID). A row may be left blank: that key keeps reading its parameter. Then *Setup › Import/Export ›
+   Import CSV Records*, Custom Records, *Customer Dashboard Setting*; map Name → Name, Value →
+   `Value`, Notes → `Notes`. Add, not update. One row per key.
+3. **Upload** `lib/cdb_lib_config.js` (3.0.0), overwriting. No other file changes.
+4. **Run each script once** — open a dashboard link, press *Send delivery link* on a test order, run the
+   digest in TEST — and read `CDB SETTINGS_SOURCE` in each execution log. Every key with a row should
+   say `record`; no `SETTING_UNKNOWN`, `SETTING_DUPLICATE` or `SETTINGS_UNAVAILABLE`.
+5. **Remove the parameters — later, separately**, once every key says `record` on every script: section
+   4, *Removing the parameters*.
+
 ### 8.2 First install on a new account (reference — not for 2.0)
 
 For an account with no customer dashboard at all. On the existing account these all exist already.
@@ -897,7 +1091,9 @@ For an account with no customer dashboard at all. On the existing account these 
 six-month limit, London across BST changes), the token (payload, base64url, sign/verify and every
 failure, crypto stubbed), stage grouping and order states from fixtures, the addendum's native
 status rule (a Billed SO with a blank Record Status is not shown; a Pending Fulfillment SO is),
-the C6 recipient, validation, configuration (every throw case), the rendered HTML (escaping, no
+the C6 recipient, validation, configuration (every throw case; 3.0: the settings record — record,
+parameter, blank, inactive, duplicate, unknown, no search, one search, the source line, the seed file,
+and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub.
 
@@ -924,6 +1120,9 @@ step), and the Suitelet and digest end to end against an in-memory stub.
 | 17 (2.0) | Press it | One email from the rep to the dashboard contact / customer, on the customer's and the order's Communication tabs; the green banner; `CDB SEND_LINK` names you; the button opens the delivery form directly; the secondary link opens the dashboard |
 | 18 (2.0) | A released order with the box ticked; a customer with no email | The button shows; pressing gives the warning banner and no email; `CDB SEND_REFUSED` / `SEND_NO_RECIPIENT` |
 | 19 (2.0) | Reload the order after 5 minutes | No banner |
+| 21 (3.0) | Before any row: open a dashboard link | `CDB SETTINGS_SOURCE` all `parameter` / `default` / `none`; the page as before (`SETTINGS_UNAVAILABLE` if the record type does not exist yet) |
+| 22 (3.0) | Import the seed with values; open a link, press *Send delivery link* as a sales user, run the digest in TEST | `SETTINGS_SOURCE` all `record`; the page, both emails and the booking write exactly as before |
+| 23 (3.0) | A second active `LOGO_URL` row; a row named `WON_STATUS` | The duplicate stops the scripts (`CDB SETTING_DUPLICATE` with both IDs); the typo logs `CDB SETTING_UNKNOWN` and nothing else changes |
 | 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
@@ -978,6 +1177,27 @@ step), and the Suitelet and digest end to end against an in-memory stub.
    fallback is used only when the employee cannot be read.
 10. **The B4 guard does not check the opportunity's stage.** A ready, open order whose opportunity
     is in design (so not shown) can be booked by URL. Readiness's design gate normally prevents it.
+
+### Config 3.0 — decisions and notes for Steve
+
+1. **An invalid record value does not fall back to the parameter.** The brief says a non-blank row is
+   used; an invalid one (`13,abc`) goes to the empty rule, naming `setting <KEY>`, as an invalid parameter
+   did. Falling back would hide the typo behind the old value.
+2. **Duplicates stop only the scripts that need the key.** Two `BANK_NAME` rows stop the dashboard, not
+   the digest or the Send link Suitelet.
+3. **The unknown-key and unavailable lines are not logged in quiet mode**, like `SETTINGS_SOURCE`, so
+   the digest's map stage does not log them once per customer; the input stage logs them once per run.
+4. **`SCRIPT_KEYS` now lists keys; the parameter columns moved to `PARAMETER_COLUMNS`.** The brief keeps
+   `SCRIPT_KEYS` for "which keys this script needs only"; a script with keys but no column reads the
+   record only. A node test checks each list against its parameter column.
+5. **The Send link Suitelet needs view access to the record** (it runs as the user's role). Not in the
+   brief; section 4, *Who can read the record*.
+6. **Log wording that still names a parameter.** The digest's and the Send link Suitelet's
+   `CDB TYPE_LABELS_INVALID` lines say `custscript_cdbmr_quote_type_labels` / `custscript_cdbsend_…
+   ignored` even when the value came from the record, and `cdb_sl_send_link.js`'s header says it reads
+   its `custscript_cdbsend_` parameters. Left unchanged: the brief keeps those files out unless a change
+   is needed, and the behaviour is right. Tidy when those files next change.
+7. **The parameter count.** 31 keys; 56 parameters across the three scripts (27 + 20 + 9).
 
 ### Release 2.0 — contradictions and decisions for Steve
 

@@ -1,39 +1,51 @@
 /**
  * cdb_lib_config.js
  *
- * Every script ID, field ID and script parameter of the customer dashboard, and what an empty
- * parameter means. Both scripts read their configuration through load(); neither reads a
+ * Every script ID, field ID and setting of the customer dashboard, and what an empty setting
+ * means. Every dashboard script reads its configuration through load(); none reads a setting or a
  * parameter directly.
  *
  * NO NUMERIC INTERNAL IDS. List values, statuses, employees and quote types all differ between
- * Sandbox and Production, so they come from script parameters. Script and field IDs are the same
- * in every account and are committed here. See docs/context.md section 3.
+ * Sandbox and Production, so they come from settings. Script and field IDs are the same in every
+ * account and are committed here. See docs/context.md section 3.
  *
- * PARAMETER IDS DIFFER BY SCRIPT. A script parameter is a custom field, and custom field IDs are
- * unique across the account, so the Map/Reduce cannot define a parameter with the Suitelet's ID.
- * (NS-Opportunity-SO-Sync tried it and NetSuite refused.) The Map/Reduce therefore carries twins
- * prefixed custscript_cdbmr_ that must hold the SAME value as their custscript_cdb_ original, and
- * (2.0) the internal Send delivery link Suitelet carries more prefixed custscript_cdbsend_.
- * PARAMETERS below names each, explicitly, per script: no derivation and no fallback, because a
- * fallback reads the wrong script's value and hides the misconfiguration. See docs/context.md
- * section 4.
+ * 3.0: ONE SETTINGS RECORD. Each setting is held once, as a row of the custom record
+ * customrecord_cdb_setting (Name = the PARAMETERS key, custrecord_cdb_setting_value = the value,
+ * written exactly as the parameter is). load() runs ONE search per script execution (cached in
+ * module scope, ~10 units) and, for each key the script needs (SCRIPT_KEYS), takes:
+ *   1. the active row's value when it is not blank            source "record"
+ *   2. otherwise the script's own parameter (the IDs below)   source "parameter"
+ *   3. otherwise the key's empty rule, unchanged              source "default" / "none" / "missing"
+ * Either way the value goes through the same parser, so the same value gives the same config.
+ * Two active rows for one key the script needs throw CDB_SETTING_DUPLICATE; a row whose name is not
+ * a key is logged (CDB SETTING_UNKNOWN) and ignored; a failed search (no permission, no record
+ * type) is logged (CDB SETTINGS_UNAVAILABLE) and every key falls back to its parameter.
  *
- * load() THROWS ONCE and names every missing parameter, so a half-configured deployment fails with
+ * THE PARAMETERS ARE THE TRANSITION FALLBACK. Their IDs differ by script, because a script parameter
+ * is a custom field and custom field IDs are unique across the account: the dashboard Suitelet's are
+ * custscript_cdb_, the Map/Reduce's twins custscript_cdbmr_, the Send delivery link Suitelet's
+ * custscript_cdbsend_. PARAMETERS names each explicitly per script (PARAMETER_COLUMNS picks the
+ * column): no derivation and no cross-script fallback. Once every key logs "record" in
+ * CDB SETTINGS_SOURCE they can be deleted (docs/context.md, "Removing the parameters"). A new
+ * script gets no parameters: list its keys in SCRIPT_KEYS and give it no PARAMETER_COLUMNS entry.
+ *
+ * load() THROWS ONCE and names every missing setting, so a half-configured deployment fails with
  * one clear message instead of a trail of confusing ones.
  *
- * The pure part, readParameters(), takes a getter and is node-tested.
+ * The pure parts, resolveSettings(), groupSettingRows() and readParameters(), take plain data and
+ * getters and are node-tested.
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.5
+ * @version 3.0.0
  */
-define(['N/runtime'], function (runtime) {
+define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '2.0.5';
+    var VERSION = '3.0.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -56,6 +68,18 @@ define(['N/runtime'], function (runtime) {
      * because N/crypto is called from a library file. Never restricted by employee.
      */
     var SECRET_ID = 'custsecret_cdb_link_key';
+
+    /**
+     * 3.0: the Customer Dashboard Setting record (Steve creates it; docs/context.md section 4,
+     * "Settings"). Name field on: the Name is the PARAMETERS key. NOTES is for people; the code never
+     * reads it. Inactive rows are ignored.
+     */
+    var SETTING_RECORD = {
+        TYPE: 'customrecord_cdb_setting',
+        NAME: 'name',
+        VALUE: 'custrecord_cdb_setting_value',
+        NOTES: 'custrecord_cdb_setting_notes'
+    };
 
     var RECORD_TYPES = {
         NON_DELIVERY: 'customrecord_cdb_nondelivery',
@@ -336,7 +360,9 @@ define(['N/runtime'], function (runtime) {
     var SEND_LINK_BANNER_SECONDS = 300;
 
     /**
-     * Parameter kinds:
+     * Every setting, by key. The key is also the Name of its customrecord_cdb_setting row (3.0).
+     *
+     * kind (the same parser for a record value and a parameter value):
      *   idlist  comma list of whole numbers -> string[]
      *   id      one whole number (Integer, or a List/Record select) -> string
      *   int     whole number >= 0 -> number
@@ -344,13 +370,13 @@ define(['N/runtime'], function (runtime) {
      *   https   an https URL
      *   text    free text
      *
-     * empty:
+     * empty (neither a record value nor a parameter value, or the chosen value is invalid):
      *   throw    missing -> named in the one error load() throws
      *   default  missing or invalid -> the default, logged at audit
      *   none     missing -> the empty value, logged at audit
      *
-     * ids: the parameter's ID on each script. A key a script does not list is not available to
-     * it, and asking for it is a programming error, not an empty parameter.
+     * ids: the transition fallback, the parameter's ID on each existing script (PARAMETER_COLUMNS).
+     * Which keys a script needs is SCRIPT_KEYS, not this table.
      */
     var PARAMETERS = {
         WON_STATUSES: { kind: 'idlist', empty: 'throw',
@@ -431,11 +457,36 @@ define(['N/runtime'], function (runtime) {
             ids: { MR: 'custscript_cdb_digest_cap' } }
     };
 
-    /** Which PARAMETERS column each script reads. */
+    /**
+     * 3.0: which settings each script needs, and nothing else. A script that is not here throws
+     * CDB_UNKNOWN_SCRIPT. A new script is added here with its keys and no PARAMETER_COLUMNS entry:
+     * it reads the record only. A node test checks each list against its PARAMETERS column.
+     */
     var SCRIPT_KEYS = {};
-    SCRIPT_KEYS[SCRIPTS.SUITELET] = 'SL';
-    SCRIPT_KEYS[SCRIPTS.DIGEST] = 'MR';
-    SCRIPT_KEYS[SCRIPTS.SEND_LINK] = 'SEND';
+    SCRIPT_KEYS[SCRIPTS.SUITELET] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'NEEDINFO_SUBSTATUS',
+        'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'PAY_BACS', 'PAY_CARD', 'FALLBACK_EMPLOYEE',
+        'PREPAY_TERMS', 'PAY_ACCOUNT', 'RELEASED_STATUSES', 'RECENT_DAYS', 'RECENT_HIDDEN_STATUSES', 'QUOTE_TYPE_LABELS',
+        'LOGO_URL', 'TIME_VALUES', 'VEHICLE_VALUES', 'UNLOAD_VALUES', 'PE_VALUEPROPS', 'NOTICE_DAYS', 'BANK_NAME',
+        'BANK_SORT', 'BANK_ACCOUNT', 'OPTION_HINTS', 'EDD_DEFINITE'];
+    SCRIPT_KEYS[SCRIPTS.DIGEST] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'NEEDINFO_SUBSTATUS',
+        'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'PAY_BACS', 'PAY_CARD', 'FALLBACK_EMPLOYEE',
+        'PAY_ACCOUNT', 'RELEASED_STATUSES', 'RECENT_DAYS', 'RECENT_HIDDEN_STATUSES', 'QUOTE_TYPE_LABELS', 'LOGO_URL',
+        'DIGEST_MODE', 'DIGEST_TEST_CUSTOMERS', 'DIGEST_DAYS', 'DIGEST_CAP'];
+    SCRIPT_KEYS[SCRIPTS.SEND_LINK] = ['EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'FALLBACK_EMPLOYEE', 'PREPAY_TERMS',
+        'PAY_ACCOUNT', 'RELEASED_STATUSES', 'QUOTE_TYPE_LABELS', 'LOGO_URL', 'NOTICE_DAYS'];
+
+    /**
+     * 3.0: the transition fallback. Which PARAMETERS ids column each existing script's parameters
+     * are in. Removed, with the parameters, once every key reads from the record.
+     */
+    var PARAMETER_COLUMNS = {};
+    PARAMETER_COLUMNS[SCRIPTS.SUITELET] = 'SL';
+    PARAMETER_COLUMNS[SCRIPTS.DIGEST] = 'MR';
+    PARAMETER_COLUMNS[SCRIPTS.SEND_LINK] = 'SEND';
+
+    /** 3.0: where each value came from, as CDB SETTINGS_SOURCE prints it. */
+    var SOURCES = { RECORD: 'record', PARAMETER: 'parameter', DEFAULT: 'default', NONE: 'none',
+        MISSING: 'missing', UNUSED: 'unused' };
 
     /**
      * @param {*} value
@@ -500,80 +551,187 @@ define(['N/runtime'], function (runtime) {
     }
 
     /**
-     * Pure: reads and validates every parameter for one script column.
-     *
-     * @param {function(string): *} getParameter - returns the raw value for a parameter ID
      * @param {string} column - 'SL', 'MR' or 'SEND'
-     * @returns {{config: Object, missing: string[], notes: string[]}}
-     *   config  keyed by logical key
-     *   missing parameter IDs that are empty (or invalid) where empty means throw
-     *   notes   audit lines for defaults and 'none' values
+     * @returns {string[]} the keys with a parameter in that column, in PARAMETERS order
      */
-    function readParameters(getParameter, column) {
+    function keysForColumn(column) {
+        var keys = [];
+        var key;
+        for (key in PARAMETERS) {
+            if (PARAMETERS.hasOwnProperty(key) && PARAMETERS[key].ids[column]) {
+                keys.push(key);
+            }
+        }
+        return keys;
+    }
+
+    /**
+     * Pure (3.0): groups the active settings rows by key.
+     *
+     * @param {Array<{id: string, name: string, value: *}>} list - the search's rows
+     * @returns {{rows: Object, unknown: string[]}}
+     *   rows     known key -> [{id, value}], every active row for it (two or more is a duplicate)
+     *   unknown  'name (id)' for each row whose trimmed name is not a PARAMETERS key, exactly as typed
+     */
+    function groupSettingRows(list) {
+        var rows = {};
+        var unknown = [];
+        var i;
+        var name;
+        for (i = 0; i < list.length; i++) {
+            name = String(list[i].name === null || list[i].name === undefined ? '' : list[i].name)
+                .replace(/^\s+|\s+$/g, '');
+            if (!PARAMETERS.hasOwnProperty(name)) {
+                unknown.push('"' + name + '" (' + list[i].id + ')');
+                continue;
+            }
+            rows[name] = rows[name] || [];
+            rows[name].push({ id: String(list[i].id), value: list[i].value });
+        }
+        return { rows: rows, unknown: unknown };
+    }
+
+    /**
+     * Pure (3.0): chooses, parses and validates every setting one script needs.
+     *
+     * For each key: a non-blank record value, else the script's parameter (when getParameter and the
+     * column give it one), else the empty rule. The chosen value is parsed by the key's kind; an
+     * invalid value goes to the empty rule as it always has, naming where it came from. A blank
+     * record value falls back; an invalid one does not (the record is the setting once it is set).
+     *
+     * Messages about a parameter are word for word what 2.x logged.
+     *
+     * @param {Object} rows - groupSettingRows().rows; {} when there are none or the search failed
+     * @param {function(string): *|null} getParameter - returns the raw value for a parameter ID
+     * @param {string[]} keys - the keys the script needs (SCRIPT_KEYS)
+     * @param {string|null} column - the script's PARAMETERS column, or null when it has no parameters
+     * @returns {{config: Object, missing: string[], missingKeys: string[], notes: string[],
+     *            sources: Object, duplicates: string[]}}
+     *   config      keyed by logical key
+     *   missing     what is empty (or invalid) where empty means throw: the parameter ID, or
+     *               'setting KEY' when there is no parameter or the record's value was invalid
+     *   missingKeys the keys of missing, in the same order
+     *   notes       audit lines for defaults and 'none' values
+     *   sources     key -> SOURCES value, in PARAMETERS order
+     *   duplicates  'KEY (id, id)' for each needed key with two or more active rows
+     */
+    function resolveSettings(rows, getParameter, keys, column) {
         var config = {};
         var missing = [];
+        var missingKeys = [];
         var notes = [];
+        var sources = {};
+        var duplicates = [];
         var deferred = [];
+        var needed = {};
         var key;
         var def;
-        var id;
-        var raw;
+        var picked;
         var parsed;
         var i;
 
+        for (i = 0; i < keys.length; i++) {
+            needed[keys[i]] = true;
+        }
+
+        /** Where the value comes from, and its raw value. */
+        function pick(key) {
+            var def = PARAMETERS[key];
+            var found = rows[key] || [];
+            var id = column ? def.ids[column] : null;
+            if (found.length === 1 && !isBlank(found[0].value)) {
+                return { source: SOURCES.RECORD, label: 'setting ' + key, raw: found[0].value };
+            }
+            if (id && getParameter) {
+                return { source: SOURCES.PARAMETER, label: id, raw: getParameter(id) };
+            }
+            return { source: SOURCES.PARAMETER, label: 'setting ' + key, raw: null };
+        }
+
+        /** Parses the picked value; the parsed result, or null when blank. */
+        function parse(key, picked) {
+            return isBlank(picked.raw) ? null : parseValue(PARAMETERS[key].kind, picked.raw);
+        }
+
         for (key in PARAMETERS) {
-            if (!PARAMETERS.hasOwnProperty(key)) {
+            if (!PARAMETERS.hasOwnProperty(key) || !needed[key]) {
+                continue;
+            }
+            if (rows[key] && rows[key].length > 1) {
+                duplicates.push(key + ' (' + rows[key].map(function (r) { return r.id; }).join(', ') + ')');
+            }
+        }
+
+        for (key in PARAMETERS) {
+            if (!PARAMETERS.hasOwnProperty(key) || !needed[key]) {
                 continue;
             }
             def = PARAMETERS[key];
-            id = def.ids[column];
-            if (!id) {
-                continue;
-            }
             if (def.onlyInTestMode) {
                 deferred.push(key);
                 continue;
             }
-            raw = getParameter(id);
-            parsed = isBlank(raw) ? null : parseValue(def.kind, raw);
+            picked = pick(key);
+            parsed = parse(key, picked);
 
             if (parsed && parsed.ok) {
                 config[key] = parsed.value;
+                sources[key] = picked.source;
                 continue;
             }
             if (def.empty === 'throw') {
-                missing.push(id + (parsed ? ' (invalid value "' + String(raw) + '")' : ''));
+                missing.push(picked.label + (parsed ? ' (invalid value "' + String(picked.raw) + '")' : ''));
+                missingKeys.push(key);
+                sources[key] = SOURCES.MISSING;
             } else if (def.empty === 'default') {
                 config[key] = def.defaultValue;
-                notes.push(id + (parsed ? ' is invalid ("' + String(raw) + '")' : ' is empty') +
+                notes.push(picked.label + (parsed ? ' is invalid ("' + String(picked.raw) + '")' : ' is empty') +
                     ': using the default ' + def.defaultValue);
+                sources[key] = SOURCES.DEFAULT;
             } else {
                 config[key] = emptyValue(def.kind);
-                notes.push(id + (parsed ? ' is invalid ("' + String(raw) + '")' : ' is empty') +
+                notes.push(picked.label + (parsed ? ' is invalid ("' + String(picked.raw) + '")' : ' is empty') +
                     ': treated as none');
+                sources[key] = SOURCES.NONE;
             }
         }
 
-        // Parameters that only matter in one digest mode.
+        // Settings that only matter in one digest mode.
         for (i = 0; i < deferred.length; i++) {
             key = deferred[i];
-            def = PARAMETERS[key];
-            id = def.ids[column];
             if (config.DIGEST_MODE !== DIGEST_MODES.TEST) {
-                config[key] = emptyValue(def.kind);
+                config[key] = emptyValue(PARAMETERS[key].kind);
+                sources[key] = SOURCES.UNUSED;
                 continue;
             }
-            raw = getParameter(id);
-            parsed = isBlank(raw) ? null : parseValue(def.kind, raw);
+            picked = pick(key);
+            parsed = parse(key, picked);
             if (parsed && parsed.ok) {
                 config[key] = parsed.value;
+                sources[key] = picked.source;
             } else {
-                missing.push(id + (parsed ? ' (invalid value "' + String(raw) + '")' : '') +
+                missing.push(picked.label + (parsed ? ' (invalid value "' + String(picked.raw) + '")' : '') +
                     ' (required when the digest mode is TEST)');
+                missingKeys.push(key);
+                sources[key] = SOURCES.MISSING;
             }
         }
 
-        return { config: config, missing: missing, notes: notes };
+        return { config: config, missing: missing, missingKeys: missingKeys, notes: notes, sources: sources,
+            duplicates: duplicates };
+    }
+
+    /**
+     * Pure: reads and validates every parameter for one script column, with no settings record —
+     * exactly what 2.x's load() read. Kept for the tests and as the no-record case of resolveSettings().
+     *
+     * @param {function(string): *} getParameter - returns the raw value for a parameter ID
+     * @param {string} column - 'SL', 'MR' or 'SEND'
+     * @returns {{config: Object, missing: string[], notes: string[]}}
+     */
+    function readParameters(getParameter, column) {
+        var result = resolveSettings({}, getParameter, keysForColumn(column), column);
+        return { config: result.config, missing: result.missing, notes: result.notes };
     }
 
     /**
@@ -664,44 +822,153 @@ define(['N/runtime'], function (runtime) {
     }
 
     /**
-     * Pure: the error load() throws.
+     * Pure: the error load() throws when a setting is missing.
      * @param {string[]} missing
+     * @param {string[]} [keys] - the setting key of each entry (3.0), named in the message
      * @returns {Error}
      */
-    function missingError(missing) {
-        var error = new Error('CDB_PARAMETER_MISSING: set these script parameters on the ' +
-            'deployment: ' + missing.join(', '));
+    function missingError(missing, keys) {
+        var named = [];
+        var error;
+        var i;
+        for (i = 0; i < missing.length; i++) {
+            named.push(keys && keys[i] && missing[i].indexOf('setting ' + keys[i]) !== 0 ?
+                missing[i] + ' [setting ' + keys[i] + ']' : missing[i]);
+        }
+        error = new Error('CDB_PARAMETER_MISSING: set these as Customer Dashboard Setting rows (' +
+            SETTING_RECORD.TYPE + ', Name = the key) or as script parameters on the deployment: ' + named.join(', '));
         error.name = 'CDB_PARAMETER_MISSING';
         return error;
     }
 
     /**
-     * Reads the executing script's configuration.
+     * Pure (3.0): the error load() throws for two active rows of one key.
+     * @param {string[]} duplicates - 'KEY (id, id)'
+     * @returns {Error}
+     */
+    function duplicateError(duplicates) {
+        var error = new Error('CDB_SETTING_DUPLICATE: ' + duplicates.join('; ') + '. Each key must have exactly ' +
+            'one active ' + SETTING_RECORD.TYPE + ' row: make all but one inactive.');
+        error.name = 'CDB_SETTING_DUPLICATE';
+        return error;
+    }
+
+    /**
+     * Pure (3.0): the CDB SETTINGS_SOURCE details, 'KEY=source, ...' in PARAMETERS order.
+     * @param {Object} sources - resolveSettings().sources
+     * @returns {string}
+     */
+    function sourceLine(sources) {
+        var parts = [];
+        var key;
+        for (key in sources) {
+            if (sources.hasOwnProperty(key)) {
+                parts.push(key + '=' + sources[key]);
+            }
+        }
+        return parts.join(', ');
+    }
+
+    /**
+     * 3.0: the settings rows, searched once per script execution and kept in module scope. A failed
+     * search is kept too (as no rows), so it is neither retried nor logged twice.
+     * @type {{rows: Object, unknown: string[], failed: string}|null}
+     */
+    var settingsCache = null;
+
+    /** 3.0: what has been logged in this execution, so each line is logged once. */
+    var logged = { unavailable: false, unknown: false, sources: false };
+
+    /**
+     * The active settings rows: one paged search of customrecord_cdb_setting (~10 units), cached.
+     * Never throws: a failed search (no permission, the record type missing) gives no rows and
+     * failed = the reason, and every key falls back to its parameter.
+     * @returns {{rows: Object, unknown: string[], failed: string}}
+     */
+    function loadSettings() {
+        var list = [];
+        var grouped;
+        var paged;
+        var i;
+        if (settingsCache) {
+            return settingsCache;
+        }
+        try {
+            paged = search.create({
+                type: SETTING_RECORD.TYPE,
+                filters: [['isinactive', 'is', 'F']],
+                columns: [SETTING_RECORD.NAME, SETTING_RECORD.VALUE]
+            }).runPaged({ pageSize: 1000 });
+            for (i = 0; i < paged.pageRanges.length; i++) {
+                paged.fetch({ index: paged.pageRanges[i].index }).data.forEach(function (r) {
+                    list.push({ id: r.id, name: r.getValue({ name: SETTING_RECORD.NAME }),
+                        value: r.getValue({ name: SETTING_RECORD.VALUE }) });
+                });
+            }
+            grouped = groupSettingRows(list);
+            settingsCache = { rows: grouped.rows, unknown: grouped.unknown, failed: '' };
+        } catch (e) {
+            settingsCache = { rows: {}, unknown: [], failed: e && e.message ? e.message : String(e) };
+        }
+        return settingsCache;
+    }
+
+    /**
+     * Reads the executing script's configuration: each key it needs from the settings record, else
+     * its parameter, else the empty rule (see the header).
+     *
+     * Logged once per execution and never in quiet mode: CDB SETTINGS_UNAVAILABLE, CDB SETTING_UNKNOWN
+     * and CDB SETTINGS_SOURCE. The default/none notes, as before, every non-quiet load.
      *
      * @param {Object} log - N/log, for the audit notes
-     * @param {boolean} [quiet] - skip the default/none notes (the digest's map stage, per customer)
+     * @param {boolean} [quiet] - skip the audit lines (the digest's map stage, per customer)
      * @returns {Object} config keyed by logical key
-     * @throws {Error} CDB_PARAMETER_MISSING naming every missing parameter, or
-     *                 CDB_UNKNOWN_SCRIPT when the executing script is not in SCRIPT_KEYS
+     * @throws {Error} CDB_UNKNOWN_SCRIPT when the executing script is not in SCRIPT_KEYS,
+     *                 CDB_SETTING_DUPLICATE naming every key with two active rows, or
+     *                 CDB_PARAMETER_MISSING naming every missing setting
      */
     function load(log, quiet) {
         var script = runtime.getCurrentScript();
-        var column = SCRIPT_KEYS[script.id];
+        var keys = SCRIPT_KEYS[script.id];
+        var column = PARAMETER_COLUMNS[script.id] || null;
+        var settings;
         var result;
         var i;
 
-        if (!column) {
+        if (!keys) {
             throw new Error('CDB_UNKNOWN_SCRIPT: ' + script.id + ' is not a customer dashboard ' +
-                'script. Add it to SCRIPT_KEYS and PARAMETERS in cdb_lib_config.js.');
+                'script. Add it and the settings it needs to SCRIPT_KEYS in cdb_lib_config.js.');
         }
 
-        result = readParameters(function (id) {
-            return script.getParameter({ name: id });
-        }, column);
+        settings = loadSettings();
+        if (!quiet && settings.failed && !logged.unavailable) {
+            logged.unavailable = true;
+            log.audit({ title: LOG_PREFIX + 'SETTINGS_UNAVAILABLE', details: 'The ' + SETTING_RECORD.TYPE +
+                ' search failed, so every setting is read from the script parameters: ' + settings.failed });
+        }
+        if (!quiet && settings.unknown.length && !logged.unknown) {
+            logged.unknown = true;
+            log.audit({ title: LOG_PREFIX + 'SETTING_UNKNOWN', details: 'Ignored, not a setting key: ' +
+                settings.unknown.join(', ') });
+        }
 
+        result = resolveSettings(settings.rows, column ? function (id) {
+            return script.getParameter({ name: id });
+        } : null, keys, column);
+
+        if (result.duplicates.length) {
+            log.error({ title: LOG_PREFIX + 'SETTING_DUPLICATE', details: result.duplicates.join('; ') });
+            throw duplicateError(result.duplicates);
+        }
+        if (!quiet && !logged.sources) {
+            logged.sources = true;
+            log.audit({ title: LOG_PREFIX + 'SETTINGS_SOURCE', details: sourceLine(result.sources) });
+        }
         if (result.missing.length) {
-            log.error({ title: LOG_PREFIX + 'PARAMETER_MISSING', details: result.missing.join(', ') });
-            throw missingError(result.missing);
+            log.error({ title: LOG_PREFIX + 'PARAMETER_MISSING', details: result.missing.map(function (m, j) {
+                return m.indexOf('setting ') === 0 ? m : m + ' [setting ' + result.missingKeys[j] + ']';
+            }).join(', ') });
+            throw missingError(result.missing, result.missingKeys);
         }
         for (i = 0; !quiet && i < result.notes.length; i++) {
             log.audit({ title: LOG_PREFIX + 'PARAMETER_DEFAULT', details: result.notes[i] });
@@ -722,6 +989,7 @@ define(['N/runtime'], function (runtime) {
         LOG_PREFIX: LOG_PREFIX,
         SCRIPTS: SCRIPTS,
         SECRET_ID: SECRET_ID,
+        SETTING_RECORD: SETTING_RECORD,
         RECORD_TYPES: RECORD_TYPES,
         FIELDS: FIELDS,
         SHIPPABLE_STATUSES: SHIPPABLE_STATUSES,
@@ -742,10 +1010,18 @@ define(['N/runtime'], function (runtime) {
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
         PARAMETERS: PARAMETERS,
+        SCRIPT_KEYS: SCRIPT_KEYS,
+        PARAMETER_COLUMNS: PARAMETER_COLUMNS,
+        SOURCES: SOURCES,
         isBlank: isBlank,
         parseIdList: parseIdList,
         readParameters: readParameters,
+        keysForColumn: keysForColumn,
+        groupSettingRows: groupSettingRows,
+        resolveSettings: resolveSettings,
+        sourceLine: sourceLine,
         missingError: missingError,
+        duplicateError: duplicateError,
         load: load,
         logTitle: logTitle
     };
