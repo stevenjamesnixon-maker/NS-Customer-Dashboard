@@ -413,7 +413,8 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.OPP_UE], undefined);
     assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.SEND_DESIGNINFO], undefined);
     assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.OPP_UE], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'FC_MAP']);
-    assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.SEND_DESIGNINFO], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'PE_VALUEPROPS',
+    // 3.4.1 (amendment 2): DESIGN_SUBSTATUS, which the facts read.
+    assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.SEND_DESIGNINFO], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
         'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS',
         'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL']);
     // 3.3.0: the link backfill has no parameters: the "open" keys and its scope, from the record only.
@@ -424,5 +425,5 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
         c.SCRIPTS.SEND_DESIGNINFO].sort());
     assert.strictEqual(Object.keys(c.PARAMETERS).length, 48,
         'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key and the eleven 3.4.0 keys, no more');
-    assert.strictEqual(c.VERSION, '3.4.0');
+    assert.strictEqual(c.VERSION, '3.4.1');
 });

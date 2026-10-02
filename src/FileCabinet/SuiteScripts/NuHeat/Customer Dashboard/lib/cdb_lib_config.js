@@ -73,13 +73,16 @@
  *     DESIGN_EMAIL_ADDRESS) and SCRIPT_KEYS for each script that reads them; DESIGNINFO_EMAIL's defaults; the
  *     opportunity banner whitelist.
  *
- * @version 3.4.0
+ * 3.4.1 (amendment 2): SCRIPT_KEYS[SEND_DESIGNINFO] adds DESIGN_SUBSTATUS, which the facts read; every list holds every
+ * key its script reads, and a node test fails the suite on a key read but not listed.
+ *
+ * @version 3.4.1
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.4.0';
+    var VERSION = '3.4.1';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -827,8 +830,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     SCRIPT_KEYS[SCRIPTS.DIGEST] = SCRIPT_KEYS[SCRIPTS.DIGEST].concat(['DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP',
         'NEWBUILD_MARKET_IDS', 'PE_VALUEPROPS']);
     SCRIPT_KEYS[SCRIPTS.OPP_UE] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'FC_MAP'];
-    SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'PE_VALUEPROPS', 'FALLBACK_EMPLOYEE',
-        'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'DESIGN_EMAIL_ADDRESS',
+    SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
+        'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'DESIGN_EMAIL_ADDRESS',
         'DESIGNINFO_EMAIL'];
 
     /**

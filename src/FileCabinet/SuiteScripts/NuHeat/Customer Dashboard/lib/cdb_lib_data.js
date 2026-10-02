@@ -111,9 +111,14 @@
  *   designInfoRequest()   the request button's and the Send design information Suitelet's one lookup and checks.
  * dateInputError() is the update page's date rule, shared (validateUpdate() calls it; its behaviour is unchanged).
  *
+ * 2.3.1 (amendment 2): a CHECKBOX yesno reads an unticked box as "no" (a real answer), so a "No" is remembered and a
+ * required checkbox question can be done; RICHTEXT is no longer a target type (customer text there would render as
+ * HTML for staff: such a row is now a type mismatch, read-only and reported); the request rule reads FC_MAP only
+ * (designinfo.parseFcMapOnly()), so the User Event needs no other map.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.3.0
+ * @version 2.3.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config', './cdb_lib_dates',
     './cdb_lib_designinfo'],
@@ -121,7 +126,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
 
     'use strict';
 
-    var VERSION = '2.3.0';
+    var VERSION = '2.3.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -2203,8 +2208,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
 
     var DI_STORE = designinfo.STORE;
 
-    /** Field.type values, upper-cased, a text answer may be written to. CLOBTEXT/LONGTEXT: Long Text. */
-    var DI_TEXT_TYPES = ['TEXT', 'TEXTAREA', 'LONGTEXT', 'CLOBTEXT', 'RICHTEXT', 'PHONE', 'EMAIL', 'URL'];
+    /**
+     * Field.type values, upper-cased, a text answer may be written to. CLOBTEXT/LONGTEXT: Long Text. NEVER RICHTEXT
+     * (2.3.1): a Rich Text field renders its value as HTML for staff, and the customer's text is written as typed.
+     */
+    var DI_TEXT_TYPES = ['TEXT', 'TEXTAREA', 'LONGTEXT', 'CLOBTEXT', 'PHONE', 'EMAIL', 'URL'];
 
     /** NetSuite's own limits by field type, used when getField() exposes no maxLength. */
     var DI_TYPE_LIMITS = { TEXT: 300, PHONE: 300, EMAIL: 254, URL: 300, TEXTAREA: 4000 };
@@ -2400,7 +2408,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                 return;
             }
             if (q.type === 'yesno') {
-                out.values[q.qid] = type === 'CHECKBOX' ? (raw === true || raw === 'T' ? 'yes' : '') :
+                // 2.3.1: an unticked box is "no" — a real answer — so a "No" is remembered and counts as answered.
+                out.values[q.qid] = type === 'CHECKBOX' ? (raw === true || raw === 'T' ? 'yes' : 'no') :
                     (/^y(es)?$/i.test(trim(raw)) ? 'yes' : /^no?$/i.test(trim(raw)) ? 'no' : '');
                 out.texts[q.qid] = out.values[q.qid] === 'yes' ? 'Yes' : out.values[q.qid] === 'no' ? 'No' : '';
                 return;
@@ -2607,8 +2616,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
     /**
      * 2.3.0 (brief §4.5 step 1): ONE submitFields of the design information — modelled on writeProjectDetails().
      * Only registry-allowed fields (FIELDS.OPPORTUNITY, never DESIGNINFO_DENY) and the state field; only non-empty
-     * values (blank never clears: false is a value, the "No" of a checkbox). Anything else refuses the whole write
-     * (fail closed).
+     * values (blank never clears). Anything else refuses the whole write (fail closed).
+     * A CHECKBOX "No" IS A VALUE, NOT A BLANK (decision, amendment 2): the customer's "No" writes false, and may untick a
+     * box that was ticked. Only an empty string, null or undefined counts as blank.
      * @param {string} oppId
      * @param {Object} changes - fieldId -> value (string, Date or boolean)
      * @param {string} [stateText] - the state JSON, written in the same call
@@ -2758,7 +2768,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         var out = { ok: false, reason: '', opp: null };
         var r;
         var o;
-        var maps = designinfo.parseMaps(cfg);
+        var maps = designinfo.parseFcMapOnly(cfg);
         if (!/^\d+$/.test(trim(oppId))) {
             out.reason = 'no opportunity ID';
             return out;
@@ -2800,10 +2810,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
     /**
      * Pure (2.3.0): why the request button must not show, or '' when it may — the ONE rule for the User Event (its
      * record's own values) and the Suitelet (its lookup).
-     * @param {Object} [maps] - designinfo.parseMaps(cfg), when the caller has it
+     * Reads WON_STATUSES, NEEDINFO_SUBSTATUS and FC_MAP only (2.3.1), the User Event's whole key list.
+     * @param {Object} [maps] - designinfo.parseFcMapOnly(cfg), when the caller has it
      */
     function requestRefusal(status, subStatus, fc, cfg, maps) {
-        var m = maps || designinfo.parseMaps(cfg);
+        var m = maps || designinfo.parseFcMapOnly(cfg);
         if (!contains(cfg.WON_STATUSES, status)) {
             return 'the opportunity is not Won';
         }

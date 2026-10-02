@@ -35,17 +35,22 @@
  * the Note's 4,000) — and the "DESIGN INFO – …" Task, one per Send (buildDesignInfoTitle(), buildDesignInfoMessage(),
  * through createTask()). Plain text; the caller escapes the customer's words.
  *
+ * 1.5.1 (amendment 2): the design information Note and Task are PLAIN TEXT — the caller strips control characters and
+ * clips, and nothing is HTML-escaped (staff read the customer's words as typed); the Task message is clipped as the
+ * Note is (clipBody(): 3,900 characters + "(truncated)"), because Task.message is a 4,000-character text area; a
+ * change-list marker entry (the oldest changes dropped) prints as its own line.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.5.0
+ * @version 1.5.1
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.5.0';
+    var VERSION = '1.5.1';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -271,9 +276,21 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
     var TRUNCATED = '\n(truncated)';
     var DESIGN_PREFIX = 'DESIGN INFO \u2013 ';
 
-    /** Pure: "DESIGN INFO – <project name or QR>". */
+    /** Pure: "DESIGN INFO – <project name or QR>", control characters made spaces (plain text, 1.5.1). */
     function buildDesignInfoTitle(projectName, tranId) {
-        return clampTitle(DESIGN_PREFIX + (String(projectName || '') || String(tranId || '') || 'project'));
+        return clampTitle((DESIGN_PREFIX + (String(projectName || '') || String(tranId || '') || 'project'))
+            .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' '));
+    }
+
+    /**
+     * Pure (1.5.1): a Note body or a Task message clipped to NOTE_MAX with "(truncated)" — both fields are 4,000-character
+     * text areas.
+     * @returns {{body: string, clipped: boolean}}
+     */
+    function clipBody(text) {
+        var t = String(text === null || text === undefined ? '' : text);
+        return t.length > NOTE_MAX ? { body: t.slice(0, NOTE_MAX - TRUNCATED.length) + TRUNCATED, clipped: true } :
+            { body: t, clipped: false };
     }
 
     /** Pure: "Design information from customer · dd/mm/yyyy HH:mm". */
@@ -294,7 +311,7 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * Pure (brief §5.4): the Note's body.
      * @param {Object} o - { sectionsSaved: [title], sent: boolean, blocks: [{ title, changes: [{label, oldText, newText}],
      *   files: [{name, sizeText}] }] (sections with nothing changed are left out), notSaved: ['<qid> (why)'],
-     *   bigFiles: boolean, extra: [line] (file problems) } — every value already escaped and clipped by the caller
+     *   bigFiles: boolean, extra: [line] (file problems) } — plain text, clipped by the caller (1.5.1: not escaped)
      * @returns {{body: string, clipped: boolean}}
      */
     function buildDesignInfoNote(o) {
@@ -324,10 +341,7 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
             lines.push('', 'Large files: customer has files over 10 MB');
         }
         body = lines.join('\n');
-        if (body.length > NOTE_MAX) {
-            return { body: body.slice(0, NOTE_MAX - TRUNCATED.length) + TRUNCATED, clipped: true };
-        }
-        return { body: body, clipped: false };
+        return clipBody(body);
     }
 
     /**
@@ -335,8 +349,9 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @param {Object} o - { complete, missing: [title], sections: [{title, status}], changes: [{section, label, oldText,
      *   newText}] (since the last Send), files: [{name, sizeText, label}] (since the last Send), folderText, goodsLine
      *   ('' or the goods date line), bigFiles, warnings: [line], notSaved: ['<qid> (why)'], failures: [line] (writes that
-     *   failed), noteFailed: boolean, serviceText } — every value already escaped by the caller
-     * @returns {string}
+     *   failed), noteFailed: boolean, serviceText } — plain text, prepared by the caller (1.5.1: not escaped). A change
+     *   with marker: true (the oldest changes dropped) prints its label as a line of its own.
+     * @returns {string} unclipped: the caller clips it with clipBody() (and logs CDB DESIGNINFO_TASK_CLIPPED)
      */
     function buildDesignInfoMessage(o) {
         var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
@@ -367,6 +382,11 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         if ((o.changes || []).length) {
             lines.push('Changed since the last Send (old \u2192 new):');
             o.changes.forEach(function (c) {
+                if (c.marker) {
+                    lines.push(c.label);
+                    last = '';
+                    return;
+                }
                 if (c.section !== last) {
                     lines.push(c.section);
                     last = c.section;
@@ -425,6 +445,7 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         buildDesignInfoNoteTitle: buildDesignInfoNoteTitle,
         buildDesignInfoNote: buildDesignInfoNote,
         buildDesignInfoMessage: buildDesignInfoMessage,
+        clipBody: clipBody,
         createNote: createNote,
         NEW_ADDRESS_PREFIX: NEW_ADDRESS_PREFIX,
         buildTitle: buildTitle,

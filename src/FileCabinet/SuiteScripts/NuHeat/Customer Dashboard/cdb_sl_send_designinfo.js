@@ -19,8 +19,9 @@
  * the sender is the PE and DESIGN_EMAIL_ADDRESS is set, the card prints that address. RECIPIENT: emailRecipient()
  * only. relatedRecords: the customer and the opportunity (both Communication tabs).
  *
- * WRITES ONE FIELD: the state's `requested` (custbody_cdb_designinfo_state), MERGED into what is there; an
- * unparsable state is left alone (logged), never clobbered. Never the sub-status or anything else.
+ * WRITES ONE FIELD: the state's `requested` (custbody_cdb_designinfo_state), MERGED into what is there. 1.0.1
+ * (amendment 2): an unparsable state is treated as empty, as the dashboard does — logged once
+ * (CDB DESIGNINFO_STATE_INVALID) and replaced by { v: 1, requested }. Never the sub-status or anything else.
  *
  * GOVERNANCE (units): a GET is about 25 — the settings search 10, the opportunity lookup 1, the customer and contact
  * lookups 2, the registry's file.load 10, the employee lookups 1–3. A POST adds the two links' customer lookups 2,
@@ -31,7 +32,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.0.1
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -39,7 +40,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.0.1';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 
@@ -213,19 +214,18 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
             return OUTCOME.FAILED;
         }
 
-        // The state's `requested`, merged; an unparsable state is never overwritten.
+        // The state's `requested`, merged; an unparsable state is treated as empty, as on the dashboard (1.0.1).
         state = designinfo.parseState(p.opp.stateRaw);
         if (state.status === 'invalid') {
             log.audit({ title: title('DESIGNINFO_STATE_INVALID'), details: 'Opportunity ' + p.opp.id + ': ' + state.detail +
-                '; "requested" not recorded, the state left as it is' });
-        } else {
-            state.state.requested = new Date().toISOString();
-            try {
-                data.writeDesignInfo(p.opp.id, {}, designinfo.stateText(state.state));
-            } catch (e2) {
-                log.error({ title: title('DESIGNINFO_STATE_FAILED'), details: 'Opportunity ' + p.opp.id + ': the email WAS sent; ' +
-                    '"requested" not recorded (' + message(e2) + ')' });
-            }
+                '; treated as empty and replaced by a fresh state with "requested"' });
+        }
+        state.state.requested = new Date().toISOString();
+        try {
+            data.writeDesignInfo(p.opp.id, {}, designinfo.stateTextGuarded(state.state).text);
+        } catch (e2) {
+            log.error({ title: title('DESIGNINFO_STATE_FAILED'), details: 'Opportunity ' + p.opp.id + ': the email WAS sent; ' +
+                '"requested" not recorded (' + message(e2) + ')' });
         }
 
         log.audit({ title: title('DESIGNINFO_REQUESTED'), details: 'Opportunity ' + p.opp.id + ' (' + p.opp.tranId +

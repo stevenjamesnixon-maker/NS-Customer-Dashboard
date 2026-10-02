@@ -509,7 +509,8 @@ test('the Task, only on Send: title, assignee, what is missing, the changes sinc
     assert.ok(v.message.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0);
     assert.ok(v.message.indexOf('Changed since the last Send (old \u2192 new):\nYour plans\n- Windows and external doors: \u2014 \u2192 First') > 0,
         'the earlier save is in the change list');
-    assert.ok(v.message.indexOf('- Anywhere we shouldn&#39;t heat?: \u2014 \u2192 Garage') < 0, 'labels are ours, not escaped');
+    // Amendment 2 §5: the Task is plain text — never an HTML entity.
+    assert.strictEqual(v.message.indexOf('&#39;'), -1);
     assert.ok(v.message.indexOf('- Anywhere we shouldn\'t heat?: \u2014 \u2192 Garage') > 0);
     assert.ok(v.message.indexOf('LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.') > 0);
     assert.ok(t.w.notes[1].values.note.indexOf('Sent to PE: yes') > 0);
@@ -752,6 +753,7 @@ function request(method, opts) {
     var out = { form: null };
     w.scriptId = 'customscript_cdb_sl_send_designinfo';
     w.settings = w.settings.concat([{ id: '401', name: 'WON_STATUSES', value: '13' }, { id: '402', name: 'NEEDINFO_SUBSTATUS', value: '1' },
+        { id: '406', name: 'DESIGN_SUBSTATUS', value: '1,4,5,13' },
         { id: '403', name: 'PE_VALUEPROPS', value: '2,3' }, { id: '404', name: 'FALLBACK_EMPLOYEE', value: '500' }]).concat(o.extra || []);
     if (o.world) { o.world(w); }
     amd.load('cdb_sl_send_designinfo', t.s).onRequest({
@@ -819,11 +821,13 @@ test('send: POST emails emailRecipient() only, from the PE, with both records; s
         w.contacts[61] = { email: 'site@example.com' };
     } });
     assert.deepStrictEqual(c.w.emails[0].recipients, ['site@example.com']);
-    // An unparsable state is left alone.
+    // Amendment 2 §7: an unparsable state is treated as empty, logged once, and replaced by { v: 1, requested }.
     var u = request('POST', { world: function (w) { w.opps[20].custbody_cdb_designinfo_state = 'garbage'; } });
-    assert.strictEqual(u.w.submits.length, 0);
-    assert.strictEqual(u.w.opps[20].custbody_cdb_designinfo_state, 'garbage');
-    assert.strictEqual(u.w.emails.length, 1, 'the email still went');
+    assert.strictEqual(u.w.emails.length, 1, 'the email went');
+    assert.strictEqual(logs(u.w, 'DESIGNINFO_STATE_INVALID').length, 1);
+    var fresh = JSON.parse(u.w.opps[20].custbody_cdb_designinfo_state);
+    assert.strictEqual(fresh.v, 1);
+    assert.ok(/^\d{4}-\d\d-\d\dT/.test(fresh.requested));
 });
 
 test('send: a failed email redirects with cdbdi=failed and records nothing', function () {
@@ -877,4 +881,235 @@ test('the email: the account manager variant — UFH Design, a boiler: no step 2
     assert.ok(b.indexOf('rep@x') > 0, 'the rep\'s own email');
     assert.ok(/<b>2<\/b>/.test(b) && !/<b>3<\/b><\/font><\/td><\/tr><\/table><\/td><td align="left" valign="top" style="padding:0 0 16px 0;"><p[^>]*><font[^>]*><b>Where things go/.test(b),
         'two steps, renumbered');
+});
+
+// ---------------------------------------------------------------- amendment 2 (2.3.1)
+
+test('A2. writeDesignInfo refuses a deny-listed key, a key outside the allow-list and a blank (CDB_BAD_DESIGNINFO_WRITE)', function () {
+    var t = setup();
+    var data = amd.load('lib/cdb_lib_data', t.s);
+    [{ custbody_opp_del_date: new Date() }, { custbody_opportunity_sub_status: '4' }, { custbody_not_ours: 'x' },
+        { custbody15: '' }, { custbody15: '   ' }, { custbody15: null }].forEach(function (values) {
+        assert.throws(function () { data.writeDesignInfo('20', values, '{}'); }, function (e) {
+            return e.name === 'CDB_BAD_DESIGNINFO_WRITE';
+        }, JSON.stringify(values));
+    });
+    assert.throws(function () { data.writeDesignInfo('20', {}); }, /nothing to write/);
+    assert.strictEqual(t.w.submits.length, 0, 'nothing written');
+    data.writeDesignInfo('20', { custbody28: false });
+    assert.strictEqual(t.w.submits[0].values.custbody28, false, 'a checkbox "No" is a value, not a blank');
+});
+
+test('A2. yesno on a CHECKBOX: unticked reads back as "no"; "no" over a ticked box writes false; the section is done', function () {
+    var reg = [HEADER, 'project,Your project,main,w3w,text,what3words,,,note,N,,',
+        'heating,Heating and controls,general,through_walls,yesno,Through walls?,,,custbody28,Y,,'].join('\n') + '\n';
+    var t = setup({ registry: reg });
+    t.w.opps[20].custbody28 = false;
+    var html = get(t);
+    assert.ok(/name="q_through_walls" value="no" checked/.test(html), 'a stored false is "no"');
+    assert.ok(html.indexOf('Heating and controls<span class="chip chip-done">Done</span>') > 0, 'answered');
+    var u = setup({ registry: reg });
+    u.w.opps[20].custbody28 = true;
+    post(u, { sec: 'heating', q_through_walls: 'no' });
+    assert.strictEqual(oppWrites(u.w)[0].values.custbody28, false, 'unticks the box');
+    assert.strictEqual(state(u.w).sections.heating.status, 'done');
+    assert.ok(u.w.notes[0].values.note.indexOf(' Through walls?: Yes → No') > 0);
+    var v = setup({ registry: reg });
+    v.w.opps[20].custbody28 = false;
+    post(v, { sec: 'heating', q_through_walls: 'no' });
+    assert.deepStrictEqual(Object.keys(oppWrites(v.w)[0].values), ['custbody_cdb_designinfo_state'], '"no" over "no": no change');
+    assert.strictEqual(v.w.notes[0].values.note.indexOf('Through walls'), -1);
+});
+
+test('A2. a question hidden by its `when`, posted anyway, is ignored: no write, no Note line', function () {
+    var t = setup();
+    post(t, { sec: 'heating', q_heat_boiler: 'Combi in the kitchen', q_walls_new: 'Timber frame', q_overfloor: 'Old floor' });
+    assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
+    var note = t.w.notes[0].values.note;
+    ['Combi in the kitchen', 'Timber frame', 'Old floor'].forEach(function (x) { assert.strictEqual(note.indexOf(x), -1, x); });
+    var st = state(t.w);
+    assert.strictEqual(st.noted.heat_boiler, undefined);
+    assert.deepStrictEqual(st.pending, []);
+});
+
+/** Fourteen long answers in one post: fourteen changes of 300+ characters each. */
+function longAnswers(tag) {
+    var long = tag + Array(3000).join('z');
+    var p = {};
+    ['windows', 'unheated', 'ceilings', 'walls_ex', 'windows_ex', 'roof_ex', 'floors_ex', 'manifolds', 'screed', 'joists',
+        'coverings', 'hp_location', 'hp_buffer', 'other'].forEach(function (k) { p['q_' + k] = long; });
+    return p;
+}
+
+test('A2. the Task message is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); pending is capped; a Send after the cap succeeds', function () {
+    var t = setup();
+    var p;
+    ['a', 'b', 'c', 'd'].forEach(function (tag) {
+        p = longAnswers(tag);
+        p.sec = 'all';
+        post(t, p);
+    });
+    var st = state(t.w);
+    assert.ok(st.pending.length <= 40, 'at most 40 entries: ' + st.pending.length);
+    assert.ok(JSON.stringify(st.pending).length <= 12000, 'at most 12,000 characters');
+    assert.strictEqual(st.pending[0].l, '(earlier changes are in the opportunity’s Notes)');
+    assert.strictEqual(st.pending.filter(function (x) { return x.m; }).length, 1, 'one marker');
+    post(t, { send: '1' });
+    assert.strictEqual(t.w.tasks.length, 1, 'the Send still works');
+    var m = t.w.tasks[0].values.message;
+    assert.strictEqual(m.length, 3900);
+    assert.ok(/\n\(truncated\)$/.test(m));
+    assert.ok(m.indexOf('(earlier changes are in the opportunity’s Notes)') > 0, 'the marker as its own line');
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_TASK_CLIPPED').length, 1);
+    assert.deepStrictEqual(state(t.w).pending, [], 'cleared by the Send');
+});
+
+test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed under "Not saved to the record"', function () {
+    var t = setup();
+    t.w.oppFieldTypes.custbody_elevations_window_sizes_2026 = 'richtext';
+    var html = get(t);
+    assert.strictEqual(html.indexOf('name="q_windows"'), -1);
+    assert.ok(html.indexOf('(we’ll cover this on your call)') > 0);
+    assert.ok(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH')[0][2].indexOf('windows (custbody_elevations_window_sizes_2026 is RICHTEXT)') > 0);
+    post(t, { sec: 'plans', q_windows: '<img src=x onerror=alert(1)>' });
+    oppWrites(t.w).forEach(function (o) {
+        assert.strictEqual(o.values.hasOwnProperty('custbody_elevations_window_sizes_2026'), false);
+    });
+    assert.ok(t.w.notes[0].values.note.indexOf('Not saved to the record: windows (type mismatch: ' +
+        'custbody_elevations_window_sizes_2026 is RICHTEXT)') > 0);
+});
+
+test('A2. line endings: a stored "a\\r\\nb" and a posted "a\\nb" is not a change', function () {
+    var t = setup();
+    t.w.opps[20].custbody_sections_ceiling_heights_2026 = 'a\r\nb';
+    post(t, { sec: 'plans', q_ceilings: 'a\nb' });
+    post(t, { sec: 'plans', q_ceilings: 'a\r\nb' });
+    oppWrites(t.w).forEach(function (o) {
+        assert.strictEqual(o.values.hasOwnProperty('custbody_sections_ceiling_heights_2026'), false);
+    });
+    t.w.notes.forEach(function (n) { assert.strictEqual(n.values.note.indexOf('Ceiling heights'), -1); });
+});
+
+test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never an entity; the page still escapes', function () {
+    var t = setup();
+    var html = post(t, { send: '1', q_unheated: 'Don\'t & "quote" <b>' });
+    var note = t.w.notes[0].values.note;
+    var msg = t.w.tasks[0].values.message;
+    assert.ok(note.indexOf(' Anywhere we shouldn\'t heat?: — → Don\'t & "quote" <b>') > 0, note);
+    assert.ok(msg.indexOf('- Anywhere we shouldn\'t heat?: — → Don\'t & "quote" <b>') > 0, msg);
+    [note, msg].forEach(function (x) { assert.ok(!/&(amp|quot|#39|lt|gt);/.test(x)); });
+    // Control characters are stripped from the plain text.
+    var u = setup();
+    post(u, { sec: 'plans', q_unheated: 'Garage\u0007 only' });
+    assert.ok(u.w.notes[0].values.note.indexOf('Garage only') > 0);
+    // Every HTML surface still escapes: the page re-renders with the answer escaped.
+    assert.ok(html.indexOf('>Don&#39;t &amp; &quot;quote&quot; &lt;b&gt;</textarea>') > 0);
+    assert.strictEqual(html.indexOf('Don\'t & "quote" <b>'), -1);
+});
+
+test('A2. the state size guard: over 50,000 characters, pending keeps its last 10 (DESIGNINFO_STATE_TRIMMED)', function () {
+    var t = setup();
+    var big = { v: 1, sections: {}, answers: {}, noted: {}, pending: [], files: [] };
+    var i;
+    for (i = 0; i < 300; i++) {
+        big.files.push({ qid: 'plans_files', id: String(i), name: Array(200).join('f'), at: '2026-10-02T10:00:00Z' });
+    }
+    for (i = 0; i < 30; i++) {
+        big.pending.push({ s: 'S', l: 'L' + i, o: '', n: 'n', at: 'x' });
+    }
+    t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify(big);
+    post(t, { sec: 'plans', q_windows: 'Lots' });
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_STATE_TRIMMED').length, 1);
+    assert.strictEqual(oppWrites(t.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots', 'the fields still written');
+    var st = state(t.w);
+    assert.strictEqual(st.pending.filter(function (p) { return !p.m; }).length, 10);
+});
+
+test('A2. the fields are retried alone when the one write of the fields and the state fails', function () {
+    var t = setup();
+    t.w.submitThrows = function (o) { return o.values.hasOwnProperty('custbody_cdb_designinfo_state') &&
+        Object.keys(o.values).length > 1; };
+    post(t, { sec: 'plans', q_windows: 'Lots' });
+    var w = oppWrites(t.w);
+    assert.deepStrictEqual(w.map(function (o) { return Object.keys(o.values).sort().join(','); }),
+        ['custbody_elevations_window_sizes_2026', 'custbody_cdb_designinfo_state']);
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_WRITE_RETRY').length, 1);
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_WRITE_FAILED').length, 0);
+});
+
+// ---------------------------------------------------------------- amendment 2 §6: every key read is listed
+
+/**
+ * Loads a script with its config wrapped so every setting key it READS is recorded; returns the reads that are not
+ * in that script's SCRIPT_KEYS (config.load would throw on a listed key that is missing, but an unlisted key just
+ * reads as undefined — a silent bug).
+ */
+function unlistedReads(t, file, scriptId, drive) {
+    var cache = {};
+    var cfgMod = amd.load('lib/cdb_lib_config', t.s, cache);
+    var orig = cfgMod.load;
+    var reads = {};
+    cfgMod.load = function (l, q) {
+        var c = orig(l, q);
+        return new Proxy(c, { get: function (target, k) {
+            if (typeof k === 'string' && cfgMod.PARAMETERS.hasOwnProperty(k)) { reads[k] = true; }
+            return target[k];
+        } });
+    };
+    t.w.scriptId = scriptId;
+    drive(amd.load(file, t.s, cache));
+    return Object.keys(reads).filter(function (k) { return cfgMod.SCRIPT_KEYS[scriptId].indexOf(k) < 0; });
+}
+
+test('A2. every settings key a script reads is in its SCRIPT_KEYS list (dashboard, digest, User Event, Send Suitelet)', function () {
+    var d = amd.load('lib/cdb_lib_dates');
+    var t = setup();
+    var sent = JSON.stringify({ v: 1, sent: '2026-10-02T10:00:00Z', sections: { plans: { saved: 'x', status: 'done' } } });
+    t.w.opps[20].custbody_cdb_designinfo_state = sent;
+    t.w.opps[20].custbody_next_contact = d.addDays(d.londonTodayKey(Date.now()), 2);
+    assert.deepStrictEqual(unlistedReads(t, 'cdb_sl_dashboard', 'customscript_cdb_sl_dashboard', function (sl) {
+        t.sl = sl;
+        run(t, 'GET', { t: t.tok });
+        t.w.opps[20].custbody_cdb_designinfo_state = '';
+        run(t, 'GET', { t: t.tok });
+        get(t);
+        post(t, { send: '1', q_windows: 'Lots' }, { f_plans_files_1: part(t, 'a.pdf') });
+    }), [], 'dashboard Suitelet');
+
+    var u = setup();
+    u.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 1, sections: { plans: { saved: 'x', status: 'done' } } });
+    u.w.params = { custscript_cdb_digest_mode: 'TEST', custscript_cdb_digest_test_customers: '42', custscript_cdbmr_won_statuses: '13',
+        custscript_cdbmr_lost_statuses: '14', custscript_cdbmr_design_substatus: '1,4,5,13', custscript_cdbmr_needinfo_substatus: '1',
+        custscript_cdbmr_delivery_substatus: '8,11', custscript_cdbmr_excluded_statuses: '90',
+        custscript_cdbmr_excluded_quote_types: '7,8', custscript_cdbmr_pay_bacs: '1', custscript_cdbmr_pay_card: '2',
+        custscript_cdbmr_fallback_employee: '500' };
+    u.w.settings = u.w.settings.concat([{ id: '399', name: 'PE_VALUEPROPS', value: '2,3' }]);
+    assert.deepStrictEqual(unlistedReads(u, 'cdb_mr_digest', 'customscript_cdb_mr_digest', function (mr) {
+        var input = mr.getInputData();
+        mr.map({ value: JSON.stringify(input[0]), write: function () {} });
+    }), [], 'digest');
+    assert.strictEqual(u.w.emails.length, 1);
+
+    var v = setup();
+    v.w.settings = [{ id: '1', name: 'WON_STATUSES', value: '13' }, { id: '2', name: 'NEEDINFO_SUBSTATUS', value: '1' },
+        { id: '3', name: 'FC_MAP', value: SETTINGS.FC_MAP }];
+    var buttons = [];
+    assert.deepStrictEqual(unlistedReads(v, 'cdb_ue_opportunity', 'customscript_cdb_ue_opportunity', function (ue) {
+        ue.beforeLoad({ type: 'view', UserEventType: { VIEW: 'view' }, request: { parameters: {} },
+            newRecord: { id: '20', getValue: function (f) { return READY[f.fieldId] || ''; } },
+            form: { addButton: function (b) { buttons.push(b); }, addPageInitMessage: function () {} } });
+    }), [], 'opportunity User Event');
+    assert.strictEqual(buttons.length, 1, 'with only its three keys');
+
+    var x = setup();
+    x.w.settings = x.w.settings.concat([{ id: '401', name: 'WON_STATUSES', value: '13' }, { id: '402', name: 'NEEDINFO_SUBSTATUS',
+        value: '1' }, { id: '406', name: 'DESIGN_SUBSTATUS', value: '1,4,5,13' }, { id: '403', name: 'PE_VALUEPROPS', value: '2,3' },
+        { id: '404', name: 'FALLBACK_EMPLOYEE', value: '500' }]);
+    assert.deepStrictEqual(unlistedReads(x, 'cdb_sl_send_designinfo', 'customscript_cdb_sl_send_designinfo', function (sl) {
+        ['GET', 'POST'].forEach(function (m) {
+            sl.onRequest({ request: { method: m, parameters: m === 'POST' ? { custpage_opp: '20' } : { opp: '20' } },
+                response: { writePage: function () {}, setHeader: function () {}, write: function () {} } });
+        });
+    }), [], 'Send design information Suitelet');
+    assert.strictEqual(x.w.emails.length, 1);
 });

@@ -96,12 +96,19 @@
  * 10 and, on Send, the Task 10: about 164 with three files and Send, 64 for a Send without files. The dashboard
  * adds one extras search (10) when a project is in design, and the registry (10) only for a card in progress.
  *
+ * 2.3.1 (amendment 2): the design information Note and Task are plain text (control characters stripped, clipped,
+ * never HTML-escaped; every HTML surface still escapes); the Task message is clipped at 3,900
+ * (CDB DESIGNINFO_TASK_CLIPPED) and the change list since the last Send is capped (designinfo.capPending()); an answer
+ * is compared with its line endings normalised, so an untouched textarea is never "changed"; the state is size-guarded
+ * (CDB DESIGNINFO_STATE_TRIMMED); when the one write of the fields and the state fails, the fields are retried on
+ * their own, so the state never blocks them.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.3.0
+ * @version 2.3.1
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -110,7 +117,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.3.0';
+    var VERSION = '2.3.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1554,9 +1561,22 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return dc.html || renderDesignInfo(ctx, dc);
     }
 
-    /** A value as the Note and the Task show it: escaped, clipped. */
+    /**
+     * A value as the Note and the Task show it: PLAIN TEXT (2.3.1) — control characters stripped, clipped; never
+     * HTML-escaped (both are shown to staff as text).
+     */
     function shown(text) {
-        return render.esc(designinfo.clipValue(text));
+        return designinfo.plainValue(text);
+    }
+
+    /** The state's text for a write, size-guarded (CDB DESIGNINFO_STATE_TRIMMED). */
+    function stateForWrite(dc, s) {
+        var g = designinfo.stateTextGuarded(s);
+        if (g.trimmed) {
+            log.audit({ title: title('DESIGNINFO_STATE_TRIMMED'), details: 'Opportunity ' + dc.opp.id + ': the state was over ' +
+                designinfo.STATE_MAX_CHARS + ' characters; the change list keeps its last 10 entries (the Notes hold the rest)' });
+        }
+        return g.text;
     }
 
     /** The display text of an answer (old or new) for the Note. */
@@ -1598,8 +1618,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             }
             cur = q.store === STORE.FIELD ? (dc.rec.values[q.qid] || '') : q.store === STORE.NOTE && q.type === 'long' ? '' :
                 String(dc.state.answers[q.qid] === undefined ? '' : dc.state.answers[q.qid]);
+            // 2.3.1: line endings normalised on both sides — NetSuite may give back \r\n for what was posted as \n.
             if (q.store !== STORE.NOTE || q.type !== 'long') {
-                if (String(nv) === String(cur)) {
+                if (designinfo.sameText(nv, cur)) {
                     return;
                 }
             }
@@ -1671,9 +1692,11 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 s.sections[sec.id] = { saved: nowIso, status: designinfo.sectionStatus(sec.questions, valuesNow, s) };
             }
         });
-        s.pending = s.pending.concat(ch.items.map(function (c) {
-            return { s: c.sectionTitle, l: c.label, o: designinfo.clipValue(c.oldText), n: designinfo.clipValue(c.newText), at: nowIso };
-        })).slice(-80);
+        // 2.3.1: capped by count and size; the oldest dropped behind one marker (the Notes hold every change).
+        s.pending = designinfo.capPending(s.pending.concat(ch.items.map(function (c) {
+            return { s: c.sectionTitle, l: c.label, o: designinfo.plainValue(c.oldText), n: designinfo.plainValue(c.newText),
+                at: nowIso };
+        })), nowIso);
         pendingAll = s.pending;
         if (send) {
             s.sent = nowIso;
@@ -1694,7 +1717,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     /** Writes the state on its own (the second write); '' or why it failed. */
     function writeState(dc, s) {
         try {
-            data.writeDesignInfo(dc.opp.id, {}, designinfo.stateText(s));
+            data.writeDesignInfo(dc.opp.id, {}, stateForWrite(dc, s));
             return '';
         } catch (e) {
             log.error({ title: title('DESIGNINFO_STATE_FAILED'), details: 'Opportunity ' + dc.opp.id + ': ' + errorText(e) });
@@ -1757,6 +1780,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var next;
         var s;
         var before;
+        var taskBody;
         var noteResult;
         var noteFailed = false;
         var taskFailed = false;
@@ -1828,8 +1852,15 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             try {
                 if (!hasFiles) {
                     next = nextState(dc, ch, touched, valuesNow, [], nowIso, send);
-                    data.writeDesignInfo(dc.opp.id, ch.fields, designinfo.stateText(next.state));
-                    stateWritten = true;
+                    try {
+                        data.writeDesignInfo(dc.opp.id, ch.fields, stateForWrite(dc, next.state));
+                        stateWritten = true;
+                    } catch (eBoth) {
+                        // 2.3.1: the state must never block the fields — retry them on their own (step 3 writes the state).
+                        log.audit({ title: title('DESIGNINFO_WRITE_RETRY'), details: 'Opportunity ' + dc.opp.id + ': the fields ' +
+                            'with the state failed (' + errorText(eBoth) + '); the fields are retried alone' });
+                        data.writeDesignInfo(dc.opp.id, ch.fields);
+                    }
                 } else {
                     data.writeDesignInfo(dc.opp.id, ch.fields);
                 }
@@ -1859,7 +1890,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                     if (r.entry) {
                         newFiles.push(r.entry);
                     } else {
-                        failures.push('file "' + render.esc(r.original) + '" (' + r.failed + ')');
+                        failures.push('file "' + designinfo.plainValue(r.original) + '" (' + r.failed + ')');
                     }
                 });
             });
@@ -1889,7 +1920,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                         return { label: c.label, oldText: shown(c.oldText), newText: shown(c.newText) };
                     }),
                     files: fileResults.filter(function (r) { return r.section === x.id && r.entry; }).map(function (r) {
-                        return { name: render.esc(r.entry.name), sizeText: designinfo.sizeText(r.size) };
+                        return { name: designinfo.plainValue(r.entry.name), sizeText: designinfo.sizeText(r.size) };
                     })
                 };
             }),
@@ -1915,16 +1946,21 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
         comp = completenessOf(dc);
 
-        // Step 5: the Task, only on Send.
+        // Step 5: the Task, only on Send. 2.3.1: clipped as the Note is (Task.message holds 4,000 characters).
         if (send) {
+            taskBody = task.clipBody(designTaskMessage(dc, s, next.pendingAll, before.lastTaskAt, comp, failures, noteFailed, ch,
+                cfg.DESIGNINFO_FOLDER));
+            if (taskBody.clipped) {
+                log.audit({ title: title('DESIGNINFO_TASK_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Task message was ' +
+                    'clipped to ' + task.NOTE_MAX + ' characters (the Notes hold every change)' });
+            }
             try {
                 taskId = task.createTask({
                     title: task.buildDesignInfoTitle(dc.rec.info.title || dc.opp.title, dc.rec.info.tranId || dc.opp.tranId),
                     assigneeId: dc.recipient.id,
                     customerId: ctx.customer.id,
                     opportunityId: dc.opp.id,
-                    message: designTaskMessage(dc, s, next.pendingAll, before.lastTaskAt, comp, failures, noteFailed, ch,
-                        cfg.DESIGNINFO_FOLDER),
+                    message: taskBody.body,
                     todayKey: dates.londonTodayKey(Date.now()),
                     priority: task.PRIORITY.MEDIUM
                 }).id;
@@ -1982,12 +2018,14 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             complete: comp.complete,
             missing: comp.missing,
             sections: comp.sections,
-            serviceText: render.esc(dc.rec.info.valuePropositionText),
+            serviceText: designinfo.plainValue(dc.rec.info.valuePropositionText),
+            // Plain text (2.3.1); a marker entry (older changes dropped) prints as a line of its own.
             changes: pendingAll.map(function (p) {
-                return { section: p.s, label: p.l, oldText: render.esc(p.o), newText: render.esc(p.n) };
+                return p.m ? { marker: true, label: p.l } :
+                    { section: p.s, label: p.l, oldText: designinfo.plainValue(p.o), newText: designinfo.plainValue(p.n) };
             }),
             files: s.files.filter(function (f) { return !since || f.at > since; }).map(function (f) {
-                return { name: render.esc(f.name), sizeText: designinfo.sizeText(f.size), label: f.qid,
+                return { name: designinfo.plainValue(f.name), sizeText: designinfo.sizeText(f.size), label: f.qid,
                     attachNote: f.attached === false ? '(NOT attached: in the folder only)' : '' };
             }),
             folderText: 'File Cabinet folder ' + folderId + ', attached to this opportunity unless marked',

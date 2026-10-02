@@ -19,17 +19,23 @@
  * the allow-list (config.FIELDS.OPPORTUNITY) and NOT in the deny-list (config.DESIGNINFO_DENY: the goods
  * date custbody_opp_del_date, the sub-status, the Sales MI fields, custbody_cad_des_contact, ...).
  *
+ * 1.0.1 (amendment 2): parseFcMapOnly() — the request button and Suitelet read FC_MAP only; capPending() — the change
+ * list since the last Send is at most PENDING_MAX entries and PENDING_MAX_CHARS of JSON, the oldest dropped behind one
+ * marker entry; stateTextGuarded() — a state over STATE_MAX_CHARS keeps only the last 10 pending entries; plainValue()
+ * and sameText() — the Note and the Task are plain text (control characters stripped, clipped, never HTML-escaped),
+ * and an answer is compared with its line endings normalised.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.0
+ * @version 1.0.1
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.0.1';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -84,6 +90,13 @@ define([], function () {
     var BIG_FILES_QID = 'bigfiles';
 
     var STATE_VERSION = 1;
+
+    /** Amendment 2: the change list since the last Send — entries and JSON characters — and the state's own limit. */
+    var PENDING_MAX = 40;
+    var PENDING_MAX_CHARS = 12000;
+    var PENDING_MARKER = '(earlier changes are in the opportunity\u2019s Notes)';
+    var STATE_MAX_CHARS = 50000;
+    var STATE_TRIM_PENDING = 10;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -530,6 +543,16 @@ define([], function () {
         return out;
     }
 
+    /**
+     * Pure (1.0.1): FC_MAP alone, in parseMaps()' shape (heat and vp empty) — for the request button and the Send
+     * design information Suitelet's rule, which read no other map.
+     */
+    function parseFcMapOnly(cfg) {
+        var fc = parseFcMap((cfg || {}).FC_MAP);
+        return { fc: fc.map, heat: {}, vp: {}, fcEmpty: fc.status !== 'ok',
+            problems: fc.status === 'invalid' ? ['FC_MAP ignored: ' + fc.detail] : [] };
+    }
+
     function parseHeatMap(raw) {
         return parseValueMap(raw, HEAT_VALUES);
     }
@@ -681,6 +704,48 @@ define([], function () {
         return JSON.stringify({ v: STATE_VERSION, requested: s.requested || '', sent: s.sent || '',
             lastTaskAt: s.lastTaskAt || '', sections: s.sections || {}, answers: s.answers || {}, noted: s.noted || {},
             files: s.files || [], pending: s.pending || [] });
+    }
+
+    /**
+     * Pure (1.0.1): the change list capped — at most PENDING_MAX entries and PENDING_MAX_CHARS characters of JSON. When
+     * anything is dropped (oldest first), one marker entry { m: true, l: PENDING_MARKER } leads the list: the Notes hold
+     * every change, so nothing is lost. An existing marker is kept at the front, never repeated.
+     * @param {Object[]} list
+     * @param {string} nowIso
+     * @returns {Object[]}
+     */
+    function capPending(list, nowIso) {
+        var hadMarker = (list || []).some(function (p) { return p && p.m; });
+        var rest = (list || []).filter(function (p) { return p && !p.m; });
+        var marker = { m: true, s: '', l: PENDING_MARKER, o: '', n: '', at: nowIso };
+        var budget = PENDING_MAX_CHARS - JSON.stringify(marker).length - 1;
+        var dropped = false;
+        while (rest.length && (rest.length > PENDING_MAX - 1 || JSON.stringify(rest).length > budget)) {
+            rest.shift();
+            dropped = true;
+        }
+        if (!dropped && !hadMarker && rest.length <= PENDING_MAX && JSON.stringify(rest).length <= PENDING_MAX_CHARS) {
+            return (list || []).filter(function (p) { return p && !p.m; });
+        }
+        return [marker].concat(rest);
+    }
+
+    /**
+     * Pure (1.0.1): the state's text, guarded — over STATE_MAX_CHARS, pending keeps only its last STATE_TRIM_PENDING
+     * entries (the Notes hold the rest). The field is Long Text; this keeps the state from ever blocking a write.
+     * @returns {{text: string, trimmed: boolean}}
+     */
+    function stateTextGuarded(state) {
+        var text = stateText(state);
+        var s;
+        if (text.length <= STATE_MAX_CHARS) {
+            return { text: text, trimmed: false };
+        }
+        s = parseState(text).state;
+        s.pending = [{ m: true, s: '', l: PENDING_MARKER, o: '', n: '', at: '' }].concat(s.pending.filter(function (p) {
+            return !p.m;
+        }).slice(-STATE_TRIM_PENDING));
+        return { text: stateText(s), trimmed: true };
     }
 
     /** Pure: a section has been saved at least once. */
@@ -855,6 +920,23 @@ define([], function () {
         return m ? m[3] + '/' + m[2] + '/' + m[1] : '';
     }
 
+    /**
+     * Pure (1.0.1): a value for the Note or the Task — PLAIN TEXT: control characters stripped (newlines kept, \r\n made
+     * \n), clipped with …; never HTML-escaped (staff read it as typed).
+     */
+    function plainValue(text, max) {
+        return clipValue(String(text === null || text === undefined ? '' : text).replace(/\r\n?/g, '\n')
+            .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]+/g, ''), max);
+    }
+
+    /** Pure (1.0.1): two answers equal once line endings are normalised to \n and the ends trimmed. */
+    function sameText(a, b) {
+        function norm(v) {
+            return String(v === null || v === undefined ? '' : v).replace(/\r\n?/g, '\n').replace(/^\s+|\s+$/g, '');
+        }
+        return norm(a) === norm(b);
+    }
+
     /** Pure: a value clipped for the Note and the Task, with … when cut. */
     function clipValue(text, max) {
         var t = String(text === null || text === undefined ? '' : text);
@@ -906,6 +988,16 @@ define([], function () {
         uploadName: uploadName,
         sizeText: sizeText,
         slashDate: slashDate,
-        clipValue: clipValue
+        clipValue: clipValue,
+        // 1.0.1
+        PENDING_MAX: PENDING_MAX,
+        PENDING_MAX_CHARS: PENDING_MAX_CHARS,
+        PENDING_MARKER: PENDING_MARKER,
+        STATE_MAX_CHARS: STATE_MAX_CHARS,
+        parseFcMapOnly: parseFcMapOnly,
+        capPending: capPending,
+        stateTextGuarded: stateTextGuarded,
+        plainValue: plainValue,
+        sameText: sameText
     };
 });

@@ -396,3 +396,62 @@ test('DESIGNINFO_EMAIL: defaults; string overrides of known keys; TIPS only as p
     assert.strictEqual(config.parseDesignInfoEmail('nope').status, 'invalid');
     assert.strictEqual(config.DESIGNINFO_EMAIL.SUBJECT, 'Let\u2019s start your design: tell us about your property');
 });
+
+// ---------------------------------------------------------------- amendment 2 (1.0.1)
+
+test('A2. capPending: at most 40 entries and 12,000 characters, the oldest dropped behind ONE marker', function () {
+    var list = [];
+    var i;
+    for (i = 0; i < 60; i++) { list.push({ s: 'S', l: 'L' + i, o: '', n: 'x', at: 't' }); }
+    var c = di.capPending(list, 'now');
+    assert.strictEqual(c.length, 40);
+    assert.deepStrictEqual([c[0].m, c[0].l], [true, '(earlier changes are in the opportunity’s Notes)']);
+    assert.strictEqual(c[1].l, 'L21', 'the newest 39 kept');
+    assert.strictEqual(c[39].l, 'L59');
+    var big = [];
+    for (i = 0; i < 30; i++) { big.push({ s: 'S', l: 'L' + i, o: Array(300).join('o'), n: Array(300).join('n'), at: 't' }); }
+    c = di.capPending(big, 'now');
+    assert.ok(JSON.stringify(c).length <= 12000);
+    assert.ok(c[0].m && c.length < 31);
+    var again = di.capPending(c.concat([{ s: 'S', l: 'new', o: '', n: 'n', at: 't' }]), 'later');
+    assert.strictEqual(again.filter(function (p) { return p.m; }).length, 1, 'never two markers');
+    assert.strictEqual(again[0].m, true);
+    assert.deepStrictEqual(di.capPending(list.slice(0, 3), 'now'), list.slice(0, 3), 'under the cap: unchanged');
+});
+
+test('A2. stateTextGuarded: over 50,000 characters the pending list keeps its last 10', function () {
+    var s = di.emptyState();
+    var i;
+    for (i = 0; i < 400; i++) { s.files.push({ qid: 'q', id: String(i), name: Array(150).join('f'), at: 't' }); }
+    for (i = 0; i < 25; i++) { s.pending.push({ s: 'S', l: 'L' + i, o: '', n: 'n', at: 't' }); }
+    var g = di.stateTextGuarded(s);
+    assert.strictEqual(g.trimmed, true);
+    var back = di.parseState(g.text).state;
+    assert.deepStrictEqual(back.pending.filter(function (p) { return !p.m; }).map(function (p) { return p.l; }),
+        ['L15', 'L16', 'L17', 'L18', 'L19', 'L20', 'L21', 'L22', 'L23', 'L24']);
+    assert.strictEqual(back.files.length, 400, 'the files are kept');
+    assert.strictEqual(di.stateTextGuarded(di.emptyState()).trimmed, false);
+});
+
+test('A2. plainValue strips control characters, keeps newlines, never escapes; sameText ignores line endings', function () {
+    assert.strictEqual(di.plainValue('Don\'t & "q" <b>\u0007\r\nok'), 'Don\'t & "q" <b>\nok');
+    assert.strictEqual(di.plainValue(Array(400).join('a')).length, 300);
+    assert.strictEqual(di.sameText('a\r\nb', 'a\nb'), true);
+    assert.strictEqual(di.sameText('a\rb ', 'a\nb'), true);
+    assert.strictEqual(di.sameText('a', 'b'), false);
+});
+
+test('A2. parseFcMapOnly reads FC_MAP alone', function () {
+    var m = di.parseFcMapOnly({ FC_MAP: '{"7": "none"}', HEAT_MAP: 'not read' });
+    assert.deepStrictEqual(m.fc, { 7: ['none'] });
+    assert.strictEqual(m.fcEmpty, false);
+    assert.strictEqual(di.parseFcMapOnly({}).fcEmpty, true);
+});
+
+test('A2. task.clipBody: 3,900 with (truncated); the Task title is plain text', function () {
+    var c = task.clipBody(Array(5000).join('m'));
+    assert.strictEqual(c.clipped, true);
+    assert.strictEqual(c.body.length, 3900);
+    assert.strictEqual(task.clipBody('short').clipped, false);
+    assert.strictEqual(task.buildDesignInfoTitle('Barn & "Co"\u0007', 'QR1'), 'DESIGN INFO – Barn & "Co" ');
+});
