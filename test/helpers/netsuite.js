@@ -192,15 +192,87 @@ function stubs(w) {
             return results(rows);
         }
     };
+    /**
+     * 2.2: the customer's address book, kept across loads (w.addressBooks[customerId]); customer 42 starts
+     * with two lines. Each line's address is a subrecord (addr). w.customerSaveThrows fails the save;
+     * w.stateField / w.dispstateField model the address form's county field (state is text by default).
+     */
+    function addressBook(customerId) {
+        w.addressBooks = w.addressBooks || {};
+        if (!w.addressBooks[customerId]) {
+            w.addressBooks[customerId] = String(customerId) === '42' ? [
+                { id: '900', label: 'Home', addressbookaddress_text: '1 Home Rd\nTown',
+                    addr: { country: 'GB', addr1: '1 Home Rd', city: 'Town', zip: 'TN1 1AA' } },
+                { id: '901', label: 'Site', addressbookaddress_text: 'Plot 2\nVillage',
+                    addr: { country: 'GB', addr1: 'Plot 2', city: 'Village', zip: 'VL2 2BB' } }] : [];
+        }
+        return w.addressBooks[customerId];
+    }
+    /** 2.2: an error as NetSuite throws one — the code as its name, the text as its message. */
+    function nsError(name, message) {
+        var e = new Error(message);
+        e.name = name;
+        return e;
+    }
+    function subrecord(addr) {
+        return {
+            getValue: function (f) { return addr[f.fieldId] === undefined ? '' : addr[f.fieldId]; },
+            setValue: function (f) {
+                if (w.addressSetThrows && w.addressSetThrows === f.fieldId) { throw nsError('INVALID_FLD_VALUE', 'INVALID_FLD_VALUE: ' + f.fieldId); }
+                addr[f.fieldId] = f.value;
+            },
+            getField: function (f) {
+                if (f.fieldId === 'state') { return w.stateField === undefined ? { id: 'state', type: 'text' } : w.stateField; }
+                if (f.fieldId === 'dispstate') { return w.dispstateField || null; }
+                return { id: f.fieldId, type: 'text' };
+            }
+        };
+    }
     var record = {
-        Type: { CUSTOMER: 'customer', SALES_ORDER: 'salesorder', TASK: 'task' },
+        Type: { CUSTOMER: 'customer', SALES_ORDER: 'salesorder', TASK: 'task', OPPORTUNITY: 'opportunity' },
         load: function (o) {
             if (o.type === 'customer') {
-                var lines = [{ id: '900', label: 'Home', addressbookaddress_text: '1 Home Rd\nTown' },
-                    { id: '901', label: 'Site', addressbookaddress_text: 'Plot 2\nVillage' }];
+                // A working copy: nothing reaches the book until save().
+                var lines = addressBook(String(o.id)).map(function (l) {
+                    var c = JSON.parse(JSON.stringify(l));
+                    return c;
+                });
+                w.customerLoads = (w.customerLoads || 0) + 1;
                 return {
-                    getLineCount: function () { return o.id === '42' ? 2 : 0; },
-                    getSublistValue: function (s) { return lines[s.line][s.fieldId] || ''; }
+                    getLineCount: function () { return lines.length; },
+                    getSublistValue: function (s) { var v = lines[s.line][s.fieldId]; return v === undefined ? '' : v; },
+                    getSublistSubrecord: function (s) { return subrecord(lines[s.line].addr); },
+                    insertLine: function (s) { lines.splice(s.line, 0, { id: '', label: '', addr: {} }); },
+                    setSublistValue: function (s) { lines[s.line][s.fieldId] = s.value; },
+                    save: function (opts) {
+                        var book = addressBook(String(o.id));
+                        if (w.customerSaveThrows) { throw nsError('USER_ERROR', 'a script on the customer refused the save'); }
+                        lines.forEach(function (l) {
+                            if (!l.id) {
+                                w.nextAddressId = (w.nextAddressId || 950) + 1;
+                                l.id = String(w.nextAddressId);
+                                l.addressbookaddress_text = [l.addr.addr1, l.addr.addr2, l.addr.city, l.addr.state, l.addr.zip]
+                                    .filter(function (x) { return !!x; }).join('\n');
+                            }
+                        });
+                        book.length = 0;
+                        lines.forEach(function (l) { book.push(l); });
+                        w.customerSaves = (w.customerSaves || []).concat([{ id: o.id, opts: opts }]);
+                        return o.id;
+                    }
+                };
+            }
+            if (o.type === 'opportunity') {
+                // 2.2: only what writeDeliveryAddress() needs. w.missingOppFields: fields not on the form.
+                // 2.2.1: w.oppFieldTypes: fieldId -> Field.type ('text' when not given).
+                if (w.oppLoadThrows) { throw new Error('INSUFFICIENT_PERMISSION: opportunity'); }
+                w.oppLoads = (w.oppLoads || 0) + 1;
+                return {
+                    getField: function (f) {
+                        return (w.missingOppFields || []).indexOf(f.fieldId) >= 0 ? null :
+                            { id: f.fieldId, type: (w.oppFieldTypes || {})[f.fieldId] || 'text' };
+                    },
+                    getValue: function (f) { var v = w.opps[o.id][f.fieldId]; return v === undefined ? '' : v; }
                 };
             }
             var src = w.orders[o.id];
@@ -220,7 +292,15 @@ function stubs(w) {
                 }
             };
         },
-        submitFields: function (o) { w.submits.push(o); return o.id; },
+        // 2.2: w.submitThrows(o) true fails a submitFields; an opportunity's values are applied to w.opps.
+        submitFields: function (o) {
+            if (w.submitThrows && w.submitThrows(o)) { throw nsError('USER_ERROR', 'submitFields refused'); }
+            w.submits.push(o);
+            if (o.type === 'opportunity' && w.opps[o.id]) {
+                Object.keys(o.values).forEach(function (k) { w.opps[o.id][k] = o.values[k]; });
+            }
+            return o.id;
+        },
         create: function () {
             var t = { values: {} };
             w.tasks.push(t);

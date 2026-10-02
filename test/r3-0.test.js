@@ -141,7 +141,9 @@ test('6. neither: a throw key throws as today; a default key gets the default as
     // 3.1: plus the three record-only keys, empty here (no row, no parameter), noted as every 'none' key is.
     assert.deepStrictEqual(logs(s.w, 'PARAMETER_DEFAULT').map(function (l) { return l[2]; }),
         ['custscript_cdb_recent_days is empty: using the default 7', 'setting UPD_LOST_STATUS_MAP is empty: treated as none',
-            'setting UPD_BUILD_STAGES is empty: treated as none', 'setting UPD_OBJECTION_TYPES is empty: treated as none'],
+            'setting UPD_BUILD_STAGES is empty: treated as none', 'setting UPD_OBJECTION_TYPES is empty: treated as none',
+            // 3.2.1: the two delivery-form record-only keys, the same way.
+            'setting TIME_DEFAULT is empty: treated as none', 'setting UNLOAD_SURCHARGE is empty: treated as none'],
         'the 2.x note, word for word');
 });
 
@@ -196,6 +198,8 @@ test('9. the settings search throws: one SETTINGS_UNAVAILABLE line; the paramete
     expected.UPD_LOST_STATUS_MAP = '';
     expected.UPD_BUILD_STAGES = [];
     expected.UPD_OBJECTION_TYPES = [];
+    expected.TIME_DEFAULT = '';
+    expected.UNLOAD_SURCHARGE = '';
     assert.deepStrictEqual(s.config.load(s.log), expected);
     s.config.load(s.log);
     var lines = logs(s.w, 'SETTINGS_UNAVAILABLE');
@@ -367,12 +371,14 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     var c = setup().config;
     // 3.1: the record-only keys (no parameter on any script) — the dashboard Suitelet's update settings.
     var recordOnly = Object.keys(c.PARAMETERS).filter(function (k) { return !Object.keys(c.PARAMETERS[k].ids).length; });
-    assert.deepStrictEqual(recordOnly, ['UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES']);
+    assert.deepStrictEqual(recordOnly, ['UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES',
+        'TIME_DEFAULT', 'UNLOAD_SURCHARGE']);
     Object.keys(c.PARAMETER_COLUMNS).forEach(function (scriptId) {
         assert.deepStrictEqual(c.SCRIPT_KEYS[scriptId].slice().sort(),
             c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? recordOnly : []).sort(), scriptId);
     });
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 34, 'the 2.0.5 keys and the three 3.1 keys, no more');
-    assert.strictEqual(c.VERSION, '3.1.0');
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 36,
+        'the 2.0.5 keys, the three 3.1 keys and the two 3.2.1 keys, no more (3.2 adds none)');
+    assert.strictEqual(c.VERSION, '3.2.2');
 });

@@ -35,10 +35,17 @@
  *   - 2.1, ONLY through the Online-quote Update Opportunity library (config.OPPLIB, >= 1.2.0):
  *     custbody_build_stage and custbody_opp_del_date (writeOppUpdate, changed values only, blank never
  *     clears), entitystatus = the Lost status for the customer's stage (writeOppUpdate), and one
- *     Customer Objection (createObjections).
+ *     Customer Objection (createObjections);
+ *   - 2.2, the opportunity's title (the project name), by the dashboard ITSELF; 2.2.1, with the site address
+ *     (custbody_opp_site_adress, Long Text) — data.writeProjectDetails(), one
+ *     write of the changed ones of those two fields only, after guardOpportunity(), after the
+ *     library's write;
+ *   - 2.2, with "Add a new address…": one line on the customer's address book (data.addToAddressBook(),
+ *     unless the same address is already there), and custbody_cdb_delivery_address on the order's
+ *     opportunity (data.writeDeliveryAddress(), only when the field exists).
  * It NEVER writes custbody_del_date (the confirmed date: a workflow runs from it),
  * custbody_finance_status (the Record Status), custbody_opportunity_sub_status, any other opportunity
- * field, any estimate or any customer field.
+ * field, any estimate, or any customer field but that one address book line.
  *
  * THE LIBRARY IS OPTIONAL (2.1). It is required at request time by absolute path, not in define(): if it
  * is missing or older than 1.2.0, the update action is unavailable (no button; a direct link says to
@@ -48,14 +55,27 @@
  * (a missing parameter, a search that throws) shows a generic error page and logs at ERROR.
  *
  * GOVERNANCE. 1,000 units per request. A GET is about 60, a POST about 120. The remaining usage
- * is logged at the end of every request as CDB USAGE.
+ * is logged at the end of every request as CDB USAGE. 2.2: a new address adds up to 40 — the customer's
+ * load (5), save (10) and reload to find the line (5), then the opportunity's load (10) and its one-field
+ * write (10); a project name adds one one-field write (10). Both writes are in cdb_lib_data, never here.
+ * 2.2.1: the project details write is one write (10) for either or both fields. (2.2.2: no opportunity load
+ * on the update page: 2.2.1's site address type check is gone.)
+ *
+ * 2.2.1 (PR #8 amendment 1): "Your project details" (the reference and the site address); the delivery
+ * form's TIME_DEFAULT (pre-selected, and booked when no time is posted) and UNLOAD_SURCHARGE (shown under
+ * the option, on the confirmation and in the Task — the dashboard never adds an item line: the rep does).
+ *
+ * 2.2.2 (PR #8 amendment 2): "Site address" is always offered (the field is Long Text, confirmed in
+ * Production, 2 Oct 2026; the runtime type check and CDB SITE_ADDRESS_NOT_TEXT are gone). Ready-to-book
+ * orders show their current forecast date — the order's own custbody_defaultshipdate (order.shipDateKey,
+ * already read), today or later — on the dashboard row and the delivery form (render).
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.1.2
+ * @version 2.2.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
@@ -63,7 +83,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.1.2';
+    var VERSION = '2.2.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -255,6 +275,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var unload = data.getListOptions(config.RECORD_TYPES.LIST_UNLOAD, ctx.cfg.UNLOAD_VALUES);
         var address = data.getAddressBook(ctx.customer.id);
         var hints = config.parseOptionHints(ctx.cfg.OPTION_HINTS);
+        var surcharge = config.parseUnloadSurcharge(ctx.cfg.UNLOAD_SURCHARGE);
+        var timeDefault = '';
 
         // 1.2: the extras for this one order, once per request. Sets typeLabel, uniqueRef, prepay
         // and amount on the guard's order row.
@@ -265,6 +287,21 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (hints.status === 'invalid') {
             log.audit({ title: title('OPTION_HINTS_INVALID'), details: 'custscript_cdb_option_hints ignored: ' +
                 hints.detail });
+        }
+
+        // 2.2.1: also once per request. An invalid surcharge setting means no surcharge.
+        if (surcharge.status === 'invalid') {
+            log.audit({ title: title('UNLOAD_SURCHARGE_INVALID'), details: 'Setting UNLOAD_SURCHARGE ignored, so no ' +
+                'surcharge is shown: ' + surcharge.detail });
+        }
+        // 2.2.1: the default time only when it is one of the times offered; otherwise as before, logged.
+        if (ctx.cfg.TIME_DEFAULT) {
+            if (data.contains(ids(time.options), ctx.cfg.TIME_DEFAULT)) {
+                timeDefault = String(ctx.cfg.TIME_DEFAULT);
+            } else {
+                log.audit({ title: title('TIME_DEFAULT_INVALID'), details: 'Setting TIME_DEFAULT ' + ctx.cfg.TIME_DEFAULT +
+                    ' is not one of the times offered [' + ids(time.options).join(',') + ']: no default time' });
+            }
         }
 
         if (time.missing.length || vehicle.missing.length || unload.missing.length) {
@@ -283,6 +320,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             options: { time: time.options, vehicle: vehicle.options, unload: unload.options,
                 address: address },
             hints: hints.hints,
+            timeDefault: timeDefault,
+            surcharges: surcharge.amounts,
             am: customerManager(ctx),
             assignee: taskAssignee(guard.opportunity, ctx.cfg)
         };
@@ -333,8 +372,15 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             hints: fc.hints,
             guidance: config.DELIVERY_GUIDANCE,
             noticeDays: ctx.cfg.NOTICE_DAYS,
-            paymentOptions: paymentOptions(guard.order)
+            paymentOptions: paymentOptions(guard.order),
+            surcharges: fc.surcharges
         });
+    }
+
+    /** 2.2.1: { optionName, amount } when the unloading option chosen carries a surcharge, else null. */
+    function surchargeOf(fc, unloadId) {
+        return fc.surcharges.hasOwnProperty(String(unloadId)) ?
+            { optionName: textOf(fc.options.unload, unloadId), amount: fc.surcharges[String(unloadId)] } : null;
     }
 
     /** GET ?a=delivery&so= */
@@ -348,6 +394,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         fc = formContext(ctx, guard);
         so = record.load({ type: record.Type.SALES_ORDER, id: guard.order.id, isDynamic: false });
         return renderForm(ctx, guard, fc, {
+            // 2.2.1: TIME_DEFAULT, when it is offered; '' otherwise (nothing pre-selected, as before).
+            time: fc.timeDefault,
             address: String(so.getValue({ fieldId: SO.SHIP_ADDRESS }) || ''),
             contactName: so.getValue({ fieldId: SO.CONTACT_NAME }) || '',
             contactPhone: so.getValue({ fieldId: SO.CONTACT_PHONE }) || '',
@@ -355,11 +403,12 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         }, {});
     }
 
-    /** The submitted form fields, raw. */
-    function formInput(params) {
+    /** The submitted form fields, raw. 2.2.1: no time posted means the default time, when there is one. */
+    function formInput(params, fc) {
+        var noTime = params.time === null || params.time === undefined || String(params.time).replace(/\s+/g, '') === '';
         return {
             date: params.date,
-            time: params.time,
+            time: noTime && fc.timeDefault ? fc.timeDefault : params.time,
             address: params.address,
             vehicle: params.vehicle,
             unload: params.unload,
@@ -367,13 +416,20 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             contactPhone: params.contactPhone,
             contactEmail: params.contactEmail,
             requests: params.requests,
-            payment: params.payment
+            payment: params.payment,
+            // 2.2: "Add a new address…" (address=new); validated only then.
+            addr1: params.addr1,
+            addr2: params.addr2,
+            city: params.city,
+            county: params.county,
+            zip: params.zip
         };
     }
 
     /**
      * Sets the B5 fields on the loaded order, then the two optional 1.1 fields, and returns
-     * old -> new for each field written.
+     * old -> new for each field written. 2.2: v.address '' (a new address that did not reach the address
+     * book) leaves the ship-to address as it is; v.addressText, when set, is the address's text.
      * THE ONLY SALES ORDER WRITE IN THIS REPO. custbody_del_date and custbody_finance_status are
      * not in this list and must never be added. custbody_cdb_awaiting_payment is only ever set
      * TRUE here: staff release and bill the order and it stays ticked.
@@ -397,7 +453,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             { label: 'Delivery time', fieldId: SO.TIME, value: v.time,
                 newText: textOf(fc.options.time, v.time) },
             { label: 'Delivery address', fieldId: SO.SHIP_ADDRESS, value: v.address,
-                newText: textOf(fc.options.address, v.address) },
+                newText: v.addressText || textOf(fc.options.address, v.address) },
             { label: 'Vehicle', fieldId: SO.VEHICLE, value: v.vehicle,
                 newText: textOf(fc.options.vehicle, v.vehicle) },
             { label: 'Unloading', fieldId: SO.UNLOAD, value: v.unload,
@@ -419,6 +475,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var oldValue;
         var oldText;
 
+        if (v.address === '') {
+            specs = specs.filter(function (sp) { return sp.fieldId !== SO.SHIP_ADDRESS; });
+        }
         if (cfg.EDD_DEFINITE) {
             optional.push({ label: 'EDD certainty', fieldId: SO.EDD_CERTAINTY, value: cfg.EDD_DEFINITE,
                 newText: '', selectText: true });
@@ -467,6 +526,106 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return changes;
     }
 
+    // ---------------------------------------------------------------- 2.2: a new delivery address
+
+    /**
+     * Steps 1 and 2 of a new address, after every check has passed: the same address already in the
+     * address book is used as it is (CDB ADDRESS_MATCHED); otherwise it is added (CDB ADDRESS_ADDED). A
+     * failed add NEVER stops the booking: it goes ahead with the ship-to address unchanged, and the Task
+     * says so (CDB ADDRESS_ADD_FAILED, at error).
+     * @returns {Object} { lines, label, id ('' when not in the address book), matched (the existing line, or
+     *   null), added, failed ('' or why), countyField, countyNote }
+     */
+    function addNewAddress(ctx, fc, a) {
+        var out = { lines: data.addressLines(a), label: data.addressLabel(fc.todayKey), id: '', matched: null,
+            added: false, failed: '', countyField: '', countyNote: '' };
+        var result;
+        out.matched = data.matchAddress(fc.options.address, a);
+        if (out.matched) {
+            out.id = out.matched.id;
+            log.audit({ title: title('ADDRESS_MATCHED'), details: 'Customer ' + ctx.customer.id + ': the new address ' +
+                'matches address book line ' + out.id + ' ("' + out.matched.label + '") on line 1 and postcode; ' +
+                'that line is used and no line is added' });
+            return out;
+        }
+        try {
+            result = data.addToAddressBook(ctx.customer.id, a, out.label);
+            out.countyField = result.countyField;
+            out.countyNote = result.countyNote;
+            if (result.id) {
+                out.id = result.id;
+                out.added = true;
+                log.audit({ title: title('ADDRESS_ADDED'), details: 'Customer ' + ctx.customer.id + ': address ' + out.id +
+                    ' added to the address book, labelled "' + out.label + '", not default shipping or billing; county ' +
+                    (a.county ? (out.countyField ? 'in ' + out.countyField : 'NOT saved (' + out.countyNote + ')') : 'none given') });
+            } else {
+                out.failed = 'saved, but the new line could not be found again by its label and postcode';
+                log.error({ title: title('ADDRESS_ADD_FAILED'), details: 'Customer ' + ctx.customer.id + ': ' + out.failed +
+                    '. The booking goes ahead with the ship-to address unchanged; the Task says so.' });
+            }
+        } catch (e) {
+            out.failed = errorText(e);
+            log.error({ title: title('ADDRESS_ADD_FAILED'), details: 'Customer ' + ctx.customer.id + ': the new address ' +
+                'was NOT added to the address book (' + out.failed + '). The booking goes ahead with the ship-to ' +
+                'address unchanged; the Task says so.' });
+        }
+        return out;
+    }
+
+    /**
+     * Step 4: the address, one line each, in custbody_cdb_delivery_address on the order's opportunity — the
+     * only opportunity write of a booking. Never fatal: a missing field or a failed write is logged and the
+     * Task says the opportunity was not updated.
+     * @returns {string} the Task's line
+     */
+    function keepAddressOnOpportunity(ctx, guard, lines) {
+        var oppId = guard.opportunity.id;
+        try {
+            if (data.writeDeliveryAddress(oppId, lines.join('\n')).written) {
+                log.audit({ title: title('OPP_ADDRESS_SAVED'), details: 'Opportunity ' + oppId + ', customer ' +
+                    ctx.customer.id + ': ' + OPP.DELIVERY_ADDRESS + ' set to the new delivery address' });
+                return 'Opportunity: the address is saved in "Customer-added delivery address" (' + OPP.DELIVERY_ADDRESS + ').';
+            }
+            log.audit({ title: title('FIELD_MISSING'), details: 'Opportunity ' + oppId + ': ' + OPP.DELIVERY_ADDRESS +
+                ' is not on the record, so it was not written; the booking went ahead' });
+            return 'Opportunity NOT updated: the field ' + OPP.DELIVERY_ADDRESS + ' is not on the opportunity.';
+        } catch (e) {
+            log.error({ title: title('OPP_ADDRESS_FAILED'), details: 'Opportunity ' + oppId + ', customer ' +
+                ctx.customer.id + ': ' + OPP.DELIVERY_ADDRESS + ' NOT written (' + errorText(e) + '). The Task says so.' });
+            return 'Opportunity NOT updated (' + errorText(e) + ').';
+        }
+    }
+
+    /** Step 5's part: the Task's new-address block (customer's words escaped). */
+    function newAddressTask(na, oppLine) {
+        var lead;
+        var outcomes = [];
+        var LEAD_END = ' Check access, the vehicle and any delivery charge, correct the address if needed, then confirm ' +
+            'the date.';
+        if (na.added) {
+            lead = 'The customer gave a new delivery address. It has been added to their address book (labelled \'' +
+                config.NEW_ADDRESS.LABEL + '\') and set as this order\'s ship-to address.' + LEAD_END;
+            outcomes.push('Address book: added as address ' + na.id + ', labelled "' + na.label + '", neither default ' +
+                'shipping nor default billing.');
+            if (na.countyNote) {
+                outcomes.push('County NOT saved on the address (' + na.countyNote + '). Add it by hand.');
+            }
+        } else if (na.matched) {
+            lead = 'The customer gave a new delivery address. It matches a line already in their address book, which ' +
+                'has been set as this order\'s ship-to address.' + LEAD_END;
+            outcomes.push('Address book: matches the existing line "' + render.esc(na.matched.label) + '" (address ' +
+                na.id + ') on line 1 and postcode, so no line was added.');
+        } else {
+            lead = 'The customer gave a new delivery address. Check access, the vehicle and any delivery charge, then ' +
+                'confirm the date.';
+            outcomes.push('New address NOT added to the address book (' + na.failed + '). Add it and set it as the ' +
+                'ship-to address by hand.');
+        }
+        outcomes.push(na.id ? 'Ship-to address: set to address ' + na.id + '.' : 'Ship-to address: NOT changed.');
+        outcomes.push(oppLine);
+        return { lead: lead, lines: na.lines.map(render.esc), outcomes: outcomes };
+    }
+
     /** POST a=delivery */
     function handleDeliveryPost(ctx, params) {
         var orderId = params.so;
@@ -480,12 +639,15 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var am;
         var taskResult;
         var now = new Date();
+        var na = null;
+        var oppLine = '';
+        var surcharge;
 
         if (!guard.ok) {
             return renderDashboard(ctx, guardNotice(ctx, guard, orderId));
         }
         fc = formContext(ctx, guard);
-        check = data.validateDelivery(formInput(params), {
+        check = data.validateDelivery(formInput(params, fc), {
             todayKey: fc.todayKey,
             noticeDays: ctx.cfg.NOTICE_DAYS,
             holidays: fc.holidays,
@@ -508,6 +670,14 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             return renderForm(ctx, guard, fc, check.values, check.errors);
         }
 
+        // 2.2: a new address — steps 1 and 2 (match, else add), before the order is loaded, so the order's
+        // ship-to list is read with the new line in it. Never stops the booking.
+        if (check.values.newAddress) {
+            na = addNewAddress(ctx, fc, check.values.newAddress);
+            check.values.address = na.id;
+            check.values.addressText = na.added ? na.lines.join(', ') : '';
+        }
+
         so = record.load({ type: record.Type.SALES_ORDER, id: guard.order.id, isDynamic: false });
         // Belt and braces: the guard read these through a search a moment ago.
         if (so.getValue({ fieldId: SO.CONFIRMED_DATE }) || so.getValue({ fieldId: SO.PAY_INTENT })) {
@@ -522,8 +692,13 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             details: clip('Sales order ' + guard.order.id + ' (' + guard.order.tranId + '), customer ' +
                 ctx.customer.id + ', ' + termsNote(guard.order) + ': ' + JSON.stringify(changes))
         });
+        // 2.2: step 4, the opportunity — whether or not the address reached the address book.
+        if (na) {
+            oppLine = keepAddressOnOpportunity(ctx, guard, na.lines);
+        }
 
         am = fc.assignee;
+        surcharge = surchargeOf(fc, check.values.unload);
         try {
             for (i = 0; i < changes.length; i++) {
                 if (changes[i].changed && changes[i].fieldId !== SO.SPECIAL_REQUESTS) {
@@ -531,7 +706,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 }
             }
             taskResult = task.createDeliveryTask({
-                title: task.buildTitle(guard.order.tranId, render.orderTitle(guard.order)),
+                title: task.buildTitle(guard.order.tranId, render.orderTitle(guard.order), !!na),
                 assigneeId: am.id,
                 customerId: ctx.customer.id,
                 opportunityId: guard.opportunity.id,
@@ -547,7 +722,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                         account: check.values.payment === data.PAYMENT.ACCOUNT,
                         // Amendment 1: whenever the choice is BACS or Card; never for Add to account.
                         // 2.0.5: both balances, as the customer sees them; no "basis" wording.
-                        amountText: check.values.payment !== data.PAYMENT.ACCOUNT ? render.amountText(guard.order.amount) : ''
+                        amountText: check.values.payment !== data.PAYMENT.ACCOUNT ? render.amountText(guard.order.amount) : '',
+                        newAddress: na ? newAddressTask(na, oppLine) : null,
+                        // 2.2.1: the rep adds the item line; the dashboard never does.
+                        surcharge: surcharge
                     }),
                 todayKey: fc.todayKey
             });
@@ -577,7 +755,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             orderTitle: render.orderTitle(guard.order),
             dateKey: check.values.date,
             timeText: textOf(fc.options.time, check.values.time),
-            backUrl: ctx.baseUrl
+            backUrl: ctx.baseUrl,
+            // 2.2: the same page whether or not the address reached the address book.
+            newAddress: !!na,
+            surcharge: surcharge
         });
     }
 
@@ -686,6 +867,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     /** What the page shows before the customer has typed anything. */
     function updateDefaults(ctx, guard) {
         return {
+            // 2.2: the project name, prefilled with the opportunity's title.
+            projectName: guard.opportunity.title,
+            // 2.2.1: the site address on one line, whatever it holds (newlines become ", ").
+            siteAddress: data.siteAddressLine(guard.opportunity.siteAddress),
             buildStage: guard.opportunity.buildStage,
             delDate: guard.opportunity.delDateKey,
             note: '',
@@ -742,6 +927,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     function updateInput(params) {
         return {
             mode: params.mode,
+            projectName: params.projectName,
+            siteAddress: params.siteAddress,
             buildStage: params.buildStage,
             delDate: params.delDate,
             note: params.note,
@@ -783,9 +970,32 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
     }
 
     /**
-     * The update path: the changed opportunity values through writeOppUpdate, then the Task, then the
-     * confirmation. A failed write is not the customer's problem: the Task still goes, saying the values
-     * were NOT saved, so the account manager makes the change.
+     * 2.2.1: "Your project details" to write — null when neither changed; else { values ({ title, siteAddress },
+     * the changed ones, for writeProjectDetails), fieldIds, items ([{key, label, oldText, newText}], the
+     * reference first), notSaved ('') }.
+     */
+    function projectDetails(opp, changes) {
+        var out = { values: {}, fieldIds: [], items: [], notSaved: '' };
+        if (changes.projectName) {
+            out.values.title = changes.projectName;
+            out.fieldIds.push(OPP.TITLE);
+            out.items.push({ key: 'title', label: 'Your reference', oldText: opp.title, newText: changes.projectName });
+        }
+        if (changes.siteAddress) {
+            out.values.siteAddress = changes.siteAddress;
+            out.fieldIds.push(OPP.SITE_ADDRESS);
+            out.items.push({ key: 'site_address', label: 'Site address', oldText: data.siteAddressLine(opp.siteAddress),
+                newText: changes.siteAddress });
+        }
+        return out.items.length ? out : null;
+    }
+
+    /**
+     * The update path: the changed opportunity values through writeOppUpdate, then (2.2.1) the project
+     * details — the reference and the site address, whichever changed — through ONE
+     * data.writeProjectDetails(), then the Task, then the confirmation. A failed write is not the
+     * customer's problem: the Task still goes, saying what was NOT saved — the library's values and the
+     * details each on their own — so the account manager makes the change.
      */
     function applyUpdate(ctx, guard, uc, check, lib) {
         var opp = guard.opportunity;
@@ -794,6 +1004,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var attempted = [];
         var saved = [];
         var notSaved = '';
+        var written = null;
+        var details = projectDetails(opp, check.changes);
+        var detailsSaved;
+        var savedAll;
         var result;
         var am = uc.assignee;
         var call = v.call ? { phone: render.esc(v.phone), timeLabel: config.CALL_TIMES[v.callTime].label } : null;
@@ -829,16 +1043,37 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                         saved.push(attempted[i]);
                     }
                 }
-                log.audit({ title: title('OPP_UPDATED'), details: clip('Opportunity ' + opp.id + ' (' + opp.tranId +
-                    '), customer ' + ctx.customer.id + ': ' + (saved.length ? saved.map(function (c) {
-                        return c.label + ' ' + (c.oldText || '(empty)') + ' -> ' + c.newText;
-                    }).join('; ') : 'nothing changed on the record') + ' | written ' + JSON.stringify(result.written)) });
+                written = result.written;
             } catch (e) {
                 notSaved = errorText(e);
                 log.error({ title: title('OPP_UPDATE_FAILED'), details: 'Opportunity ' + opp.id + ', customer ' +
                     ctx.customer.id + ': NOT updated (' + notSaved + '). Attempted: ' + JSON.stringify(values) +
                     '. The Task says so.' });
             }
+        }
+
+        // 2.2.1: the reference and the site address, after the library's write, in one write of their own: its
+        // failure is reported apart from theirs. (CDB OPP_NAME_FAILED keeps its 2.2 name.)
+        if (details) {
+            try {
+                data.writeProjectDetails(opp.id, details.values);
+            } catch (e1) {
+                details.notSaved = errorText(e1);
+                log.error({ title: title('OPP_NAME_FAILED'), details: 'Opportunity ' + opp.id + ', customer ' +
+                    ctx.customer.id + ': project details NOT updated (' + details.notSaved + '). Attempted: ' +
+                    JSON.stringify(details.values) + '. The Task says so.' });
+            }
+        }
+        detailsSaved = details && !details.notSaved;
+
+        // What reached the record, the details first (the page's order).
+        savedAll = (detailsSaved ? details.items : []).concat(saved);
+        if (written || detailsSaved) {
+            log.audit({ title: title('OPP_UPDATED'), details: clip('Opportunity ' + opp.id + ' (' + opp.tranId +
+                '), customer ' + ctx.customer.id + ': ' + (savedAll.length ? savedAll.map(function (c) {
+                    return c.label + ' ' + (c.oldText || '(empty)') + ' -> ' + c.newText;
+                }).join('; ') : 'nothing changed on the record') + ' | written ' + JSON.stringify(written || {}) +
+                (detailsSaved ? ' | details written: ' + details.fieldIds.join(', ') : '')) });
         }
 
         try {
@@ -849,7 +1084,11 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 opportunityId: opp.id,
                 // The customer's own words are escaped (brief: escape everything, the Task included).
                 message: task.buildUpdateMessage({ changes: saved, attempted: attempted, notSaved: notSaved,
-                    note: render.esc(v.note), call: call }),
+                    note: render.esc(v.note), call: call,
+                    // 2.2.1: the old values and the new are escaped too (the new ones the customer typed).
+                    details: details ? { items: details.items.map(function (c) {
+                        return { label: c.label, oldText: render.esc(c.oldText), newText: render.esc(c.newText) };
+                    }), notSaved: details.notSaved } : null }),
                 todayKey: uc.todayKey,
                 priority: task.PRIORITY.MEDIUM
             });
@@ -858,7 +1097,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 (taskResult.sendEmailSet ? 'set' : 'NOT set') + ', call ' + (call ? 'requested' : 'not requested') });
         } catch (e2) {
             log.error({ title: title('TASK_FAILED'), details: 'Opportunity ' + opp.id + ': the customer update Task ' +
-                'was not created. Opportunity ' + (notSaved ? 'NOT updated' : 'updated as logged') + '. Assignee ' +
+                'was not created. Opportunity ' + (notSaved ? 'NOT updated' : 'updated as logged') +
+                (details && details.notSaved ? ', project details NOT updated' : '') + '. Assignee ' +
                 am.id + ' (' + am.source + '). ' + errorText(e2) });
         }
 
@@ -866,10 +1106,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             logoUrl: ctx.cfg.LOGO_URL,
             am: uc.am,
             // Amendment 2: the customer sees the stage without the list's numbering; the Task above keeps it.
-            saved: saved.map(function (c) {
+            saved: savedAll.map(function (c) {
                 return { label: c.label, text: c.key === 'build_stage' ? render.stageLabel(c.newText) : c.newText };
             }),
-            notSaved: !!notSaved,
+            notSaved: !!(notSaved || (details && details.notSaved)),
             callText: callText(uc, v),
             backUrl: ctx.baseUrl
         });
@@ -998,7 +1238,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         check = data.validateUpdate(updateInput(params), {
             stageIds: ids(uc.stages),
             showDate: uc.showDate,
-            current: { buildStage: guard.opportunity.buildStage, delDateKey: guard.opportunity.delDateKey },
+            current: { title: guard.opportunity.title, siteAddress: guard.opportunity.siteAddress,
+                buildStage: guard.opportunity.buildStage, delDateKey: guard.opportunity.delDateKey },
             reasonIds: ids(uc.reasons),
             todayKey: uc.todayKey
         });

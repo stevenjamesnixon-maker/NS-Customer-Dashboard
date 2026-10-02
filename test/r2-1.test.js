@@ -502,11 +502,13 @@ test('12. a one-click "not going ahead" is impossible without the confirm step',
     assert.strictEqual(mainForm.indexOf('name="confirm"'), -1, 'the update form never carries the confirm value');
     assert.strictEqual(mainForm.indexOf('notgoing'), -1);
     assert.ok(/<details class="card ngp"><summary>Not going ahead\? Let us know<\/summary>/.test(html), 'closed panel');
-    assert.ok(html.indexOf('<button type="submit" class="warnbtn" name="confirm" value="yes">Yes, we’re not going ahead</button>') >
+    // 2.2: the button reads "Confirm: we've decided not to go ahead" (was "Yes, we're not going ahead").
+    assert.ok(html.indexOf('<button type="submit" class="warnbtn" name="confirm" value="yes">Confirm: we’ve decided not to go ahead</button>') >
         html.indexOf('<details'), 'the confirm button is inside the panel');
 
     html = notGoing(s, { confirm: '' });
-    assert.ok(html.indexOf('to confirm.') > 0);
+    // 2.2: the message names the new button (was "… to confirm.").
+    assert.ok(html.indexOf('Please press “Confirm: we’ve decided not to go ahead”.') > 0);
     notGoing(s, { confirm: 'true' });
     post(s, { confirm: 'yes', reason: '21' });
     assert.strictEqual(writes(s.w).length, 0, 'nothing written without confirm=yes in not-going mode');

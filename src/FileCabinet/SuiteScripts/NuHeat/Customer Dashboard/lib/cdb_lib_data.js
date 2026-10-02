@@ -5,7 +5,10 @@
  * the three stages; the guard on an order the customer wants to book; the delivery form's
  * choices; and the server-side validation of what the customer submitted.
  *
- * READ-ONLY. Nothing in this file writes a record.
+ * READ-ONLY, apart from three writes (2.2) that each touch exactly what their name says, and only after
+ * the caller's guard: writeProjectDetails() (the opportunity's title and site address; 2.2.1), addToAddressBook() (one line on
+ * the customer's address book) and writeDeliveryAddress() (custbody_cdb_delivery_address). Each one
+ * throws on failure; the Suitelet catches, logs, and says so in the Task.
  *
  * WHAT "OPEN" MEANS FOR A SALES ORDER — every one of these, and the same everywhere:
  *   1. a linked opportunity: the sales order's native opportunity field is set. (The SALES ORDER
@@ -69,22 +72,41 @@
  * validateUpdate(), stageOptions(), lostStatusFor(), versionAtLeast(). Still read-only: the writes go
  * through the Online-quote Update Opportunity library, called from the Suitelet.
  *
+ * RELEASE 2.2: the project name — validateUpdate() also takes projectName (trimmed, control characters
+ * stripped, <= 60, blank never clears, a change only when it differs) and writeProjectName() writes the
+ * title alone, ITSELF (title is not one of the Online-quote library's FIELDS, and the library is not
+ * extended: its FIELDS feed the Send Quote and Update Opportunity pages). And "Add a new address…" —
+ * validateDelivery() takes address=new with addr1, addr2, city, county and zip (normalisePostcode() for
+ * the UK format), matchAddress() finds the same address already in the book (line 1 and postcode,
+ * normalised), addToAddressBook() adds it, and writeDeliveryAddress() keeps it on the opportunity.
+ *
+ * 2.2.1 (PR #8 amendment 1): "Your project details" — validateUpdate() takes siteAddress beside projectName,
+ * with the same rules (<= 300), only when the page offered it; writeProjectName() becomes
+ * writeProjectDetails(oppId, { title, siteAddress }), ONE submitFields of the changed ones of title and
+ * custbody_opp_site_adress and never anything else. siteAddressLine() is the stored address as one line
+ * (newlines -> ", "), the form's prefill and what a post is compared with.
+ *
+ * 2.2.2 (PR #8 amendment 2): the site address is always offered. custbody_opp_site_adress is Long Text
+ * (confirmed in Production, 2 Oct 2026), so 2.2.1's runtime type check — siteAddressFieldType(),
+ * isTextFieldType() and the opportunity load behind them — is gone.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.1
+ * @version 2.2.2
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.1.1';
+    var VERSION = '2.2.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
     var CUST = config.FIELDS.CUSTOMER;
+    var NEW_ADDRESS = config.NEW_ADDRESS;
 
     var STATES = {
         BOOKED: 'booked',
@@ -184,6 +206,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
 
     function trim(value) {
         return String(value === null || value === undefined ? '' : value).replace(/^\s+|\s+$/g, '');
+    }
+
+    /**
+     * Pure (2.2): one line of text a customer typed — every control character (C0, DEL, C1: tabs and
+     * newlines included) becomes a space, then the ends are trimmed. Counted against its limit after this.
+     */
+    function cleanLine(value) {
+        return trim(String(value === null || value === undefined ? '' : value).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' '));
     }
 
     /**
@@ -374,11 +404,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * Validates the delivery form. Pure.
      *
      * @param {Object} input - raw strings: date, time, address, vehicle, unload, contactName,
-     *                         contactPhone, contactEmail, requests, payment ('BACS' | 'CARD')
+     *                         contactPhone, contactEmail, requests, payment ('BACS' | 'CARD'); 2.2: address
+     *                         may be config.NEW_ADDRESS.VALUE, with addr1, addr2, city, county, zip
      * @param {Object} ctx - { todayKey, noticeDays, holidays (set), horizonMonths, timeIds,
      *                         vehicleIds, unloadIds, addressIds, payBacs, payCard }
      * @returns {{ok: boolean, errors: Object, values: Object}}
-     *   errors keyed by input name; values cleaned, with payIntent set to the list ID
+     *   errors keyed by input name; values cleaned, with payIntent set to the list ID; 2.2: newAddress
+     *   { addr1, addr2, city, county, zip (normalised) } when the new address was chosen, else null
      */
     function validateDelivery(input, ctx) {
         var errors = {};
@@ -397,7 +429,17 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             errors.time = 'Please choose a delivery time.';
         }
         values.address = trim(input.address);
-        if (!contains(ctx.addressIds, values.address)) {
+        // 2.2: "Add a new address…". Its fields are cleaned always (so they come back on a rejected
+        // form) and REQUIRED ONLY when that option was posted.
+        values.addr1 = cleanLine(input.addr1);
+        values.addr2 = cleanLine(input.addr2);
+        values.city = cleanLine(input.city);
+        values.county = cleanLine(input.county);
+        values.zip = cleanLine(input.zip);
+        values.newAddress = null;
+        if (values.address === NEW_ADDRESS.VALUE) {
+            values.newAddress = newAddressOf(values, errors);
+        } else if (!contains(ctx.addressIds, values.address)) {
             errors.address = 'Please choose a delivery address.';
         }
         values.vehicle = trim(input.vehicle);
@@ -455,6 +497,87 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             }
         }
         return { ok: true, errors: errors, values: values };
+    }
+
+    // ---------------------------------------------------------------- 2.2: a new delivery address
+
+    /**
+     * Pure (2.2): a UK postcode, tolerant of case and spaces, as stored — upper case with one space before
+     * the inward code ("sw1a1aa" -> "SW1A 1AA"). '' when it is not postcode-shaped.
+     */
+    function normalisePostcode(value) {
+        var text = cleanLine(value).replace(/\s+/g, '').toUpperCase();
+        if (!/^(GIR0AA|[A-Z]{1,2}[0-9][0-9A-Z]?[0-9][A-Z]{2})$/.test(text)) {
+            return '';
+        }
+        return text.slice(0, -3) + ' ' + text.slice(-3);
+    }
+
+    /** Pure (2.2): text for comparing addresses — lower case, letters and digits only. */
+    function addressKey(value) {
+        return trim(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    /**
+     * Pure (2.2): the new address's rules, on values already cleaned by validateDelivery(). Errors keyed
+     * by input name. Returns the address to write: { addr1, addr2, city, county, zip } (zip normalised).
+     */
+    function newAddressOf(values, errors) {
+        var limits = config.TEXT_LIMITS;
+        var zip = normalisePostcode(values.zip);
+        if (values.addr1 === '') {
+            errors.addr1 = 'Please give the first line of the address.';
+        } else if (values.addr1.length > limits.ADDR_LINE) {
+            errors.addr1 = 'Please keep this under ' + limits.ADDR_LINE + ' characters.';
+        }
+        if (values.addr2.length > limits.ADDR_LINE) {
+            errors.addr2 = 'Please keep this under ' + limits.ADDR_LINE + ' characters.';
+        }
+        if (values.city === '') {
+            errors.city = 'Please give the town or city.';
+        } else if (values.city.length > limits.ADDR_CITY) {
+            errors.city = 'Please keep this under ' + limits.ADDR_CITY + ' characters.';
+        }
+        if (values.county.length > limits.ADDR_COUNTY) {
+            errors.county = 'Please keep this under ' + limits.ADDR_COUNTY + ' characters.';
+        }
+        if (values.zip === '') {
+            errors.zip = 'Please give the postcode.';
+        } else if (!zip) {
+            errors.zip = 'Please check the postcode, for example SW1A 1AA.';
+        }
+        return { addr1: values.addr1, addr2: values.addr2, city: values.city, county: values.county, zip: zip };
+    }
+
+    /** Pure (2.2): the address's lines, blanks left out — line 1, line 2, town, county, postcode. */
+    function addressLines(a) {
+        return [a.addr1, a.addr2, a.city, a.county, a.zip].filter(function (x) { return trim(x) !== ''; });
+    }
+
+    /**
+     * Pure (2.2): the line of the address book that IS this address — the same line 1 and postcode once
+     * normalised (case, spaces, punctuation) — or null. A line whose line 1 or postcode could not be read
+     * never matches, so the worst case is a second line, never the wrong one.
+     * @param {Array<{id, addr1, zip}>} book - getAddressBook()
+     */
+    function matchAddress(book, a) {
+        var line1 = addressKey(a.addr1);
+        var zip = addressKey(a.zip);
+        var i;
+        if (line1 === '' || zip === '') {
+            return null;
+        }
+        for (i = 0; i < (book || []).length; i++) {
+            if (addressKey(book[i].addr1) === line1 && addressKey(book[i].zip) === zip) {
+                return book[i];
+            }
+        }
+        return null;
+    }
+
+    /** Pure (2.2): "Added by customer (dashboard) 01/10/2026", the new line's label. */
+    function addressLabel(todayKey) {
+        return NEW_ADDRESS.LABEL + ' ' + slashDate(todayKey);
     }
 
     // ---------------------------------------------------------------- 2.1: tell us where you're up to
@@ -571,6 +694,34 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * Pure (2.2.1): the stored site address as one line — each newline and the space around it becomes ", ",
+     * then cleanLine(). What the update page prefills (a single-line input cannot hold a newline) and what a
+     * post is compared with, so an untouched address is never "changed".
+     */
+    function siteAddressLine(value) {
+        return cleanLine(String(value === null || value === undefined ? '' : value).replace(/\s*\r?\n\s*/g, ', '));
+    }
+
+    /**
+     * Pure (2.2.1): one "Your project details" line, by the project name's rules — cleanLine(); equal to the
+     * current value: no change and no error; over the limit: an error; blank: no change (blank never clears).
+     * Sets errors[key] or changes[key].
+     * @returns {string} the cleaned value
+     */
+    function detailLine(raw, currentLine, limit, key, errors, changes) {
+        var value = cleanLine(raw);
+        if (value === '' || value === currentLine) {
+            return value;
+        }
+        if (value.length > limit) {
+            errors[key] = 'Please keep this under ' + limit + ' characters.';
+        } else {
+            changes[key] = value;
+        }
+        return value;
+    }
+
+    /**
      * Validates the "Tell us where you're up to" POST. Pure. NOTHING IS WRITTEN unless ok.
      *
      * Update mode: the stage (blank or one of the offered IDs), the date (blank, or a real date — when it
@@ -582,10 +733,17 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * Not-going-ahead mode: confirm must be 'yes' (the confirm button's own value: the two-step rule), the
      * reason blank or one of the offered IDs, the comment <= 1,000.
      *
-     * @param {Object} input - raw strings: mode, buildStage, delDate, note, call, phone, callTime, reason,
-     *                         comment, confirm
-     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, current: { buildStage, delDateKey },
-     *                         reasonIds (offered; [] none), todayKey }
+     * 2.2: update mode also takes projectName — cleanLine() (trimmed, control characters out), <= 60. Blank
+     * never clears the title; it is a change only when it differs from current.title.
+     *
+     * 2.2.1: and siteAddress (2.2.2: always), by the same rules, <= 300, compared with
+     * siteAddressLine(current.siteAddress). For both, a value equal to the current one
+     * is never an error, so an untouched prefill always posts cleanly.
+     *
+     * @param {Object} input - raw strings: mode, projectName, siteAddress, buildStage, delDate, note, call, phone,
+     *                         callTime, reason, comment, confirm
+     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, current: { title,
+     *                         siteAddress, buildStage, delDateKey }, reasonIds (offered; [] none), todayKey }
      * @returns {{ok: boolean, mode: string, errors: Object, values: Object, changes: Object, nothing: boolean}}
      */
     function validateUpdate(input, ctx) {
@@ -609,9 +767,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             }
             values.confirm = trim(input.confirm) === 'yes';
             if (!values.confirm) {
-                errors.confirm = 'Please press “Yes, we’re not going ahead” to confirm.';
+                errors.confirm = 'Please press “Confirm: we’ve decided not to go ahead”.';
             }
         } else {
+            values.projectName = detailLine(input.projectName, cleanLine(current.title), limits.PROJECT_NAME,
+                'projectName', errors, changes);
+            values.siteAddress = detailLine(input.siteAddress, siteAddressLine(current.siteAddress),
+                limits.SITE_ADDRESS, 'siteAddress', errors, changes);
+
             values.buildStage = (ctx.stageIds || []).length ? trim(input.buildStage) : '';
             if (values.buildStage !== '' && !contains(ctx.stageIds, values.buildStage)) {
                 errors.buildStage = 'Please choose one of the stages shown.';
@@ -658,8 +821,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         }
         return {
             ok: true, mode: mode, errors: errors, values: values, changes: changes,
-            nothing: mode === UPDATE_MODE.UPDATE && !changes.buildStage && !changes.delDate && values.note === '' &&
-                !values.call
+            nothing: mode === UPDATE_MODE.UPDATE && !changes.projectName && !changes.siteAddress && !changes.buildStage &&
+                !changes.delDate &&
+                values.note === '' && !values.call
         };
     }
 
@@ -1727,10 +1891,29 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return { options: options, missing: missing };
     }
 
+    /** 2.2: an address book line's internal ID (what shipaddresslist holds). */
+    function addressLineId(customer, line) {
+        return trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'id', line: line })) ||
+            trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'internalid', line: line }));
+    }
+
+    /**
+     * 2.2: one field of an address book line's address. '' when it cannot be read: never fatal (the
+     * duplicate check then simply finds no match).
+     */
+    function addressPart(customer, line, fieldId) {
+        try {
+            return trim(customer.getSublistSubrecord({ sublistId: 'addressbook', fieldId: 'addressbookaddress',
+                line: line }).getValue({ fieldId: fieldId }));
+        } catch (e) {
+            return '';
+        }
+    }
+
     /**
      * The customer's address book lines. The value of each is the line's internal ID, which is
-     * what shipaddresslist holds.
-     * @returns {Array<{id: string, text: string}>}
+     * what shipaddresslist holds. 2.2: also each line's addr1 and zip, for matchAddress().
+     * @returns {Array<{id: string, text: string, label: string, addr1: string, zip: string}>}
      */
     function getAddressBook(customerId) {
         var customer = record.load({ type: record.Type.CUSTOMER, id: customerId, isDynamic: false });
@@ -1741,16 +1924,180 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         var label;
         var text;
         for (i = 0; i < count; i++) {
-            id = trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'id', line: i })) ||
-                trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'internalid', line: i }));
+            id = addressLineId(customer, i);
             label = trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'label', line: i }));
             text = trim(customer.getSublistValue({ sublistId: 'addressbook',
                 fieldId: 'addressbookaddress_text', line: i }));
             if (id !== '') {
-                lines.push({ id: id, text: text ? text.replace(/\s*\n\s*/g, ', ') : label, label: label });
+                lines.push({ id: id, text: text ? text.replace(/\s*\n\s*/g, ', ') : label, label: label,
+                    addr1: addressPart(customer, i, 'addr1'), zip: addressPart(customer, i, 'zip') });
             }
         }
         return lines;
+    }
+
+    // ---------------------------------------------------------------- 2.2: the three writes
+
+    function writeError(name, message) {
+        var e = new Error(name + ': ' + message);
+        e.name = name;
+        return e;
+    }
+
+    /**
+     * 2.2.1 (was 2.2's writeProjectName): "Your project details". ONE submitFields on the opportunity carrying
+     * only the values given — title and/or custbody_opp_site_adress, NEVER any other field — no sourcing,
+     * mandatory fields ignored. The caller has run guardOpportunity() (the token's customer's, not Won or Lost)
+     * and validateUpdate(), and passes only the changed
+     * values; each is checked again here and the whole write refused rather than made (fail closed): a bad
+     * opportunity ID, nothing to write, a blank value or one over its limit.
+     * @param {string} oppId
+     * @param {Object} details - { title, siteAddress }: each optional, at least one
+     * @returns {Object} the values written, by field ID
+     * @throws CDB_BAD_PROJECT_DETAILS, or whatever submitFields throws
+     */
+    function writeProjectDetails(oppId, details) {
+        var id = trim(oppId);
+        var d = details || {};
+        var values = {};
+        var specs = [{ key: 'title', fieldId: OPP.TITLE, limit: config.TEXT_LIMITS.PROJECT_NAME },
+            { key: 'siteAddress', fieldId: OPP.SITE_ADDRESS, limit: config.TEXT_LIMITS.SITE_ADDRESS }];
+        var count = 0;
+        var value;
+        var i;
+        if (!/^\d+$/.test(id)) {
+            throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '": not written');
+        }
+        for (i = 0; i < specs.length; i++) {
+            if (d[specs[i].key] === undefined || d[specs[i].key] === null) {
+                continue;
+            }
+            value = cleanLine(d[specs[i].key]);
+            if (value === '' || value.length > specs[i].limit) {
+                throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '", ' + specs[i].fieldId + ' of ' +
+                    value.length + ' characters: nothing written');
+            }
+            values[specs[i].fieldId] = value;
+            count += 1;
+        }
+        if (!count) {
+            throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '": nothing to write');
+        }
+        record.submitFields({ type: record.Type.OPPORTUNITY, id: id, values: values,
+            options: { enableSourcing: false, ignoreMandatoryFields: true } });
+        return values;
+    }
+
+    /**
+     * 2.2: which field of the address subrecord holds the county, VERIFIED ON THE SUBRECORD after the
+     * country is set (the country decides the address form): 'state' when the form has it as a text field
+     * (a select would be a list of states, which a typed county cannot be); else 'dispstate' when the
+     * form has that; else '' and the county is not written.
+     */
+    function countyFieldOf(address) {
+        var field = null;
+        try {
+            field = address.getField({ fieldId: 'state' });
+        } catch (e) {
+            field = null;
+        }
+        if (field && String(field.type).toLowerCase() !== 'select') {
+            return 'state';
+        }
+        try {
+            field = address.getField({ fieldId: 'dispstate' });
+        } catch (e2) {
+            field = null;
+        }
+        return field && String(field.type).toLowerCase() !== 'select' ? 'dispstate' : '';
+    }
+
+    /**
+     * 2.2: the line just added, found again after the save by its label and postcode (the last such line:
+     * the newest). '' when there is none.
+     */
+    function findAddressLine(customerId, label, zip) {
+        var customer = record.load({ type: record.Type.CUSTOMER, id: customerId, isDynamic: false });
+        var i;
+        for (i = customer.getLineCount({ sublistId: 'addressbook' }) - 1; i >= 0; i--) {
+            if (trim(customer.getSublistValue({ sublistId: 'addressbook', fieldId: 'label', line: i })) === label &&
+                    addressKey(addressPart(customer, i, 'zip')) === addressKey(zip)) {
+                return addressLineId(customer, i);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * 2.2: adds the customer's new address to their address book — one line, labelled, neither default
+     * shipping nor default billing — and returns its address ID for shipaddresslist. Standard mode: load
+     * (5 units), save (10), load again to find the line (5).
+     *
+     * @param {string} customerId - the token's
+     * @param {Object} a - newAddressOf(): { addr1, addr2, city, county, zip }
+     * @param {string} label - addressLabel()
+     * @returns {{id: string, countyField: string, countyNote: string}} id '' when the line was saved but could
+     *   not be found again; countyField the field the county went in ('' none); countyNote why not, if not
+     * @throws whatever the load or the save throws (nothing was added); never after the save
+     */
+    function addToAddressBook(customerId, a, label) {
+        var customer = record.load({ type: record.Type.CUSTOMER, id: customerId, isDynamic: false });
+        var line = customer.getLineCount({ sublistId: 'addressbook' });
+        var address;
+        var result = { id: '', countyField: '', countyNote: '' };
+        customer.insertLine({ sublistId: 'addressbook', line: line });
+        customer.setSublistValue({ sublistId: 'addressbook', fieldId: 'label', line: line, value: label });
+        customer.setSublistValue({ sublistId: 'addressbook', fieldId: 'defaultshipping', line: line, value: false });
+        customer.setSublistValue({ sublistId: 'addressbook', fieldId: 'defaultbilling', line: line, value: false });
+        address = customer.getSublistSubrecord({ sublistId: 'addressbook', fieldId: 'addressbookaddress', line: line });
+        // The country first: it chooses the address form, which decides the fields (and resets them).
+        address.setValue({ fieldId: 'country', value: NEW_ADDRESS.COUNTRY });
+        address.setValue({ fieldId: 'addr1', value: a.addr1 });
+        if (a.addr2) {
+            address.setValue({ fieldId: 'addr2', value: a.addr2 });
+        }
+        address.setValue({ fieldId: 'city', value: a.city });
+        address.setValue({ fieldId: 'zip', value: a.zip });
+        if (a.county) {
+            result.countyField = countyFieldOf(address);
+            if (result.countyField) {
+                try {
+                    address.setValue({ fieldId: result.countyField, value: a.county });
+                } catch (e) {
+                    result.countyNote = result.countyField + ' refused it: ' + (e && e.message ? e.message : String(e));
+                    result.countyField = '';
+                }
+            } else {
+                result.countyNote = 'the address form has no text county field (state or dispstate)';
+            }
+        }
+        customer.save({ ignoreMandatoryFields: true });
+        // Saved: from here nothing throws, so the caller never reports a saved line as not added.
+        try {
+            result.id = findAddressLine(customerId, label, a.zip);
+        } catch (e2) {
+            result.id = '';
+        }
+        return result;
+    }
+
+    /**
+     * 2.2: keeps the customer's new delivery address on the opportunity — custbody_cdb_delivery_address,
+     * overwriting any earlier one, and NOTHING ELSE on the opportunity. The field is optional (Steve creates
+     * it): written only when getField() finds it on the loaded opportunity.
+     * @returns {{written: boolean}} written false when the field is not on the opportunity
+     * @throws whatever the load or submitFields throws
+     */
+    function writeDeliveryAddress(oppId, text) {
+        var opp = record.load({ type: record.Type.OPPORTUNITY, id: trim(oppId), isDynamic: false });
+        var values = {};
+        if (!opp.getField({ fieldId: OPP.DELIVERY_ADDRESS })) {
+            return { written: false };
+        }
+        values[OPP.DELIVERY_ADDRESS] = text;
+        record.submitFields({ type: record.Type.OPPORTUNITY, id: trim(oppId), values: values,
+            options: { enableSourcing: false, ignoreMandatoryFields: true } });
+        return { written: true };
     }
 
     return {
@@ -1817,6 +2164,15 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         guardOrder: guardOrder,
         getNonDeliveryDates: getNonDeliveryDates,
         getListOptions: getListOptions,
-        getAddressBook: getAddressBook
+        getAddressBook: getAddressBook,
+        cleanLine: cleanLine,
+        normalisePostcode: normalisePostcode,
+        addressLines: addressLines,
+        matchAddress: matchAddress,
+        addressLabel: addressLabel,
+        writeProjectDetails: writeProjectDetails,
+        siteAddressLine: siteAddressLine,
+        addToAddressBook: addToAddressBook,
+        writeDeliveryAddress: writeDeliveryAddress
     };
 });

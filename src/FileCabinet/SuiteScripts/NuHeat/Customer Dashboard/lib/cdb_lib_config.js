@@ -41,15 +41,27 @@
  * UPD_LOST_STATUS_MAP, UPD_BUILD_STAGES and UPD_OBJECTION_TYPES. They have NO script parameter
  * (ids: {}): a missing row means the key's empty rule, "none". parseLostStatusMap() reads the map.
  *
+ * 3.2 (release 2.2): the project name (the opportunity's own `title`, written by the dashboard itself,
+ * never through the library: the library's FIELDS feed the Send Quote and Update Opportunity pages);
+ * the optional opportunity field custbody_cdb_delivery_address (Steve creates it; a missing field never
+ * costs a booking); the new-address limits, NEW_ADDRESS and ADDRESS_LABEL; the digest explainer.
+ *
+ * 3.2.1 (PR #8 amendment 1): TEXT_LIMITS.SITE_ADDRESS (300) for "Your project details"; two more
+ * record-only keys for the delivery form — TIME_DEFAULT (the time of day pre-selected, and used when none
+ * is posted) and UNLOAD_SURCHARGE (JSON, parseUnloadSurcharge(): the surcharge text per unloading option).
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 3.1.0
+ * 3.2.2 (PR #8 amendment 2): DELIVERY_LINK_EMAIL.FACT_PLANNED ("Currently planned"); custbody_opp_site_adress
+ * is Long Text (confirmed in Production, 2 Oct 2026), so its comment no longer speaks of a type check.
+ *
+ * @version 3.2.2
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.1.0';
+    var VERSION = '3.2.2';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -109,13 +121,22 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         OPPORTUNITY: {
             STATUS: 'entitystatus',
             SUB_STATUS: 'custbody_opportunity_sub_status',
+            // 3.2.1: also written, ONLY by cdb_lib_data.writeProjectDetails() with the title. Long Text
+            // (confirmed in Production, 2 Oct 2026). One d: the real ID.
             SITE_ADDRESS: 'custbody_opp_site_adress',
             PE: 'custbody_pe',
             VALUE_PROPOSITION: 'custbody_value_proposition',
             // 3.1 (release 2.1 part B): the two fields the customer can change, through the Online-quote
             // Update Opportunity library only (OPPLIB below). Read by guardOpportunity(); never written here.
             BUILD_STAGE: 'custbody_build_stage',
-            DEL_DATE: 'custbody_opp_del_date'
+            DEL_DATE: 'custbody_opp_del_date',
+            // 3.2 (release 2.2): the project name the customer sees. Native; written ONLY by
+            // cdb_lib_data.writeProjectDetails() (3.2.1; was writeProjectName()), one submitFields of the changed
+            // ones of { title, custbody_opp_site_adress } after guardOpportunity().
+            TITLE: 'title',
+            // 3.2: the customer-added delivery address (Text Area; Steve creates it). OPTIONAL: written
+            // only when getField() finds it on the loaded opportunity; missing, the booking still works.
+            DELIVERY_ADDRESS: 'custbody_cdb_delivery_address'
         },
         SALES_ORDER: {
             OPPORTUNITY: 'opportunity',
@@ -202,12 +223,36 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SPECIAL_REQUESTS: 1000,
         // 3.1: "Tell us where you're up to": the note and the not-going-ahead comment.
         UPDATE_NOTE: 1000,
-        UPDATE_COMMENT: 1000
+        UPDATE_COMMENT: 1000,
+        // 3.2 (release 2.2): the project name, and the new delivery address's fields. ADDR_ZIP is the
+        // input's maxlength only: the postcode's real rule is its format (data.normalisePostcode).
+        PROJECT_NAME: 60,
+        // 3.2.1: the opportunity's site address (custbody_opp_site_adress), "Your project details".
+        SITE_ADDRESS: 300,
+        ADDR_LINE: 100,
+        ADDR_CITY: 60,
+        ADDR_COUNTY: 60,
+        ADDR_ZIP: 10
     };
 
     /**
-     * 3.1 (release 2.1 part B): the Online-quote Update Opportunity library — the ONLY way the dashboard
-     * writes an opportunity or creates an objection. Required by ABSOLUTE path at request time (not in
+     * 3.2 (release 2.2): the delivery form's "Add a new address…" choice, posted as address=new (address
+     * book IDs are numbers, so it can never be one), and what a customer-added address is called.
+     * ADDRESS_LABEL is the address book line's label, followed by " dd/mm/yyyy"; the line is found again
+     * after the save by this label and the postcode. COUNTRY is the only country the form takes.
+     */
+    var NEW_ADDRESS = {
+        VALUE: 'new',
+        OPTION: 'Add a new address\u2026',
+        LABEL: 'Added by customer (dashboard)',
+        COUNTRY: 'GB'
+    };
+
+    /**
+     * 3.1 (release 2.1 part B): the Online-quote Update Opportunity library — the way the dashboard writes
+     * the opportunity's stage, date and status and creates an objection. (3.2: the exceptions are the title
+     * and, 3.2.1, the site address — data.writeProjectDetails() — and custbody_cdb_delivery_address; none is
+     * one of the library's FIELDS, and the library is not extended for them.) Required by ABSOLUTE path at request time (not in
      * define()), so a missing or old library costs the update action only, never the dashboard. The
      * folder name has a space; AMD module IDs allow it. MIN_VERSION: fieldOptions, writeOppUpdate and
      * createObjections arrived in 1.2.0.
@@ -266,6 +311,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         FACT_ORDER: 'Order',
         FACT_PROJECT: 'Project',
         FACT_THIS_ORDER: 'This order',
+        // 3.2.2: the order's current forecast date (custbody_defaultshipdate), above Earliest delivery.
+        FACT_PLANNED: 'Currently planned',
         FACT_EARLIEST: 'Earliest delivery',
         EARLIEST_SOONER: '(sooner? call us)',
         FACT_AMOUNT: 'Amount to pay',
@@ -316,7 +363,16 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         DESIGNING: 'Our design team is working on it. Nothing needed from you.',
         NEEDS_INFO: 'We need some information from you for the design.',
         QUOTE_SENT: 'Quote sent',
-        BUTTON: 'VIEW ALL YOUR PROJECTS'
+        BUTTON: 'VIEW ALL YOUR PROJECTS',
+        // 3.2 (release 2.2): the explainer under the band, before the tiles. EXPLAINER_QUOTES only when
+        // there is at least one open quote: [before, the bold button name, after].
+        EXPLAINER: 'Every couple of weeks we send you a summary of your projects with Nu-Heat: where each one is ' +
+            'up to, and anything you can do next.',
+        EXPLAINER_QUOTES: ['If anything has changed on a quoted project, press ', 'Give us an update',
+            ' on your projects page.'],
+        // 3.2: the labels of a quote card's facts, as the dashboard shows them.
+        FACT_STAGE: 'Project stage',
+        FACT_START: 'Expected start'
     };
 
     /**
@@ -504,7 +560,18 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // custbody_build_stage option IDs offered, in this order. Empty: the stage question is hidden.
         UPD_BUILD_STAGES: { kind: 'idlist', empty: 'none', ids: {} },
         // customrecord_nh_objection_type IDs offered as "Why not?", in this order. Empty: no reason list.
-        UPD_OBJECTION_TYPES: { kind: 'idlist', empty: 'none', ids: {} }
+        UPD_OBJECTION_TYPES: { kind: 'idlist', empty: 'none', ids: {} },
+
+        // 3.2.1 (PR #8 amendment 1): the delivery form. RECORD ONLY, dashboard Suitelet only.
+        // The time-of-day list ID ("Any time") pre-selected on the form and booked when no time is posted.
+        // Empty: no default (a time must be chosen). Set but not one of the offered TIME_VALUES: the same,
+        // and the Suitelet logs CDB TIME_DEFAULT_INVALID.
+        TIME_DEFAULT: { kind: 'id', empty: 'none', ids: {} },
+        // JSON {"<unload option id>": "<amount text>"}, e.g. {"4": "£45 + VAT"}: the surcharge shown under
+        // that unloading option, on the confirmation and in the Task (parseUnloadSurcharge()). Empty or
+        // invalid: no surcharge (invalid logs CDB UNLOAD_SURCHARGE_INVALID). The dashboard never adds an
+        // item line: the account manager does.
+        UNLOAD_SURCHARGE: { kind: 'text', empty: 'none', ids: {} }
     };
 
     /**
@@ -519,7 +586,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         'LOGO_URL', 'TIME_VALUES', 'VEHICLE_VALUES', 'UNLOAD_VALUES', 'PE_VALUEPROPS', 'NOTICE_DAYS', 'BANK_NAME',
         'BANK_SORT', 'BANK_ACCOUNT', 'OPTION_HINTS', 'EDD_DEFINITE',
         // 3.1: record only, no parameter column entry.
-        'UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES'];
+        'UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES',
+        // 3.2.1: record only, no parameter column entry.
+        'TIME_DEFAULT', 'UNLOAD_SURCHARGE'];
     SCRIPT_KEYS[SCRIPTS.DIGEST] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'NEEDINFO_SUBSTATUS',
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'PAY_BACS', 'PAY_CARD', 'FALLBACK_EMPLOYEE',
         'PAY_ACCOUNT', 'RELEASED_STATUSES', 'RECENT_DAYS', 'RECENT_HIDDEN_STATUSES', 'QUOTE_TYPE_LABELS', 'LOGO_URL',
@@ -874,6 +943,19 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     }
 
     /**
+     * Pure (3.2.1): parses UNLOAD_SURCHARGE, {"<unload option id>": "<customer-facing amount text>"}, with the
+     * same rules as the type labels: whole-number keys with non-empty string values; anything else is
+     * ignored. Never throws. Anything that is not a JSON object is invalid (the caller logs it once and
+     * treats the setting as empty: no surcharge).
+     * @returns {{status: string, amounts: Object, detail: string}} status 'empty' | 'ok' | 'invalid'
+     */
+    function parseUnloadSurcharge(raw) {
+        var json = parseJsonObject(raw);
+        return { status: json.status, amounts: json.status === 'ok' ? idTextMap(json.value) : {},
+            detail: json.detail };
+    }
+
+    /**
      * Pure (3.1): parses UPD_LOST_STATUS_MAP, {"CUSTOMER": "14", "PROSPECT": "35", "LEAD": "54"}. Never
      * throws. Keys are matched after trimming and upper-casing; only CUSTOMER_STAGES keys are kept. A
      * value must be a whole number (a string or a number); any other entry is ignored, so that stage has
@@ -1078,6 +1160,7 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SHIPPABLE_STATUSES: SHIPPABLE_STATUSES,
         DELIVERED_STATUSES: DELIVERED_STATUSES,
         TEXT_LIMITS: TEXT_LIMITS,
+        NEW_ADDRESS: NEW_ADDRESS,
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
@@ -1093,6 +1176,7 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
         parseLostStatusMap: parseLostStatusMap,
+        parseUnloadSurcharge: parseUnloadSurcharge,
         OPPLIB: OPPLIB,
         CUSTOMER_STAGES: CUSTOMER_STAGES,
         CALL_TIMES: CALL_TIMES,

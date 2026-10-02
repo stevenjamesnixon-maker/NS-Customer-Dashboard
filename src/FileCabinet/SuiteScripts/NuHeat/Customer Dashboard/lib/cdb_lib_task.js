@@ -21,29 +21,42 @@
  * createDeliveryTask() is createTask() at HIGH, unchanged. The messages are plain text: NetSuite shows
  * the Task message as text, and the customer's words go in as typed.
  *
+ * 1.4 (release 2.2): a delivery Task for a new delivery address is titled "NEW ADDRESS – …" and its
+ * message opens with what happened to the address (buildMessage's order.newAddress); without one, both
+ * are exactly as before. The customer update Task shows "Project name: old → new", and a title write that
+ * failed is reported on its own ("Project name NOT saved: …"), apart from the stage and date.
+ *
+ * 1.4.1 (PR #8 amendment 1): the project name becomes "Your project details" — the reference and the site
+ * address, each "label: old → new", saved or reported together ("Project details NOT saved: …"), as one
+ * write. The delivery Task gains the SURCHARGE line when the unloading option chosen carries one.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.1
+ * @version 1.4.1
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.3.1';
+    var VERSION = '1.4.1';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
 
+    /** 1.4: the title prefix of a delivery Task with a new delivery address (new or matched alike). */
+    var NEW_ADDRESS_PREFIX = 'NEW ADDRESS \u2013 ';
+
     /**
-     * Pure: the Task title.
+     * Pure: the Task title. 1.4: newAddress puts NEW_ADDRESS_PREFIX in front.
      * @returns {string}
      */
-    function buildTitle(tranId, description) {
+    function buildTitle(tranId, description, newAddress) {
         // 1.2: "Delivery requested: SO239737 · <description, first 60 chars>".
         var text = String(description || '');
-        var title = 'Delivery requested: ' + tranId + (text ? ' \u00b7 ' + (text.length > 60 ? text.slice(0, 60) + '\u2026' : text) : '');
+        var title = (newAddress ? NEW_ADDRESS_PREFIX : '') + 'Delivery requested: ' + tranId +
+            (text ? ' \u00b7 ' + (text.length > 60 ? text.slice(0, 60) + '\u2026' : text) : '');
         return title.length > TITLE_MAX ? title.slice(0, TITLE_MAX - 1) + '\u2026' : title;
     }
 
@@ -56,13 +69,24 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @param {Object} [order] - 1.2: { description, uniqueRef, paymentChoice ('BACS' | 'Card' |
      *                           'Add to account'), amountText (render.amountText(): "£x inc VAT (£y ex VAT)";
      *                           2.0.5 — '' for Add to account or an unknown amount),
-     *                           account (true for an Add-to-account booking) }
+     *                           account (true for an Add-to-account booking), 1.4: newAddress — null, or
+     *                           { lead (the first line), lines (the address, one line each), outcomes (what
+     *                           happened, one line each) }, all plain text, escaped by the caller; 1.4.1:
+     *                           surcharge — null, or { optionName, amount } (the SURCHARGE line) }
      * @returns {string}
      */
     function buildMessage(changes, paymentText, requests, order) {
         var o = order || {};
-        var lines = ['The customer requested a delivery through the customer dashboard.', ''];
+        var lines = [];
         var i;
+        if (o.newAddress) {
+            lines.push(o.newAddress.lead, '', 'New delivery address:');
+            lines = lines.concat(o.newAddress.lines);
+            lines.push('');
+            lines = lines.concat(o.newAddress.outcomes);
+            lines.push('');
+        }
+        lines.push('The customer requested a delivery through the customer dashboard.', '');
         if (o.description) {
             lines.push('Order: ' + o.description);
         }
@@ -77,6 +101,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         }
         if (o.description || o.uniqueRef || o.paymentChoice || o.amountText) {
             lines.push('');
+        }
+        if (o.surcharge) {
+            lines.push('SURCHARGE: the customer chose ' + o.surcharge.optionName + '. Add the ' + o.surcharge.amount +
+                ' unloading surcharge to the order.', '');
         }
         lines.push('Changed on the sales order (old \u2192 new):');
         for (i = 0; i < changes.length; i++) {
@@ -116,27 +144,46 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         return oppTitle('Customer not going ahead', tranId, title);
     }
 
+    /** Pure (1.4): "- label: old → new" lines. */
+    function changeLines(list) {
+        return list.map(function (c) {
+            return '- ' + c.label + ': ' + (c.oldText || '(empty)') + ' \u2192 ' + (c.newText || '(empty)');
+        });
+    }
+
     /**
      * Pure (1.3): the "Customer update" message.
      * @param {Object} o - { changes: [{label, oldText, newText}] (what was saved), notSaved: '' or the
      *   reason the opportunity write failed, attempted: [{label, oldText, newText}] (shown when notSaved),
-     *   note, call: null or { phone, timeLabel } }
+     *   note, call: null or { phone, timeLabel }, 1.4.1: details — null, or { items: [{label, oldText,
+     *   newText}] (the reference, then the site address, each when changed), notSaved ('' or why their one
+     *   write failed) } }
      * @returns {string}
      */
     function buildUpdateMessage(o) {
         var lines = ['The customer sent an update through the customer dashboard ("Give us an update").', ''];
-        var list = o.notSaved ? (o.attempted || []) : (o.changes || []);
-        var i;
-        if (list.length) {
-            lines.push(o.notSaved ? 'NOT saved on the opportunity (' + o.notSaved + '). Please update it by hand ' +
-                '(old \u2192 new):' : 'Saved on the opportunity (old \u2192 new):');
-            for (i = 0; i < list.length; i++) {
-                lines.push('- ' + list[i].label + ': ' + (list[i].oldText || '(empty)') + ' \u2192 ' +
-                    (list[i].newText || '(empty)'));
-            }
-        } else {
-            lines.push('No changes to the opportunity.');
+        var details = o.details && (o.details.items || []).length ? o.details : null;
+        // 1.4.1: the details are saved, or reported on their own; they come first, as on the page.
+        var saved = (details && !details.notSaved ? details.items : []).concat(o.notSaved ? [] : (o.changes || []));
+        var failed = o.notSaved ? (o.attempted || []) : [];
+        var blocks = [];
+        if (failed.length) {
+            blocks.push(['NOT saved on the opportunity (' + o.notSaved + '). Please update it by hand ' +
+                '(old \u2192 new):'].concat(changeLines(failed)));
         }
+        if (saved.length) {
+            blocks.push(['Saved on the opportunity (old \u2192 new):'].concat(changeLines(saved)));
+        }
+        if (details && details.notSaved) {
+            blocks.push(['Project details NOT saved: ' + details.notSaved + '. Please update them by hand ' +
+                '(old \u2192 new):'].concat(changeLines(details.items)));
+        }
+        if (!blocks.length) {
+            blocks.push(['No changes to the opportunity.']);
+        }
+        blocks.forEach(function (b, i) {
+            lines = lines.concat(i ? [''] : [], b);
+        });
         lines.push('');
         lines.push('Note from the customer: ' + (o.note || '(none)'));
         lines.push('');
@@ -214,6 +261,7 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     return {
         VERSION: VERSION,
+        NEW_ADDRESS_PREFIX: NEW_ADDRESS_PREFIX,
         buildTitle: buildTitle,
         buildMessage: buildMessage,
         PRIORITY: PRIORITY,

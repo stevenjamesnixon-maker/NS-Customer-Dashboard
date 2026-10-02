@@ -35,17 +35,36 @@
  * not-going-ahead panel is a closed <details> holding its own form — opening it is one step, its confirm
  * button the second, and the main form never carries the confirm value.
  *
+ * RELEASE 2.2: the update page asks first "What do you call this project?" (the opportunity title,
+ * prefilled, maxlength 60); the delivery form's address list ends with "Add a new address…", whose five
+ * inputs (ids and names addr1, addr2, city, county, zip, with standard autocomplete tokens, so an address
+ * lookup can fill them later) show only when it is chosen — and, without script, always, with a hint;
+ * the confirmation says a new address is checked first; the digest explains itself, shows the QR number
+ * once, and gives quote cards the dashboard's labelled lines.
+ *
+ * 2.2.1 (PR #8 amendment 1): the first question becomes "Your project details" — "Your reference" (the title)
+ * and "Site address" side by side (.g2: stacked on a phone), the site address only when the Suitelet offers
+ * it. The delivery form pre-selects the default time (the Suitelet's values.time), says the time is a
+ * guide (DELIVERY_TEXT.TIME_NOTE), and shows an unloading option's surcharge under its card, in the hint's
+ * place, so it shows without script; the confirmation says the surcharge will be added to the balance.
+ *
+ * 2.2.2 (PR #8 amendment 2): both "Your project details" inputs always show (showSiteAddress is gone). A
+ * ready-to-book order's current forecast date — plannedDate(): the ORDER's custbody_defaultshipdate
+ * (order.shipDateKey), today or later, never the opportunity's date — shows on its dashboard row, under
+ * the delivery form's heading lines, and as the delivery-link email's "Currently planned" row. The digest
+ * is unchanged.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.1.2
+ * @version 2.2.2
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.1.2';
+    var VERSION = '2.2.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -194,6 +213,23 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     function shortDate(key) {
         return dates.formatDisplay(key, dates.londonTodayKey(Date.now()));
     }
+
+    /**
+     * Pure (2.2.2): a ready-to-book order's current forecast date, as shortDate() shows it — the ORDER's
+     * custbody_defaultshipdate (order.shipDateKey, read by the main order search), never the opportunity's
+     * date — when it is today or later in Europe/London. '' for a blank, invalid or past date. The caller
+     * decides the order is ready to book (the dashboard's row state; the guard, for the form and the email).
+     */
+    function plannedDate(order) {
+        var key = String((order && order.shipDateKey) || '');
+        return key && key >= dates.londonTodayKey(Date.now()) ? shortDate(key) : '';
+    }
+
+    /** 2.2.2: the forecast date's wording. Plain text: escaped when used. */
+    var PLANNED_TEXT = {
+        ROW: 'Currently planned for {date}. Choose your date to confirm.',
+        FORM: 'We currently have this pencilled in for {date}. Choose the date that suits you below.'
+    };
 
     // ---------------------------------------------------------------- page CSS
 
@@ -490,7 +526,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     /**
      * The whole page.
      * @param {Object} opts - { title, logoUrl, am, header ('am'|'questions'|'none'), width
-     *                          ('w1200'|'w1120'|'w600'), body, script }
+     *                          ('w1200'|'w1120'|'w600'), body, script, css (2.2: rules for this page only,
+     *                          after the shared ones, so every other page stays byte-identical) }
      */
     function page(opts) {
         var width = opts.width || 'w1200';
@@ -500,7 +537,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<meta name="referrer" content="no-referrer">' +
             '<title>' + esc(opts.title || 'Your projects') + ' | Nu-Heat</title>' +
             FONT_LINKS +
-            '<style>' + css() + '</style>' +
+            '<style>' + css() + (opts.css || '') + '</style>' +
             (opts.script ? '<script>document.documentElement.className+=" js";</script>' : '') +
             '</head><body>' +
             '<header class="top"><div class="wrap ' + width + '">' + logoHtml(opts.logoUrl) +
@@ -667,7 +704,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
             acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
         } else if (row.state === 'ready') {
-            state = stateCell(badge('ready', 'Ready to deliver'), '');
+            // 2.2.2: the order's current forecast date, today or later.
+            state = stateCell(badge('ready', 'Ready to deliver'), plannedDate(o) ?
+                PLANNED_TEXT.ROW.replace('{date}', plannedDate(o)) : '');
             acts = '<a class="cta" href="' + esc(m.deliveryUrl(o.id)) + '">Arrange delivery</a>';
         } else {
             state = stateCell(badge('need', 'Needs information'), o.holdReason);
@@ -835,20 +874,39 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         return html + '</div>';
     }
 
+    /** 2.2.1: the delivery form's customer-facing additions. Plain text: escaped when used. */
+    var DELIVERY_TEXT = {
+        TIME_NOTE: 'We\u2019ll always aim for your preferred time, but we can\u2019t control the traffic on the day, so ' +
+            'please treat it as a guide rather than a guaranteed slot.',
+        SURCHARGE_HINT: 'A surcharge of {amount} applies for this unloading option.',
+        SURCHARGE_CONFIRM: 'Your {option} unloading surcharge of {amount} will be added to your balance. ' +
+            'We\u2019ll confirm the new total.'
+    };
+
+    /** Pure (2.2.1): "A surcharge of £45 + VAT applies for this unloading option." */
+    function surchargeHint(amount) {
+        return DELIVERY_TEXT.SURCHARGE_HINT.replace('{amount}', amount);
+    }
+
     /**
      * Radio cards: the list text as the title, an optional hint under it.
      * @param {Object} hints - id -> hint text (from custscript_cdb_option_hints); may be empty
+     * @param {Object} [notes] - 2.2.1: id -> a second line in the hint's place (the unloading surcharge);
+     *   always shown under that card, script or not
      */
-    function optionCards(name, options, selected, hints) {
+    function optionCards(name, options, selected, hints, notes) {
         var html = '<div class="opts">';
         var i;
         var hint;
+        var note;
         for (i = 0; i < options.length; i++) {
             hint = hints && hints.hasOwnProperty(options[i].id) ? hints[options[i].id] : '';
+            note = notes && notes.hasOwnProperty(options[i].id) ? notes[options[i].id] : '';
             html += '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(options[i].id) + '"' +
                 (String(selected) === String(options[i].id) ? ' checked' : '') + ' required data-label="' +
                 esc(options[i].text) + '"><span><span class="ot">' + esc(options[i].text) + '</span>' +
-                (hint ? '<span class="oh">' + esc(hint) + '</span>' : '') + '</span></label>';
+                (hint ? '<span class="oh">' + esc(hint) + '</span>' : '') +
+                (note ? '<span class="oh">' + esc(note) + '</span>' : '') + '</span></label>';
         }
         return html + '</div>';
     }
@@ -915,11 +973,20 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<li>We book your delivery and confirm the date by email.</li>';
     }
 
-    /** The inline script for the form: month switching and the live summary. ES5, no library. */
+    /**
+     * The inline script for the form: month switching and the live summary. ES5, no library. 2.2: the
+     * new address's fields show, and line 1, town and postcode become required, only while "Add a new
+     * address…" is chosen.
+     */
     var FORM_SCRIPT = [
         '(function(){',
         'var d=document;',
         'function init(){',
+        'var sel=d.getElementById("f-address"),box=d.getElementById("newaddr");',
+        'function addr(){var on=sel.value==="' + config.NEW_ADDRESS.VALUE + '",req=["addr1","city","zip"],k,el;',
+        'box.className="newaddr"+(on?" on":"");',
+        'for(k=0;k<req.length;k++){el=d.getElementById(req[k]);if(el){el.required=on;}}}',
+        'if(sel&&box){sel.addEventListener("change",addr);addr();}',
         'var months=d.querySelectorAll(".month"),title=d.getElementById("cal-title"),',
         'prev=d.getElementById("cal-prev"),next=d.getElementById("cal-next"),cur=0,i;',
         'function show(n){var j;cur=n;for(j=0;j<months.length;j++){',
@@ -944,6 +1011,38 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         '})();'
     ].join('');
 
+    /**
+     * 2.2: one input of the new address. The id and name are the plain field name and never change: an
+     * address lookup will fill them later. Never `required` in the markup (the script adds it while the
+     * option is chosen; the server requires them only when address=new was posted).
+     */
+    function addressInput(name, label, value, maxLength, errors, optional, autocomplete) {
+        return '<div><label class="lbl" for="' + name + '">' + esc(label) + (optional ? ' (optional)' : '') + '</label>' +
+            fieldError(errors, name) + '<input class="inp" type="text" id="' + name + '" name="' + name + '" value="' +
+            esc(value) + '" maxlength="' + maxLength + '" autocomplete="' + autocomplete + '"' + describedBy(errors, name) +
+            '></div>';
+    }
+
+    /** 2.2: "Add a new address…": its fields, the no-script hint first. */
+    function newAddressFields(v, e, limits, on) {
+        return '<div class="newaddr' + (on ? ' on' : '') + '" id="newaddr">' +
+            '<p class="hint newaddr-nojs" style="margin:0">Only if you chose \u2018Add a new address\u2019</p>' +
+            addressInput('addr1', 'Address line 1', v.addr1, limits.ADDR_LINE, e, false, 'address-line1') +
+            addressInput('addr2', 'Address line 2', v.addr2, limits.ADDR_LINE, e, true, 'address-line2') +
+            '<div class="g2">' +
+            addressInput('city', 'Town or city', v.city, limits.ADDR_CITY, e, false, 'address-level2') +
+            addressInput('county', 'County', v.county, limits.ADDR_COUNTY, e, true, 'address-level1') + '</div>' +
+            '<div class="g2">' + addressInput('zip', 'Postcode', v.zip, limits.ADDR_ZIP, e, false, 'postal-code') +
+            '<div></div></div></div>';
+    }
+
+    /**
+     * 2.2: the delivery form's own rules — the new address shows without script (with its hint); with
+     * script, only when "Add a new address…" is chosen.
+     */
+    var NEW_ADDRESS_CSS = '\n.newaddr{display:flex;flex-direction:column;gap:12px}\n' +
+        '.js .newaddr{display:none}.js .newaddr.on{display:flex}.js .newaddr-nojs{display:none}';
+
     /** One summary row; live when the script runs, static text otherwise. */
     function summaryRow(label, name, staticText) {
         return '<div class="srow"><span>' + esc(label) + '</span><span data-sum="' + esc(name) + '" data-empty="Not chosen yet">' +
@@ -955,13 +1054,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * @param {Object} m - { logoUrl, am, order, opp, actionUrl, backUrl, token, months, allowedSet,
      *                       values, errors, options: {time, vehicle, unload, address}, hints:
      *                       {vehicle, unload}, guidance, noticeDays, limits, hasErrors,
-     *                       paymentOptions (1.2: ['BACS','CARD'] or ['BACS','ACCOUNT']) }
+     *                       paymentOptions (1.2: ['BACS','CARD'] or ['BACS','ACCOUNT']), surcharges (2.2.1:
+     *                       unload option id -> amount text; {} none) }
      */
     function deliveryForm(m) {
         var v = m.values || {};
         var e = m.errors || {};
         var o = m.order;
         var title = orderTitle(o);
+        var surchargeNotes = {};
+        var key;
         var prepay = o.prepay !== false;
         // Amendment 1: shown to every customer when known. Account customers are told it only
         // applies to a bank transfer.
@@ -976,6 +1078,15 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 (String(v.address) === String(m.options.address[i].id) ? ' selected' : '') + '>' +
                 esc(m.options.address[i].text || m.options.address[i].label || 'Address') + '</option>';
         }
+        // 2.2: always last.
+        addressOptions += '<option value="' + esc(config.NEW_ADDRESS.VALUE) + '"' +
+            (String(v.address) === config.NEW_ADDRESS.VALUE ? ' selected' : '') + '>' + esc(config.NEW_ADDRESS.OPTION) +
+            '</option>';
+        for (key in (m.surcharges || {})) {
+            if (m.surcharges.hasOwnProperty(key)) {
+                surchargeNotes[key] = surchargeHint(m.surcharges[key]);
+            }
+        }
         if (m.noticeDays > 0) {
             notice = 'We need at least ' + m.noticeDays + ' working day' + (m.noticeDays === 1 ? '' : 's') +
                 '’ notice. ';
@@ -986,7 +1097,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<h1>Arrange delivery</h1>' +
             '<p class="lead" style="margin:0">' + esc([m.opp && m.opp.title, title, 'Order ' + o.tranId]
                 .filter(function (x) { return !!x; }).join(' · ')) + '</p>' +
-            (o.uniqueRef ? '<p class="soref" style="margin:0">' + esc(o.uniqueRef) + '</p>' : '') + '</div>' +
+            (o.uniqueRef ? '<p class="soref" style="margin:0">' + esc(o.uniqueRef) + '</p>' : '') +
+            // 2.2.2: the guard only lets a ready-to-book order here.
+            (plannedDate(o) ? '<p class="hint" style="margin:0">' + esc(PLANNED_TEXT.FORM.replace('{date}', plannedDate(o))) +
+                '</p>' : '') + '</div>' +
             (m.hasErrors ? '<div class="notice" role="alert">Please check the highlighted answers below.</div>' : '') +
             '<div class="layout"><form class="fcol" id="dform" method="post" action="' + esc(m.actionUrl) +
             '" accept-charset="utf-8">' +
@@ -1000,20 +1114,22 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<p class="hint" style="margin:0">' + esc(notice) + 'Weekends, bank holidays and our closure days ' +
             'can’t be chosen.</p>' +
             '<fieldset><legend>Time of day</legend>' + fieldError(e, 'time') + segments('time', m.options.time, v.time) +
-            '</fieldset></section>' +
+            '</fieldset><p class="hint" style="margin:0">' + esc(DELIVERY_TEXT.TIME_NOTE) + '</p></section>' +
 
             '<section class="card"><h2><span class="num">2</span>Where should we deliver?</h2><div>' +
             '<label class="lbl" for="f-address">Delivery address</label>' + fieldError(e, 'address') +
             '<select class="inp" id="f-address" name="address" required' + describedBy(e, 'address') + '>' +
-            addressOptions + '</select><p class="hint" style="margin:6px 0 0">Need it somewhere else? Tell us under ' +
-            '“Anything else” and we’ll call you to confirm.</p></div></section>' +
+            addressOptions + '</select><p class="hint" style="margin:6px 0 0">Not in the list? Choose \u201c' +
+            esc(config.NEW_ADDRESS.OPTION) + '\u201d and type it in.</p></div>' +
+            newAddressFields(v, e, m.limits, String(v.address) === config.NEW_ADDRESS.VALUE) + '</section>' +
 
             '<section class="card"><h2><span class="num">3</span>Access and unloading</h2>' +
             guidance(m.guidance) +
             '<fieldset><legend>Largest vehicle that can reach the property</legend>' + fieldError(e, 'vehicle') +
             optionCards('vehicle', m.options.vehicle, v.vehicle, m.hints && m.hints.vehicle) + '</fieldset>' +
             '<fieldset><legend>Unloading</legend>' + fieldError(e, 'unload') +
-            optionCards('unload', m.options.unload, v.unload, m.hints && m.hints.unload) + '</fieldset></section>' +
+            optionCards('unload', m.options.unload, v.unload, m.hints && m.hints.unload, surchargeNotes) +
+            '</fieldset></section>' +
 
             '<section class="card"><h2><span class="num">4</span>Who should the driver contact on site?</h2><div class="g3">' +
             textInput('text', 'contactName', 'Name', v.contactName, m.limits.CONTACT_NAME, e, true, 'name') +
@@ -1054,31 +1170,53 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</div><h3>What happens next</h3><ol class="next">' + nextSteps(prepay) + '</ol></aside></div>';
 
         return page({ title: 'Arrange delivery', logoUrl: m.logoUrl, am: m.am, header: 'questions',
-            width: 'w1120', body: body, script: FORM_SCRIPT });
+            width: 'w1120', body: body, script: FORM_SCRIPT, css: NEW_ADDRESS_CSS });
     }
 
     // ---------------------------------------------------------------- confirmations
+
+    /** 2.2: the confirmation's new-address wording. Plain text: escaped when used. */
+    var CONFIRM_TEXT = {
+        NEW_ADDRESS: 'As this is a new address, we\u2019ll check access and any delivery charge before we confirm your date.',
+        AMOUNT_NOTE: 'This may change if delivery to the new address costs more. We\u2019ll tell you before you pay.'
+    };
+
+    /** 2.2: the note that goes with the amount to pay, with a new address only. */
+    function amountNote() {
+        return '<p class="hint" style="margin:8px 0 0">' + esc(CONFIRM_TEXT.AMOUNT_NOTE) + '</p>';
+    }
 
     /**
      * The page after a successful request (ConfirmBacs / ConfirmCard, and 1.2's account page styled
      * like the card one).
      * @param {Object} m - { logoUrl, am, payment ('BACS'|'CARD'|'ACCOUNT'), bank, tranId, orderTitle,
-     *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only) }
+     *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only), newAddress
+     *                       (2.2: true when the customer added a new delivery address), surcharge (2.2.1:
+     *                       null, or { optionName, amount } for the unloading option chosen) }
      */
     function confirmation(m) {
         var noted = (m.dateKey ? shortDate(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
         var what = (m.orderTitle || 'your order') + (m.uniqueRef ? ', ' + m.uniqueRef : '') + ' (order ' + m.tranId + ')';
         var amountShown = m.payment === 'ACCOUNT' ? '' : amountText(m.amount);
+        // 2.2.1: under the amount to pay — in the bank card for BACS, else on the main card.
+        var surcharge = m.surcharge ? '<p class="hint" style="margin:8px 0 0">' + esc(DELIVERY_TEXT.SURCHARGE_CONFIRM
+            .replace('{option}', m.surcharge.optionName).replace('{amount}', m.surcharge.amount)) + '</p>' : '';
         var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>Delivery requested</h1><p>' +
             (m.payment === 'ACCOUNT' ? esc('Delivery requested. We’ll add order ' + m.tranId + ' to your account and ' +
                 'email you to confirm the date.') :
                 esc('Thanks. We’ve noted ' + noted + ', for ' + what + '. ') +
                 (m.payment === 'BACS' ? 'We’ll book it as soon as your payment reaches us.' :
                     cardPaymentText(amountShown) + ' Once payment is taken, we’ll book your delivery.')) +
-            '</p></div>';
+            '</p>' +
+            // 2.2: only with a new delivery address; the same page whether or not it reached the address book.
+            (m.newAddress ? '<p>' + esc(CONFIRM_TEXT.NEW_ADDRESS) + '</p>' +
+                (amountShown && m.payment !== 'BACS' ? amountNote() : '') : '') +
+            (m.payment !== 'BACS' ? surcharge : '') +
+            '</div>';
 
         if (m.payment === 'BACS') {
             body += '<div class="card bank"><h2>Pay by bank transfer</h2>' + bankRows(m.bank, m.tranId, amountShown) +
+                (m.newAddress && amountShown ? amountNote() : '') + surcharge +
                 '<p style="margin:8px 0 0;font-size:15px;color:#4a4650">Please use the reference exactly as shown so ' +
                 'we can match your payment. We’ll book your delivery once payment reaches us.</p></div>' +
                 '<div class="card"><h2 style="font-size:18px">What happens next</h2><ol class="next" style="font-size:16px">' +
@@ -1113,6 +1251,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     var UPDATE_TEXT = {
         BUTTON: 'Give us an update',
         TITLE: 'Give us an update',
+        // 2.2.1: the first question, the opportunity's title and (when offered) its site address.
+        Q_DETAILS: 'Your project details',
+        NAME_LABEL: 'Your reference',
+        NAME_HINT: 'A name that makes this project easy for you to spot, e.g. \u2018Barn conversion\u2019.',
+        SITE_LABEL: 'Site address',
+        SITE_HINT: 'Where the work is happening. It\u2019s optional, but it helps us plan your design and delivery.',
         Q_STAGE: 'What stage is your project at?',
         Q_DATE: 'When do you expect to begin work?',
         DATE_LABEL: 'Approximate date',
@@ -1127,7 +1271,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NOT_GOING: 'Not going ahead? Let us know',
         WHY_NOT: 'Why not?',
         COMMENT: 'Anything you\u2019d like to add? (optional)',
-        CONFIRM: 'Yes, we\u2019re not going ahead',
+        // 2.2: was "Yes, we're not going ahead". The posted value is still confirm=yes.
+        CONFIRM: 'Confirm: we\u2019ve decided not to go ahead',
         CONFIRM_HELP: 'This tells us you\u2019ve decided not to go ahead with this project. It will no longer show on ' +
             'your projects page.',
         NOTHING: 'Nothing to update: you haven\u2019t changed anything, added a note or asked for a call.',
@@ -1155,10 +1300,19 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             .filter(function (x) { return !!x; }).join(' \u00b7 ');
     }
 
+    /** 2.2.1: one "Your project details" input — label, error, the single-line input, the hint under it. */
+    function detailInput(name, label, hint, value, maxLength, e) {
+        return '<div><label class="lbl" for="f-' + name + '">' + esc(label) + '</label>' + fieldError(e, name) +
+            '<input class="inp" type="text" id="f-' + name + '" name="' + name + '" value="' + esc(value) +
+            '" maxlength="' + maxLength + '"' + describedBy(e, name) + '>' +
+            '<p class="hint" style="margin:6px 0 0">' + esc(hint) + '</p></div>';
+    }
+
     /**
      * The "Tell us where you're up to" page (Update.dc.html, with the questions of release 2.1 part B).
      * @param {Object} m - { logoUrl, am (header), assignee ({ name }, the "Goes to" card), opp,
-     *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values,
+     *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values (2.2:
+     *   projectName, prefilled with the title; 2.2.1: siteAddress, prefilled with data.siteAddressLine()),
      *   errors, notice, reasons ([{id, text}]; [] no list), notGoingOpen, limits, callTimes
      *   ([{id, text}]) }
      */
@@ -1202,6 +1356,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<div class="layout"><div class="fcol">' +
             '<form class="fcol" id="uform" method="post" action="' + esc(m.actionUrl) + '" accept-charset="utf-8">' +
             hidden('update');
+
+        // 2.2: always first. Optional like the rest: blank or unchanged writes nothing. 2.2.1: the reference and
+        // the site address side by side, one line each (.g2 stacks them on a phone); 2.2.2: both, always.
+        body += '<section class="card"><h2>' + num() + esc(t.Q_DETAILS) + '</h2><div class="g2">' +
+            detailInput('projectName', t.NAME_LABEL, t.NAME_HINT, v.projectName, m.limits.PROJECT_NAME, e) +
+            detailInput('siteAddress', t.SITE_LABEL, t.SITE_HINT, v.siteAddress, m.limits.SITE_ADDRESS, e) +
+            '</div></section>';
 
         if ((m.stages || []).length) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
@@ -1843,6 +2004,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var project = [m.opp && m.opp.tranId, m.opp && m.opp.siteAddress].filter(function (x) { return !!x; }).join(' · ');
         var amount = amountToPayText(o);
         var earliest = m.earliestKey ? shortDate(m.earliestKey) : '';
+        // 2.2.2: the order's current forecast date (the Send link Suitelet's guard only passes a ready order).
+        var planned = plannedDate(o);
         var icons = config.EMAIL_ICONS;
         var html = '';
         var facts = '';
@@ -1864,6 +2027,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         if (o.uniqueRef) {
             facts += factRow(t.FACT_THIS_ORDER, '<b>' + esc(o.uniqueRef) + '</b>');
+        }
+        if (planned) {
+            facts += factRow(t.FACT_PLANNED, '<b>' + esc(planned) + '</b>');
         }
         if (earliest) {
             facts += factRow(t.FACT_EARLIEST, '<b>' + esc(earliest) + '</b> ' + fontHtml(COLORS.MUTED, esc(t.EARLIEST_SOONER)));
@@ -2130,13 +2296,37 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</tr>\n</table>\n';
     }
 
-    /** A project card: the name, the sub-line, the progress bar, then its order rows. */
+    /**
+     * 2.2: a quote card's labelled lines — the dashboard's quoteFacts() in email markup: "Project stage: …"
+     * (stageLabel) and "Expected start: …" (formatMonthYear), only the ones with a value. '' with neither.
+     */
+    function emailQuoteFacts(opp) {
+        var D = config.DIGEST_EMAIL;
+        var lines = [];
+        var stage = stageLabel(opp && opp.buildStageText);
+        var when = dates.formatMonthYear(opp && opp.delDateKey);
+        if (stage) {
+            lines.push([D.FACT_STAGE, stage]);
+        }
+        if (when) {
+            lines.push([D.FACT_START, when]);
+        }
+        return lines.map(function (l) {
+            return '<p style="margin:2px 0 0 0;' + EF + 'font-size:14px;line-height:20px;color:' + COLORS.MUTED + ';">' +
+                fontHtml(COLORS.MUTED, esc(l[0] + ': ')) + fontHtml(COLORS.TEXT, '<b>' + esc(l[1]) + '</b>') + '</p>';
+        }).join('');
+    }
+
+    /**
+     * A project card: the name, the sub-line, the progress bar, then its order rows. 2.2: with no title the
+     * heading is the QR number, so the sub-line leaves it out; a quote card adds its labelled lines.
+     */
     function projectCard(p, payBacs) {
         var D = config.DIGEST_EMAIL;
         var opp = p.opp;
         var stageText = p.kind === 'design' ? (p.needsInfo ? D.NEEDS_INFO : D.DESIGNING) : p.kind === 'quote' ? D.QUOTE_SENT :
             opp.siteAddress;
-        var sub = [opp.tranId, stageText].filter(function (x) { return !!x; }).join(' · ');
+        var sub = [opp.title ? opp.tranId : '', stageText].filter(function (x) { return !!x; }).join(' · ');
         var rows = p.orders.map(function (st) {
             var r = emailOrderRow(opp, st, payBacs);
             return '<tr><td align="left" valign="top" bgcolor="#faf9f7" style="background-color:#faf9f7;padding:12px 20px;' +
@@ -2151,9 +2341,22 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
             '<tr><td align="left" valign="top" style="padding:16px 20px 12px 20px;">' +
             emailP('0', 18, COLORS.TEXT, opp.title || opp.tranId, true) +
-            (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + '</td></tr>\n' +
+            (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + (p.kind === 'quote' ? emailQuoteFacts(opp) : '') +
+            '</td></tr>\n' +
             '<tr><td align="center" valign="top" style="padding:4px 18px 16px 18px;">\n' + progressBar(p) + '</td></tr>\n' +
             rows + '</table>\n';
+    }
+
+    /**
+     * 2.2: the explainer paragraph — what the digest is, and, with at least one open quote, where to tell
+     * us if a quoted project has changed (the button name in bold).
+     */
+    function digestExplainer(groups) {
+        var D = config.DIGEST_EMAIL;
+        var q = D.EXPLAINER_QUOTES;
+        return '<p style="margin:0;' + EF + 'font-size:16px;line-height:23px;color:' + COLORS.TEXT + ';">' +
+            fontHtml(COLORS.TEXT, esc(D.EXPLAINER) + ((groups.toOrder || []).length ?
+                ' ' + esc(q[0]) + '<b>' + esc(q[1]) + '</b>' + esc(q[2]) : '')) + '</p>';
     }
 
     /**
@@ -2175,6 +2378,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         html += emailLogo(m.logoUrl);
         html += emailBand('YOUR PROJECTS UPDATE', 'Here’s where everything stands', 'Hello ' + (m.greetingName || m.customerName || ''));
 
+        // 2.2: what this email is, before the tiles; the update button named when there is an open quote.
+        body += '<tr><td align="left" valign="top" style="padding:0 0 22px 0;">' + digestExplainer(groups) + '</td></tr>\n';
         if (tiles) {
             body += '<tr><td align="center" valign="top" style="padding:0 0 22px 0;">\n' + tiles + '</td></tr>\n';
         }
@@ -2215,6 +2420,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         esc: esc,
         orderTitle: orderTitle,
         stageLabel: stageLabel,
+        plannedDate: plannedDate,
+        PLANNED_TEXT: PLANNED_TEXT,
         quoteFacts: quoteFacts,
         contactParts: contactParts,
         questionsLine: questionsLine,
@@ -2228,6 +2435,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         dashboard: dashboard,
         deliveryForm: deliveryForm,
         confirmation: confirmation,
+        CONFIRM_TEXT: CONFIRM_TEXT,
+        DELIVERY_TEXT: DELIVERY_TEXT,
         UPDATE_TEXT: UPDATE_TEXT,
         updatePage: updatePage,
         updateDone: updateDone,
@@ -2236,6 +2445,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         digestRows: digestRows,
         digestCallout: digestCallout,
         digestEmail: digestEmail,
+        digestExplainer: digestExplainer,
         emailOrderRow: emailOrderRow,
         emailShell: emailShell,
         emailLogo: emailLogo,
