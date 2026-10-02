@@ -90,18 +90,22 @@
  * (confirmed in Production, 2 Oct 2026), so 2.2.1's runtime type check — siteAddressFieldType(),
  * isTextFieldType() and the opportunity load behind them — is gone.
  *
+ * 2.2.3 ("Request an update" part A): customersWithOpenOpportunity() and customersWithOpenOrder() — the
+ * digest's LIVE input searches, moved here UNCHANGED from cdb_mr_digest.js so the link backfill's OPEN
+ * scope uses the same definition of an open customer and the two cannot drift.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.2
+ * @version 2.2.3
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.2.2';
+    var VERSION = '2.2.3';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -840,6 +844,52 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
             expr = expr.concat(['OR', [SO.RECORD_STATUS, 'anyof', cfg.RELEASED_STATUSES]]);
         }
         return expr;
+    }
+
+    /**
+     * Customers with an open opportunity: not Lost, and either not Won, or Won at a design or
+     * delivery sub-status. The same opportunities the dashboard shows. Grouped by customer.
+     * 2.2.3: moved unchanged from cdb_mr_digest.js; the digest and the link backfill both use it.
+     * @returns {Object} set of customer IDs
+     */
+    function customersWithOpenOpportunity(cfg) {
+        var set = {};
+        collect(search.create({
+            type: search.Type.OPPORTUNITY,
+            // No mainline: the opportunity search rejects it. See getOpportunities().
+            filters: [
+                [OPP.STATUS, 'noneof', cfg.LOST_STATUSES], 'AND',
+                [[OPP.STATUS, 'noneof', cfg.WON_STATUSES], 'OR',
+                    [OPP.SUB_STATUS, 'anyof', cfg.DESIGN_SUBSTATUS.concat(cfg.DELIVERY_SUBSTATUS)]]
+            ],
+            columns: [search.createColumn({ name: 'entity', summary: search.Summary.GROUP })]
+        }), function (r) {
+            set[String(r.getValue({ name: 'entity', summary: search.Summary.GROUP }))] = true;
+        });
+        return set;
+    }
+
+    /**
+     * Customers with an open sales order: every rule of "open" (this file's header), including the
+     * addendum's native status filter. Grouped by the order's own customer.
+     * 2.2.3: moved unchanged from cdb_mr_digest.js; the digest and the link backfill both use it.
+     * @returns {Object} set of customer IDs
+     */
+    function customersWithOpenOrder(cfg) {
+        var set = {};
+        collect(search.create({
+            type: search.Type.SALES_ORDER,
+            // 1.3: recordStatusFilter() carries the released exception when the list is set.
+            filters: openOrderFilters().concat([
+                'AND', recordStatusFilter(cfg),
+                'AND', [[SO.QUOTE_TYPE, 'anyof', '@NONE@'], 'OR',
+                    [SO.QUOTE_TYPE, 'noneof', cfg.EXCLUDED_QUOTE_TYPES]]
+            ]),
+            columns: [search.createColumn({ name: 'entity', summary: search.Summary.GROUP })]
+        }), function (r) {
+            set[String(r.getValue({ name: 'entity', summary: search.Summary.GROUP }))] = true;
+        });
+        return set;
     }
 
     /**
@@ -2155,6 +2205,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         getProjects: getProjects,
         isReleased: isReleased,
         recordStatusFilter: recordStatusFilter,
+        customersWithOpenOpportunity: customersWithOpenOpportunity,
+        customersWithOpenOrder: customersWithOpenOrder,
         deliveryDateKey: deliveryDateKey,
         groupRecent: groupRecent,
         getRecentlyDelivered: getRecentlyDelivered,

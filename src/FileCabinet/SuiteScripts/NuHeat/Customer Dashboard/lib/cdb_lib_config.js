@@ -55,13 +55,18 @@
  * 3.2.2 (PR #8 amendment 2): DELIVERY_LINK_EMAIL.FACT_PLANNED ("Currently planned"); custbody_opp_site_adress
  * is Long Text (confirmed in Production, 2 Oct 2026), so its comment no longer speaks of a type check.
  *
- * @version 3.2.2
+ * 3.3.0 ("Request an update" part A, 2 Oct 2026): FIELDS.CUSTOMER.LINK, custentity_cdb_link — the customer's
+ * base dashboard link, kept by the new customer User Event and the backfill Map/Reduce (both in SCRIPTS);
+ * the record-only key LINK_BACKFILL_SCOPE (OPEN | ALL, LINK_SCOPES; empty or invalid: OPEN), read by the
+ * backfill only, with the "open" keys its OPEN search needs.
+ *
+ * @version 3.3.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.2.2';
+    var VERSION = '3.3.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -75,7 +80,13 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // User Event that adds the button.
         SEND_LINK: 'customscript_cdb_sl_send_link',
         SEND_LINK_DEPLOYMENT: 'customdeploy_cdb_sl_send_link',
-        SALES_ORDER_UE: 'customscript_cdb_ue_salesorder'
+        SALES_ORDER_UE: 'customscript_cdb_ue_salesorder',
+        // 3.3.0: the customer User Event that keeps custentity_cdb_link, and its backfill. The User Event
+        // reads no settings; the backfill reads LINK_BACKFILL_SCOPE and the "open" keys (SCRIPT_KEYS).
+        CUSTOMER_UE: 'customscript_cdb_ue_customer',
+        CUSTOMER_UE_DEPLOYMENT: 'customdeploy_cdb_ue_customer',
+        LINK_BACKFILL: 'customscript_cdb_mr_link_backfill',
+        LINK_BACKFILL_DEPLOYMENT: 'customdeploy_cdb_mr_link_backfill'
     };
 
     /**
@@ -116,7 +127,11 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             LINK_VERSION: 'custentity_cdb_link_version',
             DASHBOARD_CONTACT: 'custentity_cdb_dashboard_contact',
             DIGEST_OPTOUT: 'custentity_cdb_digest_optout',
-            LAST_DIGEST: 'custentity_cdb_last_digest'
+            LAST_DIGEST: 'custentity_cdb_last_digest',
+            // 3.3.0: the customer's base dashboard link (Free-Form Text, Store Value, Hidden; Steve creates
+            // it). Written ONLY by lib/cdb_lib_link.js (the customer User Event and the backfill). Read by
+            // Online-quote's Update Opportunity page, which appends &a=update&opp=<id>.
+            LINK: 'custentity_cdb_link'
         },
         OPPORTUNITY: {
             STATUS: 'entitystatus',
@@ -280,6 +295,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     var BOOKING_HORIZON_MONTHS = 6;
 
     var DIGEST_MODES = { TEST: 'TEST', LIVE: 'LIVE' };
+
+    /** 3.3.0: LINK_BACKFILL_SCOPE's values. OPEN is the default, and what an invalid value means. */
+    var LINK_SCOPES = { OPEN: 'OPEN', ALL: 'ALL' };
 
     /**
      * The guidance above the vehicle and unloading options (release 1.1). Customer-facing wording,
@@ -462,6 +480,7 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
      *   id      one whole number (Integer, or a List/Record select) -> string
      *   int     whole number >= 0 -> number
      *   mode    TEST | LIVE
+ *   scope   OPEN | ALL (3.3.0)
      *   https   an https URL
      *   text    free text
      *
@@ -571,7 +590,12 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // that unloading option, on the confirmation and in the Task (parseUnloadSurcharge()). Empty or
         // invalid: no surcharge (invalid logs CDB UNLOAD_SURCHARGE_INVALID). The dashboard never adds an
         // item line: the account manager does.
-        UNLOAD_SURCHARGE: { kind: 'text', empty: 'none', ids: {} }
+        UNLOAD_SURCHARGE: { kind: 'text', empty: 'none', ids: {} },
+
+        // 3.3.0 ("Request an update" part A): RECORD ONLY, the link backfill only. Which customers
+        // cdb_mr_link_backfill.js checks: OPEN, the active customers with an open opportunity or an open
+        // sales order (the digest's definition); ALL, every active customer. Empty or invalid: OPEN.
+        LINK_BACKFILL_SCOPE: { kind: 'scope', empty: 'default', defaultValue: 'OPEN', ids: {} }
     };
 
     /**
@@ -595,6 +619,10 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         'DIGEST_MODE', 'DIGEST_TEST_CUSTOMERS', 'DIGEST_DAYS', 'DIGEST_CAP'];
     SCRIPT_KEYS[SCRIPTS.SEND_LINK] = ['EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'FALLBACK_EMPLOYEE', 'PREPAY_TERMS',
         'PAY_ACCOUNT', 'RELEASED_STATUSES', 'QUOTE_TYPE_LABELS', 'LOGO_URL', 'NOTICE_DAYS'];
+    // 3.3.0: no parameters (no PARAMETER_COLUMNS entry). The "open" keys are what the OPEN scope's two
+    // searches (cdb_lib_data customersWithOpenOpportunity / customersWithOpenOrder) read.
+    SCRIPT_KEYS[SCRIPTS.LINK_BACKFILL] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'DELIVERY_SUBSTATUS',
+        'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE'];
 
     /**
      * 3.0: the transition fallback. Which PARAMETERS ids column each existing script's parameters
@@ -657,6 +685,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             case 'mode':
                 text = text.toUpperCase();
                 return { ok: text === DIGEST_MODES.TEST || text === DIGEST_MODES.LIVE, value: text };
+            case 'scope':
+                text = text.toUpperCase();
+                return { ok: text === LINK_SCOPES.OPEN || text === LINK_SCOPES.ALL, value: text };
             case 'https':
                 return { ok: /^https:\/\/[^\s"'<>]+$/i.test(text), value: text };
             default:
@@ -1163,6 +1194,7 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         NEW_ADDRESS: NEW_ADDRESS,
         BOOKING_HORIZON_MONTHS: BOOKING_HORIZON_MONTHS,
         DIGEST_MODES: DIGEST_MODES,
+        LINK_SCOPES: LINK_SCOPES,
         DELIVERY_GUIDANCE: DELIVERY_GUIDANCE,
         DELIVERY_LINK_EMAIL: DELIVERY_LINK_EMAIL,
         EMAIL_STANDARD: EMAIL_STANDARD,

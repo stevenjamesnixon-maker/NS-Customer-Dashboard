@@ -6,8 +6,17 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 1 Oct 2026 (release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 2 Oct 2026 ("Request an update" part A, the stored link, config 3.3.0; release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**"Request an update" part A (2 Oct 2026, new PR; config 3.3.0):** each customer's **base dashboard link
+is kept on the customer**, in the new hidden field `custentity_cdb_link`, so Online-quote's Update
+Opportunity page (part B, in that repo) can read it and append `&a=update&opp=<id>` for the rep's
+*Give us an update* button, with no code dependency between the repos. A new customer User Event
+(`cdb_ue_customer.js`) keeps it right on every save; a rerunnable Map/Reduce (`cdb_mr_link_backfill.js`)
+writes it for existing customers, and is run again after every Sandbox refresh and after any change to the
+API Secret's value or the dashboard deployment. One record-only setting, `LINK_BACKFILL_SCOPE`. Section 4,
+*The stored link*; section 8.7 and 8.8. Not merged, not deployed.
 
 **Release plan (Steve, 1 Oct 2026):** **2.2** is this release (project name, new delivery address, polish).
 **Design information and changes** moves to **2.3**, and **Place order** to **2.4**.
@@ -96,7 +105,9 @@ every file it changes. Steve tells deployed copies apart by version.
    `custbody_cdb_delivery_address`, each by its own `submitFields` in `cdb_lib_data.js` (**2.2.1:** the title's
    write also carries `custbody_opp_site_adress` when the customer changed it — those two fields only) — never by
    extending the library, whose `FIELDS` feed the Send Quote and Update Opportunity pages. The only customer
-   write is (2.2) one new address book line.
+   writes are (2.2) one new address book line, the digest's `custentity_cdb_last_digest`, and (part A,
+   2 Oct 2026) `custentity_cdb_link`, written only through `lib/cdb_lib_link.js` by the customer User Event
+   and the link backfill.
 
 5. **Field IDs are used exactly as they exist in the account.** `custbody_opp_site_adress` has
    one `d`. It is the real ID. Do not correct it. `custbody_opp_site_adress` is Long Text (confirmed in
@@ -163,13 +174,16 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
 | Dashboard Suitelet | 2.2.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
+| Digest Map/Reduce | 2.0.4 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library) | Not deployed |
+| Customer User Event (part A) | 1.0.0 | `cdb_ue_customer.js` | afterSubmit, create/edit/xedit, all contexts: keeps `custentity_cdb_link` right | New |
+| Link backfill Map/Reduce (part A) | 1.0.0 | `cdb_mr_link_backfill.js` | Rerunnable: writes `custentity_cdb_link` wherever it is missing or wrong | New |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.2.2 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
-| Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
+| Config library | 3.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Token library | 2.1.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)`; 2.1.0: the EXTERNAL CONSUMER note and the pure `linkMatches()` | Not deployed |
+| Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.2.2 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
+| Data library | 2.2.3 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
 | Render library | 2.2.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
 | Task library | 1.4.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line | Not deployed |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
@@ -243,6 +257,90 @@ dashboard; confirmation pages link back to the dashboard.
 **The customer for a link is always the order's opportunity's customer** (`data.orderCustomer()`,
 the guard's rule), never the order's own `entity`. A link built for any other customer would be
 refused by the guard as *another customer*.
+
+### The stored link (part A of "Request an update", 2 Oct 2026)
+
+**Why.** Online-quote's Update Opportunity will offer a *Give us an update* button in the rep's email (recon
+design C, agreed by Steve). To keep the two repos free of a code dependency, **the dashboard keeps each
+customer's base dashboard link on the customer**; Online-quote reads it and appends `&a=update&opp=<id>`,
+exactly as `cdb_sl_dashboard.js` does (`ctx.baseUrl + '&a=update&opp=' …`). Part B is in Online-quote.
+
+**The field** (Steve creates it before testing):
+
+| Record | ID | Type | Settings |
+|---|---|---|---|
+| Customer (Entity field, applies to Customer) | `custentity_cdb_link` | Free-Form Text | Store Value **on**; Display Type **Hidden**; not shown in lists |
+
+`config.FIELDS.CUSTOMER.LINK`. It holds `token.buildLink(customerId)` with no extra: the base link, no `a=`.
+
+**The external consumer.** The token format (`base64url(payload).base64url(hmac)`, payload
+`c<customerId>.v<version>`) and the `t` parameter name are now read outside this repo. `cdb_lib_token.js`
+says so in its header (*EXTERNAL CONSUMER*): don't change either without a matching Online-quote change.
+
+**When the stored link goes out of date.** It is deterministic (`c<id>.v<version>`, stable, no expiry), so
+only when:
+
+| Change | Caught by |
+|---|---|
+| The customer's `custentity_cdb_link_version` changes (revocation) | the User Event, **on the same save** |
+| The API Secret's value changes | the backfill only — run it |
+| The dashboard deployment or its domain changes | the backfill only — run it |
+| The account is a refreshed Sandbox (Production's links copied in) | the backfill only — run it |
+
+**The customer User Event** `cdb_ue_customer.js` (`customscript_cdb_ue_customer` /
+`customdeploy_cdb_ue_customer`): afterSubmit on **create, edit and xedit** (inline edit, mass update), in
+**all** execution contexts (UI, CSV import, web services, scripts, Map/Reduce, Suitelets). It reads no
+settings. Per save:
+
+1. the customer's ID, `isinactive`, `custentity_cdb_link_version` and `custentity_cdb_link` — from the new
+   record on create and edit; on xedit, whose new record carries only the changed fields, from **one**
+   `lookupFields`;
+2. an inactive customer: nothing (reactivating one is an edit, which writes it);
+3. `token.linkMatches(stored, id, version)` true: nothing. Pure, **no crypto**: it compares the stored
+   link's payload only and never checks the signature;
+4. otherwise `token.buildLink(id)` and **one** `record.submitFields` of `custentity_cdb_link` only,
+   `enableSourcing: false`, `ignoreMandatoryFields: true`. NetSuite runs no user event for a save made by a
+   user event, and the next check would match anyway: no loop.
+
+It **never throws**: a customer save never fails because of it. A write logs `CDB LINK_WRITTEN` (audit: the
+customer, the version signed, what was stored before, the units used); any failure `CDB LINK_FAILED` (error).
+A copied customer carries the original's link, which names another customer, so it is rewritten.
+
+**Governance** (a User Event has 1,000 units): a save whose link is right costs **0** (create, edit) or
+**1** (xedit, the lookup). A write adds `buildLink()`'s own lookup (1) and `submitFields` on a customer (5):
+**6** (create, edit) or **7** (xedit), plus whatever `N/crypto` and `url.resolveScript` cost — expected
+none; `CDB LINK_WRITTEN` logs the real figure. Writes are rare after the backfill: a new customer, a
+version bump, a copied customer.
+
+**The backfill** `cdb_mr_link_backfill.js` (`customscript_cdb_mr_link_backfill` /
+`customdeploy_cdb_mr_link_backfill`), rerunnable:
+
+- **getInputData**, by the record-only setting **`LINK_BACKFILL_SCOPE`**:
+  - `OPEN` (the default; an empty or invalid row means `OPEN`, logged `CDB PARAMETER_DEFAULT`): the
+    customers with an open opportunity **or** an open sales order — the digest's LIVE definition, **the
+    same two searches** (`data.customersWithOpenOpportunity(cfg)`: opportunities not in `LOST_STATUSES`
+    and either not in `WON_STATUSES` or at a `DESIGN_SUBSTATUS`/`DELIVERY_SUBSTATUS` sub-status, grouped by
+    `entity`; `data.customersWithOpenOrder(cfg)`: sales orders, mainline, an opportunity set, native status
+    A/B/D/E, the Record Status rule with the released exception, the quote type rule, grouped by `entity`),
+    unioned. Neither filters on the customer, so an inactive one is skipped in map;
+  - `ALL`: every active customer (one customer search, `isinactive` F).
+  The backfill has **no parameters**. Its `SCRIPT_KEYS` are the "open" keys (`WON_STATUSES`,
+  `LOST_STATUSES`, `DESIGN_SUBSTATUS`, `DELIVERY_SUBSTATUS`, `EXCLUDED_STATUSES`, `EXCLUDED_QUOTE_TYPES`,
+  `RELEASED_STATUSES`) and `LINK_BACKFILL_SCOPE`, all from the settings record: a missing required key stops
+  the run at the start, whatever the scope, and nothing is written.
+- **map**: `link.ensure()` — the User Event's check-and-write, the same code — with `exact: true`: it builds
+  the link and compares the **whole URL** with the stored one, so it also catches a new secret, deployment,
+  domain or a refreshed Sandbox. Per customer: 2 units (the lookup and `buildLink()`'s), 7 with a write.
+- **summarize**: `CDB LINK_BACKFILL` — checked, already right, written, failed, inactive — and the first 10
+  failures.
+
+**Run the backfill:** once at go-live (after the User Event is deployed); **after every Sandbox refresh**;
+after any change to the API Secret's value or to the dashboard deployment (or its domain). A rerun over links
+that are already right writes nothing.
+
+**Revocation.** Incrementing `custentity_cdb_link_version` revokes every link the customer has been sent, as
+before — and the User Event rewrites `custentity_cdb_link` to the new version **on the same save** (inline
+edit or mass update included), so Online-quote never offers a revoked link.
 
 ### Tell us where you're up to (2.1, release 2.1 part B)
 
@@ -972,7 +1070,7 @@ differently. From 3.0 each setting is held **once** (Steve, 1 Oct 2026).
 | `custrecord_cdb_setting_notes` | Text Area, optional: what the setting means, for people. The code never reads it |
 | Inactive | Standard. **Inactive rows are ignored** |
 
-**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 36 (3.1: 31 plus the three record-only `UPD_` keys, which have no parameter on any script; 3.2.1: plus the record-only `TIME_DEFAULT` and `UNLOAD_SURCHARGE`) in
+**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 37 (3.1: 31 plus the three record-only `UPD_` keys, which have no parameter on any script; 3.2.1: plus the record-only `TIME_DEFAULT` and `UNLOAD_SURCHARGE`; 3.3.0: plus the record-only `LINK_BACKFILL_SCOPE`, the link backfill's) in
 `docs/settings-seed.csv` — and no others. `SCRIPT_KEYS` says which keys each script needs.
 
 **How `config.load()` chooses each value** — for every key the script needs, first match wins:
@@ -1290,6 +1388,11 @@ Every title starts `CDB `.
 | `CDB ADDRESS_ADDED` (2.2) | audit | A new address book line: the customer, the address ID, and the county field used | — |
 | `CDB ADDRESS_ADD_FAILED` (2.2) | error | The address was not added (or not found again); the booking went ahead with the ship-to unchanged | Add it and set it as the ship-to by hand (the Task says so) |
 | `CDB OPP_ADDRESS_SAVED` / `OPP_ADDRESS_FAILED` (2.2) | audit / error | `custbody_cdb_delivery_address` written / not written | Copy the address from the Task if wanted |
+| `CDB LINK_WRITTEN` (part A) | audit | `custentity_cdb_link` written: the customer, the version signed, the caller (User Event or backfill), what was stored before (`empty`, its payload, or `unreadable`), the units used | — |
+| `CDB LINK_FAILED` (part A) | error | The stored link was not checked or not written (the lookup, `buildLink()` or `submitFields()` threw); the customer save went ahead | Read the details; run the backfill once fixed |
+| `CDB LINK_BACKFILL_INPUT` (part A) | audit | The backfill's scope, and in OPEN how many customers | — |
+| `CDB LINK_BACKFILL` (part A) | audit | The backfill's counts — checked, already right, written, failed, inactive — and the first 10 failures | Rerun after fixing a failure; a rerun writes only what is still wrong |
+| `CDB LINK_BACKFILL_INPUT_FAILED` (part A) | error | getInputData threw (often `CDB_PARAMETER_MISSING`: an "open" setting is not on the record); nothing was written | Set the row |
 | `CDB BUILD_STAGES_FAILED` / `OBJECTION_TYPES_FAILED` / `OPEN_QUOTES_FAILED` (2.1) | audit | A read for the update page or Task failed; the question or list is left out / the Task says the quotes could not be listed | Check the field or record type |
 
 ---
@@ -1442,6 +1545,44 @@ In order. Nothing changes for customers at any step.
    pick up the render and config libraries (amendment 2: the email's *Currently planned* row).
 3. Test (section 9, scenarios 42–48).
 
+### 8.7 "Request an update" part A: the stored link (after 2.2.2; before Online-quote part B)
+
+1. **The field** (*Customization › Lists, Records & Fields › Entity Fields › New*): `custentity_cdb_link`
+   (type `_cdb_link`), Free-Form Text, Applies To **Customer**, Store Value **on**, Display Type **Hidden**,
+   not shown in lists (section 4, *The stored link*).
+2. **The settings rows.** Check the "open" keys (`WON_STATUSES`, `LOST_STATUSES`, `DESIGN_SUBSTATUS`,
+   `DELIVERY_SUBSTATUS`, `EXCLUDED_STATUSES`, `EXCLUDED_QUOTE_TYPES`, `RELEASED_STATUSES`) are **rows** of
+   `customrecord_cdb_setting`, not just parameters: the backfill has no parameters. Optionally add
+   `LINK_BACKFILL_SCOPE` (`OPEN`, the default, or `ALL`).
+3. **Upload**, overwriting, libraries first: `lib/cdb_lib_config.js` (3.3.0), `lib/cdb_lib_token.js`
+   (2.1.0), `lib/cdb_lib_data.js` (2.2.3), the new `lib/cdb_lib_link.js` (1.0.0); then `cdb_mr_digest.js`
+   (2.0.4) and the new `cdb_ue_customer.js` (1.0.0) and `cdb_mr_link_backfill.js` (1.0.0).
+4. **The User Event**: script record `customscript_cdb_ue_customer` (type `_cdb_ue_customer`), deployment
+   `customdeploy_cdb_ue_customer`, Applies To **Customer**, *Event Type* blank (the code acts on create,
+   edit and xedit only), *Execution Context*: **all** (UI, CSV import, mass update, web services, scripts),
+   Released, log level Audit, all roles.
+5. **The backfill**: script record `customscript_cdb_mr_link_backfill`, deployment
+   `customdeploy_cdb_mr_link_backfill`, Not Scheduled, log level Audit. **Save and Execute** once; check
+   `CDB LINK_BACKFILL` (written = the customers in scope, failed 0). Run it again: written 0.
+6. **Spot-check**: open a customer in the scope (the field is hidden: read it with a saved search or the
+   Records Browser), paste the link in a private window: it is the customer's dashboard. Increment the
+   customer's `custentity_cdb_link_version` by inline edit: `CDB LINK_WRITTEN` with the new version, and the
+   old link shows the invalid page.
+7. **Then Online-quote part B** can be deployed.
+
+### 8.8 After a Sandbox refresh — and after a secret or deployment change
+
+A refresh copies Production's `custentity_cdb_link` values into Sandbox: right payload, **Production's
+domain**. The User Event cannot see that. So, after every refresh (once the API Secret and the dashboard
+deployment are set up in the refreshed Sandbox):
+
+1. Run `customdeploy_cdb_mr_link_backfill` (*Save and Execute*). Set `LINK_BACKFILL_SCOPE` = `ALL` first if
+   tests may use customers with nothing open.
+2. Check `CDB LINK_BACKFILL`: written = the customers whose link was Production's, failed 0.
+
+Do the same in any account after changing the API Secret's value (every link changes) or the dashboard
+Suitelet's deployment or domain.
+
 ### 8.2 First install on a new account (reference — not for 2.0)
 
 For an account with no customer dashboard at all. On the existing account these all exist already.
@@ -1481,6 +1622,12 @@ parameter, blank, inactive, duplicate, unknown, no search, one search, the sourc
 and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm. 2.2 (`test/r2-2.test.js`): the project name (prefill, the one-field write and its order, blank / unchanged / 61 characters, a failed write, escaping), the new address (the dropdown, each validation failure writing nothing, postcodes, the line added, the duplicate, a failed save, the missing opportunity field, the county field, escaping) and an address-book booking compared byte for byte with 2.1.2; the digest polish against the 2.1 snapshot.
+Part A (`test/link.test.js`): `linkMatches` (right, wrong customer, wrong version, empty and malformed, extra
+parameters, no crypto); the customer User Event (a match writes nothing, an empty link written once with only
+`custentity_cdb_link`, a version bump, a copied customer, inactive, xedit's one lookup, delete/view ignored,
+`buildLink` / `submitFields` / lookup failures logged and never thrown); the backfill (OPEN versus ALL, the
+same searches as the digest, a missing setting, the counts, a rerun writing nothing, the exact check catching a
+Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links unchanged.
 
 **Sandbox / Production, digest in TEST mode:**
 
@@ -1558,6 +1705,29 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### "Request an update" part A — findings, decisions and notes for Steve
+
+1. **The backfill compares the whole link, not just its payload (correction to the brief).** The brief had
+   the backfill run "the same check-and-write as the UE" (`linkMatches`, payload only) **and** be the fix after
+   a Sandbox refresh, a secret change or a deployment change. Those three leave the payload unchanged, so a
+   payload check would find a match and write nothing. The shared `link.ensure()` takes `exact`: the User
+   Event uses the payload check (0 units on a match), the backfill builds the link and compares the whole
+   URL (2 units per customer). Same code, one flag.
+2. **The OPEN scope is the digest's search, shared.** `customersWithOpenOpportunity` and
+   `customersWithOpenOrder` moved unchanged from `cdb_mr_digest.js` to `cdb_lib_data.js` (a node test
+   checks both scripts build identical searches). The OPEN searches do not filter on the customer, so
+   inactive customers are skipped in map and counted.
+3. **The backfill needs the "open" settings on the record**, even with scope `ALL` (`SCRIPT_KEYS` is per
+   script, not per scope). A new script gets no parameters, so a key that is still only a parameter stops the
+   run with `CDB_PARAMETER_MISSING` and nothing is written (fail closed).
+4. **Unverified:** that `url.resolveScript({ returnExternalUrl: true })` returns the same external URL from a
+   User Event in every context (UI, CSV import, web services) as from the Map/Reduce. If one context gave
+   another URL, a link it wrote would still pass the User Event's payload check, and only the next backfill
+   would correct it (and log `CDB LINK_WRITTEN` with *same payload*). Spot-check a link written during a
+   CSV import. Also unverified: that `N/crypto` and `url.resolveScript` cost no units — `CDB LINK_WRITTEN`
+   logs the real figure.
+5. **Leads and prospects** are customer records: the User Event runs for them too, and `ALL` includes them.
 
 ### PR #8 amendment 1 (2.2.1) — findings, decisions and notes for Steve
 
