@@ -42,17 +42,23 @@
  * the confirmation says a new address is checked first; the digest explains itself, shows the QR number
  * once, and gives quote cards the dashboard's labelled lines.
  *
+ * 2.2.1 (PR #8 amendment 1): the first question becomes "Your project details" — "Your reference" (the title)
+ * and "Site address" side by side (.g2: stacked on a phone), the site address only when the Suitelet offers
+ * it. The delivery form pre-selects the default time (the Suitelet's values.time), says the time is a
+ * guide (DELIVERY_TEXT.TIME_NOTE), and shows an unloading option's surcharge under its card, in the hint's
+ * place, so it shows without script; the confirmation says the surcharge will be added to the balance.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.0
+ * @version 2.2.1
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.2.0';
+    var VERSION = '2.2.1';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -843,20 +849,39 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         return html + '</div>';
     }
 
+    /** 2.2.1: the delivery form's customer-facing additions. Plain text: escaped when used. */
+    var DELIVERY_TEXT = {
+        TIME_NOTE: 'We\u2019ll always aim for your preferred time, but we can\u2019t control the traffic on the day, so ' +
+            'please treat it as a guide rather than a guaranteed slot.',
+        SURCHARGE_HINT: 'A surcharge of {amount} applies for this unloading option.',
+        SURCHARGE_CONFIRM: 'Your {option} unloading surcharge of {amount} will be added to your balance. ' +
+            'We\u2019ll confirm the new total.'
+    };
+
+    /** Pure (2.2.1): "A surcharge of £45 + VAT applies for this unloading option." */
+    function surchargeHint(amount) {
+        return DELIVERY_TEXT.SURCHARGE_HINT.replace('{amount}', amount);
+    }
+
     /**
      * Radio cards: the list text as the title, an optional hint under it.
      * @param {Object} hints - id -> hint text (from custscript_cdb_option_hints); may be empty
+     * @param {Object} [notes] - 2.2.1: id -> a second line in the hint's place (the unloading surcharge);
+     *   always shown under that card, script or not
      */
-    function optionCards(name, options, selected, hints) {
+    function optionCards(name, options, selected, hints, notes) {
         var html = '<div class="opts">';
         var i;
         var hint;
+        var note;
         for (i = 0; i < options.length; i++) {
             hint = hints && hints.hasOwnProperty(options[i].id) ? hints[options[i].id] : '';
+            note = notes && notes.hasOwnProperty(options[i].id) ? notes[options[i].id] : '';
             html += '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(options[i].id) + '"' +
                 (String(selected) === String(options[i].id) ? ' checked' : '') + ' required data-label="' +
                 esc(options[i].text) + '"><span><span class="ot">' + esc(options[i].text) + '</span>' +
-                (hint ? '<span class="oh">' + esc(hint) + '</span>' : '') + '</span></label>';
+                (hint ? '<span class="oh">' + esc(hint) + '</span>' : '') +
+                (note ? '<span class="oh">' + esc(note) + '</span>' : '') + '</span></label>';
         }
         return html + '</div>';
     }
@@ -1004,13 +1029,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * @param {Object} m - { logoUrl, am, order, opp, actionUrl, backUrl, token, months, allowedSet,
      *                       values, errors, options: {time, vehicle, unload, address}, hints:
      *                       {vehicle, unload}, guidance, noticeDays, limits, hasErrors,
-     *                       paymentOptions (1.2: ['BACS','CARD'] or ['BACS','ACCOUNT']) }
+     *                       paymentOptions (1.2: ['BACS','CARD'] or ['BACS','ACCOUNT']), surcharges (2.2.1:
+     *                       unload option id -> amount text; {} none) }
      */
     function deliveryForm(m) {
         var v = m.values || {};
         var e = m.errors || {};
         var o = m.order;
         var title = orderTitle(o);
+        var surchargeNotes = {};
+        var key;
         var prepay = o.prepay !== false;
         // Amendment 1: shown to every customer when known. Account customers are told it only
         // applies to a bank transfer.
@@ -1029,6 +1057,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         addressOptions += '<option value="' + esc(config.NEW_ADDRESS.VALUE) + '"' +
             (String(v.address) === config.NEW_ADDRESS.VALUE ? ' selected' : '') + '>' + esc(config.NEW_ADDRESS.OPTION) +
             '</option>';
+        for (key in (m.surcharges || {})) {
+            if (m.surcharges.hasOwnProperty(key)) {
+                surchargeNotes[key] = surchargeHint(m.surcharges[key]);
+            }
+        }
         if (m.noticeDays > 0) {
             notice = 'We need at least ' + m.noticeDays + ' working day' + (m.noticeDays === 1 ? '' : 's') +
                 '’ notice. ';
@@ -1053,7 +1086,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<p class="hint" style="margin:0">' + esc(notice) + 'Weekends, bank holidays and our closure days ' +
             'can’t be chosen.</p>' +
             '<fieldset><legend>Time of day</legend>' + fieldError(e, 'time') + segments('time', m.options.time, v.time) +
-            '</fieldset></section>' +
+            '</fieldset><p class="hint" style="margin:0">' + esc(DELIVERY_TEXT.TIME_NOTE) + '</p></section>' +
 
             '<section class="card"><h2><span class="num">2</span>Where should we deliver?</h2><div>' +
             '<label class="lbl" for="f-address">Delivery address</label>' + fieldError(e, 'address') +
@@ -1067,7 +1100,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<fieldset><legend>Largest vehicle that can reach the property</legend>' + fieldError(e, 'vehicle') +
             optionCards('vehicle', m.options.vehicle, v.vehicle, m.hints && m.hints.vehicle) + '</fieldset>' +
             '<fieldset><legend>Unloading</legend>' + fieldError(e, 'unload') +
-            optionCards('unload', m.options.unload, v.unload, m.hints && m.hints.unload) + '</fieldset></section>' +
+            optionCards('unload', m.options.unload, v.unload, m.hints && m.hints.unload, surchargeNotes) +
+            '</fieldset></section>' +
 
             '<section class="card"><h2><span class="num">4</span>Who should the driver contact on site?</h2><div class="g3">' +
             textInput('text', 'contactName', 'Name', v.contactName, m.limits.CONTACT_NAME, e, true, 'name') +
@@ -1129,12 +1163,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * like the card one).
      * @param {Object} m - { logoUrl, am, payment ('BACS'|'CARD'|'ACCOUNT'), bank, tranId, orderTitle,
      *                       uniqueRef, backUrl, dateKey, timeText, amount (pay-up-front only), newAddress
-     *                       (2.2: true when the customer added a new delivery address) }
+     *                       (2.2: true when the customer added a new delivery address), surcharge (2.2.1:
+     *                       null, or { optionName, amount } for the unloading option chosen) }
      */
     function confirmation(m) {
         var noted = (m.dateKey ? shortDate(m.dateKey) : 'your date') + (m.timeText ? ', ' + m.timeText : '');
         var what = (m.orderTitle || 'your order') + (m.uniqueRef ? ', ' + m.uniqueRef : '') + ' (order ' + m.tranId + ')';
         var amountShown = m.payment === 'ACCOUNT' ? '' : amountText(m.amount);
+        // 2.2.1: under the amount to pay — in the bank card for BACS, else on the main card.
+        var surcharge = m.surcharge ? '<p class="hint" style="margin:8px 0 0">' + esc(DELIVERY_TEXT.SURCHARGE_CONFIRM
+            .replace('{option}', m.surcharge.optionName).replace('{amount}', m.surcharge.amount)) + '</p>' : '';
         var body = '<div class="card done"><div class="tick">' + TICK_ICON + '</div><h1>Delivery requested</h1><p>' +
             (m.payment === 'ACCOUNT' ? esc('Delivery requested. We’ll add order ' + m.tranId + ' to your account and ' +
                 'email you to confirm the date.') :
@@ -1145,11 +1183,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             // 2.2: only with a new delivery address; the same page whether or not it reached the address book.
             (m.newAddress ? '<p>' + esc(CONFIRM_TEXT.NEW_ADDRESS) + '</p>' +
                 (amountShown && m.payment !== 'BACS' ? amountNote() : '') : '') +
+            (m.payment !== 'BACS' ? surcharge : '') +
             '</div>';
 
         if (m.payment === 'BACS') {
             body += '<div class="card bank"><h2>Pay by bank transfer</h2>' + bankRows(m.bank, m.tranId, amountShown) +
-                (m.newAddress && amountShown ? amountNote() : '') +
+                (m.newAddress && amountShown ? amountNote() : '') + surcharge +
                 '<p style="margin:8px 0 0;font-size:15px;color:#4a4650">Please use the reference exactly as shown so ' +
                 'we can match your payment. We’ll book your delivery once payment reaches us.</p></div>' +
                 '<div class="card"><h2 style="font-size:18px">What happens next</h2><ol class="next" style="font-size:16px">' +
@@ -1184,10 +1223,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     var UPDATE_TEXT = {
         BUTTON: 'Give us an update',
         TITLE: 'Give us an update',
-        // 2.2: the first question, the opportunity's title.
-        Q_NAME: 'What do you call this project?',
-        NAME_LABEL: 'Project name',
-        NAME_HINT: 'For example, \u2018Barn conversion\u2019 or \u2018Smith kitchen extension\u2019.',
+        // 2.2.1: the first question, the opportunity's title and (when offered) its site address.
+        Q_DETAILS: 'Your project details',
+        NAME_LABEL: 'Your reference',
+        NAME_HINT: 'A name that makes this project easy for you to spot, e.g. \u2018Barn conversion\u2019.',
+        SITE_LABEL: 'Site address',
+        SITE_HINT: 'Where the work is happening. It\u2019s optional, but it helps us plan your design and delivery.',
         Q_STAGE: 'What stage is your project at?',
         Q_DATE: 'When do you expect to begin work?',
         DATE_LABEL: 'Approximate date',
@@ -1231,11 +1272,20 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             .filter(function (x) { return !!x; }).join(' \u00b7 ');
     }
 
+    /** 2.2.1: one "Your project details" input — label, error, the single-line input, the hint under it. */
+    function detailInput(name, label, hint, value, maxLength, e) {
+        return '<div><label class="lbl" for="f-' + name + '">' + esc(label) + '</label>' + fieldError(e, name) +
+            '<input class="inp" type="text" id="f-' + name + '" name="' + name + '" value="' + esc(value) +
+            '" maxlength="' + maxLength + '"' + describedBy(e, name) + '>' +
+            '<p class="hint" style="margin:6px 0 0">' + esc(hint) + '</p></div>';
+    }
+
     /**
      * The "Tell us where you're up to" page (Update.dc.html, with the questions of release 2.1 part B).
      * @param {Object} m - { logoUrl, am (header), assignee ({ name }, the "Goes to" card), opp,
      *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values (2.2:
-     *   projectName, prefilled with the title),
+     *   projectName, prefilled with the title; 2.2.1: siteAddress, prefilled with data.siteAddressLine()),
+     *   showSiteAddress (2.2.1: the field is text-type),
      *   errors, notice, reasons ([{id, text}]; [] no list), notGoingOpen, limits, callTimes
      *   ([{id, text}]) }
      */
@@ -1280,12 +1330,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<form class="fcol" id="uform" method="post" action="' + esc(m.actionUrl) + '" accept-charset="utf-8">' +
             hidden('update');
 
-        // 2.2: always first. Optional like the rest: blank or unchanged writes nothing.
-        body += '<section class="card"><h2>' + num() + esc(t.Q_NAME) + '</h2><div>' +
-            '<label class="lbl" for="f-projectName">' + esc(t.NAME_LABEL) + '</label>' + fieldError(e, 'projectName') +
-            '<input class="inp" type="text" id="f-projectName" name="projectName" value="' + esc(v.projectName) +
-            '" maxlength="' + m.limits.PROJECT_NAME + '"' + describedBy(e, 'projectName') + '>' +
-            '<p class="hint" style="margin:6px 0 0">' + esc(t.NAME_HINT) + '</p></div></section>';
+        // 2.2: always first. Optional like the rest: blank or unchanged writes nothing. 2.2.1: the reference and
+        // the site address side by side, one line each (.g2 stacks them on a phone).
+        body += '<section class="card"><h2>' + num() + esc(t.Q_DETAILS) + '</h2>' +
+            (m.showSiteAddress ? '<div class="g2">' : '') +
+            detailInput('projectName', t.NAME_LABEL, t.NAME_HINT, v.projectName, m.limits.PROJECT_NAME, e) +
+            (m.showSiteAddress ? detailInput('siteAddress', t.SITE_LABEL, t.SITE_HINT, v.siteAddress,
+                m.limits.SITE_ADDRESS, e) + '</div>' : '') + '</section>';
 
         if ((m.stages || []).length) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
@@ -2352,6 +2403,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         deliveryForm: deliveryForm,
         confirmation: confirmation,
         CONFIRM_TEXT: CONFIRM_TEXT,
+        DELIVERY_TEXT: DELIVERY_TEXT,
         UPDATE_TEXT: UPDATE_TEXT,
         updatePage: updatePage,
         updateDone: updateDone,

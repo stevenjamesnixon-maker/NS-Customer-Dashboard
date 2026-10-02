@@ -6,7 +6,7 @@
  * choices; and the server-side validation of what the customer submitted.
  *
  * READ-ONLY, apart from three writes (2.2) that each touch exactly what their name says, and only after
- * the caller's guard: writeProjectName() (the opportunity's title), addToAddressBook() (one line on
+ * the caller's guard: writeProjectDetails() (the opportunity's title and site address; 2.2.1), addToAddressBook() (one line on
  * the customer's address book) and writeDeliveryAddress() (custbody_cdb_delivery_address). Each one
  * throws on failure; the Suitelet catches, logs, and says so in the Task.
  *
@@ -80,18 +80,25 @@
  * the UK format), matchAddress() finds the same address already in the book (line 1 and postcode,
  * normalised), addToAddressBook() adds it, and writeDeliveryAddress() keeps it on the opportunity.
  *
+ * 2.2.1 (PR #8 amendment 1): "Your project details" — validateUpdate() takes siteAddress beside projectName,
+ * with the same rules (<= 300), only when the page offered it; writeProjectName() becomes
+ * writeProjectDetails(oppId, { title, siteAddress }), ONE submitFields of the changed ones of title and
+ * custbody_opp_site_adress and never anything else. siteAddressFieldType() reads the field's type from the
+ * loaded opportunity: the input is offered only for a text-type field (isTextFieldType()). siteAddressLine()
+ * is the stored address as one line (newlines -> ", "), the form's prefill and what a post is compared with.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.0
+ * @version 2.2.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.2.0';
+    var VERSION = '2.2.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -684,6 +691,34 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
     }
 
     /**
+     * Pure (2.2.1): the stored site address as one line — each newline and the space around it becomes ", ",
+     * then cleanLine(). What the update page prefills (a single-line input cannot hold a newline) and what a
+     * post is compared with, so an untouched address is never "changed".
+     */
+    function siteAddressLine(value) {
+        return cleanLine(String(value === null || value === undefined ? '' : value).replace(/\s*\r?\n\s*/g, ', '));
+    }
+
+    /**
+     * Pure (2.2.1): one "Your project details" line, by the project name's rules — cleanLine(); equal to the
+     * current value: no change and no error; over the limit: an error; blank: no change (blank never clears).
+     * Sets errors[key] or changes[key].
+     * @returns {string} the cleaned value
+     */
+    function detailLine(raw, currentLine, limit, key, errors, changes) {
+        var value = cleanLine(raw);
+        if (value === '' || value === currentLine) {
+            return value;
+        }
+        if (value.length > limit) {
+            errors[key] = 'Please keep this under ' + limit + ' characters.';
+        } else {
+            changes[key] = value;
+        }
+        return value;
+    }
+
+    /**
      * Validates the "Tell us where you're up to" POST. Pure. NOTHING IS WRITTEN unless ok.
      *
      * Update mode: the stage (blank or one of the offered IDs), the date (blank, or a real date — when it
@@ -698,10 +733,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * 2.2: update mode also takes projectName — cleanLine() (trimmed, control characters out), <= 60. Blank
      * never clears the title; it is a change only when it differs from current.title.
      *
-     * @param {Object} input - raw strings: mode, projectName, buildStage, delDate, note, call, phone, callTime,
-     *                         reason, comment, confirm
-     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, current: { title, buildStage, delDateKey },
-     *                         reasonIds (offered; [] none), todayKey }
+     * 2.2.1: and siteAddress, only when ctx.siteAddress is true (the field is text-type), by the same rules,
+     * <= 300, compared with siteAddressLine(current.siteAddress). For both, a value equal to the current one
+     * is never an error, so an untouched prefill always posts cleanly.
+     *
+     * @param {Object} input - raw strings: mode, projectName, siteAddress, buildStage, delDate, note, call, phone,
+     *                         callTime, reason, comment, confirm
+     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, siteAddress (offered), current: { title,
+     *                         siteAddress, buildStage, delDateKey }, reasonIds (offered; [] none), todayKey }
      * @returns {{ok: boolean, mode: string, errors: Object, values: Object, changes: Object, nothing: boolean}}
      */
     function validateUpdate(input, ctx) {
@@ -728,12 +767,10 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
                 errors.confirm = 'Please press “Confirm: we’ve decided not to go ahead”.';
             }
         } else {
-            values.projectName = cleanLine(input.projectName);
-            if (values.projectName.length > limits.PROJECT_NAME) {
-                errors.projectName = 'Please keep this under ' + limits.PROJECT_NAME + ' characters.';
-            } else if (values.projectName !== '' && values.projectName !== trim(current.title)) {
-                changes.projectName = values.projectName;
-            }
+            values.projectName = detailLine(input.projectName, cleanLine(current.title), limits.PROJECT_NAME,
+                'projectName', errors, changes);
+            values.siteAddress = ctx.siteAddress ? detailLine(input.siteAddress, siteAddressLine(current.siteAddress),
+                limits.SITE_ADDRESS, 'siteAddress', errors, changes) : '';
 
             values.buildStage = (ctx.stageIds || []).length ? trim(input.buildStage) : '';
             if (values.buildStage !== '' && !contains(ctx.stageIds, values.buildStage)) {
@@ -781,7 +818,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         }
         return {
             ok: true, mode: mode, errors: errors, values: values, changes: changes,
-            nothing: mode === UPDATE_MODE.UPDATE && !changes.projectName && !changes.buildStage && !changes.delDate &&
+            nothing: mode === UPDATE_MODE.UPDATE && !changes.projectName && !changes.siteAddress && !changes.buildStage &&
+                !changes.delDate &&
                 values.note === '' && !values.call
         };
     }
@@ -1903,25 +1941,69 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return e;
     }
 
+    /** 2.2.1: the field types a site address may be offered for: Free-Form Text and Text Area. */
+    var TEXT_FIELD_TYPES = ['text', 'textarea'];
+
+    /** Pure (2.2.1): true for a Free-Form Text or Text Area field type (as Field.type gives it). */
+    function isTextFieldType(type) {
+        return TEXT_FIELD_TYPES.indexOf(trim(type).toLowerCase()) >= 0;
+    }
+
     /**
-     * 2.2: the project name. ONE submitFields on the opportunity, { title } only — no sourcing, mandatory
-     * fields ignored. The caller has run guardOpportunity() (the token's customer's, not Won or Lost) and
-     * validateUpdate(); the value is checked again here and refused rather than written (fail closed).
-     * @returns {string} the title written
-     * @throws CDB_BAD_PROJECT_NAME, or whatever submitFields throws
+     * 2.2.1: the type of custbody_opp_site_adress, from the loaded opportunity's Field (10 units). The
+     * lookup guardOpportunity() makes returns the value only, which cannot tell a text field from any other
+     * kind that comes back as a string, so the field itself is asked.
+     * @returns {string|null} Field.type, lower case; null when the field is not on the opportunity
+     * @throws whatever the load throws
      */
-    function writeProjectName(oppId, title) {
+    function siteAddressFieldType(oppId) {
+        var opp = record.load({ type: record.Type.OPPORTUNITY, id: trim(oppId), isDynamic: false });
+        var field = opp.getField({ fieldId: OPP.SITE_ADDRESS });
+        return field ? trim(field.type).toLowerCase() : null;
+    }
+
+    /**
+     * 2.2.1 (was 2.2's writeProjectName): "Your project details". ONE submitFields on the opportunity carrying
+     * only the values given — title and/or custbody_opp_site_adress, NEVER any other field — no sourcing,
+     * mandatory fields ignored. The caller has run guardOpportunity() (the token's customer's, not Won or Lost),
+     * checked the site address field is text-type, and run validateUpdate(), and passes only the changed
+     * values; each is checked again here and the whole write refused rather than made (fail closed): a bad
+     * opportunity ID, nothing to write, a blank value or one over its limit.
+     * @param {string} oppId
+     * @param {Object} details - { title, siteAddress }: each optional, at least one
+     * @returns {Object} the values written, by field ID
+     * @throws CDB_BAD_PROJECT_DETAILS, or whatever submitFields throws
+     */
+    function writeProjectDetails(oppId, details) {
         var id = trim(oppId);
-        var value = cleanLine(title);
+        var d = details || {};
         var values = {};
-        if (!/^\d+$/.test(id) || value === '' || value.length > config.TEXT_LIMITS.PROJECT_NAME) {
-            throw writeError('CDB_BAD_PROJECT_NAME', 'opportunity "' + id + '", title of ' + value.length +
-                ' characters: not written');
+        var specs = [{ key: 'title', fieldId: OPP.TITLE, limit: config.TEXT_LIMITS.PROJECT_NAME },
+            { key: 'siteAddress', fieldId: OPP.SITE_ADDRESS, limit: config.TEXT_LIMITS.SITE_ADDRESS }];
+        var count = 0;
+        var value;
+        var i;
+        if (!/^\d+$/.test(id)) {
+            throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '": not written');
         }
-        values[OPP.TITLE] = value;
+        for (i = 0; i < specs.length; i++) {
+            if (d[specs[i].key] === undefined || d[specs[i].key] === null) {
+                continue;
+            }
+            value = cleanLine(d[specs[i].key]);
+            if (value === '' || value.length > specs[i].limit) {
+                throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '", ' + specs[i].fieldId + ' of ' +
+                    value.length + ' characters: nothing written');
+            }
+            values[specs[i].fieldId] = value;
+            count += 1;
+        }
+        if (!count) {
+            throw writeError('CDB_BAD_PROJECT_DETAILS', 'opportunity "' + id + '": nothing to write');
+        }
         record.submitFields({ type: record.Type.OPPORTUNITY, id: id, values: values,
             options: { enableSourcing: false, ignoreMandatoryFields: true } });
-        return value;
+        return values;
     }
 
     /**
@@ -2106,7 +2188,10 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         addressLines: addressLines,
         matchAddress: matchAddress,
         addressLabel: addressLabel,
-        writeProjectName: writeProjectName,
+        writeProjectDetails: writeProjectDetails,
+        siteAddressFieldType: siteAddressFieldType,
+        isTextFieldType: isTextFieldType,
+        siteAddressLine: siteAddressLine,
         addToAddressBook: addToAddressBook,
         writeDeliveryAddress: writeDeliveryAddress
     };

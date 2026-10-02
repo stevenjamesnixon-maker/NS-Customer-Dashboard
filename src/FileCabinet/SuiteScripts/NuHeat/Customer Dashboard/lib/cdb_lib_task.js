@@ -26,17 +26,21 @@
  * are exactly as before. The customer update Task shows "Project name: old → new", and a title write that
  * failed is reported on its own ("Project name NOT saved: …"), apart from the stage and date.
  *
+ * 1.4.1 (PR #8 amendment 1): the project name becomes "Your project details" — the reference and the site
+ * address, each "label: old → new", saved or reported together ("Project details NOT saved: …"), as one
+ * write. The delivery Task gains the SURCHARGE line when the unloading option chosen carries one.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.4.0
+ * @version 1.4.1
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.4.0';
+    var VERSION = '1.4.1';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -67,7 +71,8 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      *                           2.0.5 — '' for Add to account or an unknown amount),
      *                           account (true for an Add-to-account booking), 1.4: newAddress — null, or
      *                           { lead (the first line), lines (the address, one line each), outcomes (what
-     *                           happened, one line each) }, all plain text, escaped by the caller }
+     *                           happened, one line each) }, all plain text, escaped by the caller; 1.4.1:
+     *                           surcharge — null, or { optionName, amount } (the SURCHARGE line) }
      * @returns {string}
      */
     function buildMessage(changes, paymentText, requests, order) {
@@ -96,6 +101,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         }
         if (o.description || o.uniqueRef || o.paymentChoice || o.amountText) {
             lines.push('');
+        }
+        if (o.surcharge) {
+            lines.push('SURCHARGE: the customer chose ' + o.surcharge.optionName + '. Add the ' + o.surcharge.amount +
+                ' unloading surcharge to the order.', '');
         }
         lines.push('Changed on the sales order (old \u2192 new):');
         for (i = 0; i < changes.length; i++) {
@@ -146,15 +155,16 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * Pure (1.3): the "Customer update" message.
      * @param {Object} o - { changes: [{label, oldText, newText}] (what was saved), notSaved: '' or the
      *   reason the opportunity write failed, attempted: [{label, oldText, newText}] (shown when notSaved),
-     *   note, call: null or { phone, timeLabel }, 1.4: name — null, or { label, oldText, newText, notSaved
-     *   ('' or why the title write failed) } }
+     *   note, call: null or { phone, timeLabel }, 1.4.1: details — null, or { items: [{label, oldText,
+     *   newText}] (the reference, then the site address, each when changed), notSaved ('' or why their one
+     *   write failed) } }
      * @returns {string}
      */
     function buildUpdateMessage(o) {
         var lines = ['The customer sent an update through the customer dashboard ("Give us an update").', ''];
-        var name = o.name || null;
-        // 1.4: the name is saved, or reported on its own; it comes first, as on the page.
-        var saved = (name && !name.notSaved ? [name] : []).concat(o.notSaved ? [] : (o.changes || []));
+        var details = o.details && (o.details.items || []).length ? o.details : null;
+        // 1.4.1: the details are saved, or reported on their own; they come first, as on the page.
+        var saved = (details && !details.notSaved ? details.items : []).concat(o.notSaved ? [] : (o.changes || []));
         var failed = o.notSaved ? (o.attempted || []) : [];
         var blocks = [];
         if (failed.length) {
@@ -164,9 +174,9 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         if (saved.length) {
             blocks.push(['Saved on the opportunity (old \u2192 new):'].concat(changeLines(saved)));
         }
-        if (name && name.notSaved) {
-            blocks.push(['Project name NOT saved: ' + name.notSaved + '. Please update it by hand ' +
-                '(old \u2192 new):'].concat(changeLines([name])));
+        if (details && details.notSaved) {
+            blocks.push(['Project details NOT saved: ' + details.notSaved + '. Please update them by hand ' +
+                '(old \u2192 new):'].concat(changeLines(details.items)));
         }
         if (!blocks.length) {
             blocks.push(['No changes to the opportunity.']);

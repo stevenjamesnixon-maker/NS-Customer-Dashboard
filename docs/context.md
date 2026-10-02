@@ -93,7 +93,8 @@ every file it changes. Steve tells deployed copies apart by version.
    (`custbody_opportunity_sub_status`). The only opportunity fields it writes are
    `custbody_build_stage`, `custbody_opp_del_date` and `entitystatus` (Lost), through the
    Online-quote Update Opportunity library, and (**2.2**) the `title` (the project name) and
-   `custbody_cdb_delivery_address`, each by its own one-field `submitFields` in `cdb_lib_data.js` — never by
+   `custbody_cdb_delivery_address`, each by its own `submitFields` in `cdb_lib_data.js` (**2.2.1:** the title's
+   write also carries `custbody_opp_site_adress` when the customer changed it — those two fields only) — never by
    extending the library, whose `FIELDS` feed the Send Quote and Update Opportunity pages. The only customer
    write is (2.2) one new address book line.
 
@@ -160,16 +161,16 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.2.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
+| Dashboard Suitelet | 2.2.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
 | Digest Map/Reduce | 2.0.3 | `cdb_mr_digest.js` | The 14-day digest email | Not deployed |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.2.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.2.1 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.0.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)` | Not deployed |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.2.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectName`, `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
-| Render library | 2.2.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
-| Task library | 1.4.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name | Not deployed |
+| Data library | 2.2.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
+| Render library | 2.2.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
+| Task library | 1.4.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line | Not deployed |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -365,6 +366,52 @@ delivery form, the delivery-link email and the update page. *Give us an update* 
   not-going-ahead Task titles), and the recently-delivered fallback (the order's opportunity text). All read
   the record afresh on every request and simply show the new name. **Other repos** — Send Quote, the
   proposal PDF, any Estimate workflow — may read the opportunity title too: Steve checks those in testing.
+
+### Your project details (2.2.1, PR #8 amendment 1)
+
+The project name question became **one question, *Your project details*, with two single-line inputs side by
+side** (`.g2`: equal columns, stacked at the phone breakpoint, 719px): **Your reference** (the `title`, as in
+2.2, max 60) and **Site address** (`custbody_opp_site_adress`, one `d`, max 300), each with a hint under it.
+Everything in *The project name (2.2)* above still holds, with these changes:
+
+- **Both by the same rules** (`data.validateUpdate` → `detailLine()`): `cleanLine()`, blank never clears, over
+  the limit is an error and nothing is written, a change only when it differs. A value equal to the current one
+  is never an error (so an untouched prefill always posts cleanly).
+- **The site address is prefilled on one line**: `data.siteAddressLine()` turns each newline into `, ` (as the
+  dashboard row shows it), because a single-line input cannot hold a newline. A post is compared with that
+  line, so an untouched address is never written. A changed one is written as typed, on one line.
+- **One write**: `data.writeProjectDetails(oppId, { title, siteAddress })` — one `record.submitFields` of the
+  changed ones only, `enableSourcing: false`, `ignoreMandatoryFields: true`; it never writes any other field
+  (other keys are ignored) and refuses the whole write (`CDB_BAD_PROJECT_DETAILS`) for a bad ID, nothing to
+  write, a blank value or one over its limit.
+- **Only for a text-type field.** The update page (GET and POST) loads the opportunity (10 units) and reads
+  `getField('custbody_opp_site_adress').type`: offered only for `text` (Free-Form Text) or `textarea` (Text
+  Area). Another type, the field missing, or the load failing: the input is not offered, a posted value is
+  ignored, and `CDB SITE_ADDRESS_NOT_TEXT` is logged once per execution. (`guardOpportunity()`'s
+  `lookupFields` returns only the value, which cannot tell a text field from other string-valued types, so the
+  field itself is asked.)
+- **Task, log, page:** *Your reference: old → new* and *Site address: old → new* (both escaped) first in the
+  Task's list; a failed write is *Project details NOT saved: …* with both lines; `CDB OPP_UPDATED` includes
+  both and ends *details written: title, custbody_opp_site_adress*; the confirmation lists both. The failure's
+  log key is still `CDB OPP_NAME_FAILED`.
+- **The dashboard row:** unchanged (the title as the heading, the site address under it).
+
+### The delivery form: default time and unloading surcharge (2.2.1, PR #8 amendment 1)
+
+- **`TIME_DEFAULT`** (record only, an ID): when it is one of the times offered (`TIME_VALUES` found in the
+  list), the form pre-selects it and a POST with no time (missing or blank) books it. Empty: as before. Set
+  but not offered: as before, and `CDB TIME_DEFAULT_INVALID` once per request. A posted time that is not
+  offered is still an error.
+- **The traffic note** is under the time choices, in `hint` style: *We'll always aim for your preferred time,
+  but we can't control the traffic on the day, so please treat it as a guide rather than a guaranteed slot.*
+- **`UNLOAD_SURCHARGE`** (record only, JSON `{"<unload option id>": "<amount text>"}`, `config.parseUnloadSurcharge()`):
+  under that option's card, in the option hint's place (no script needed), *A surcharge of <amount> applies for
+  this unloading option.* When it is chosen: the confirmation says *Your <option> unloading surcharge of
+  <amount> will be added to your balance. We'll confirm the new total.* under the amount to pay (in the bank
+  card for BACS; on the main card for card, and for add to account, which shows no amount), and the Task
+  carries *SURCHARGE: the customer chose <option>. Add the <amount> unloading surcharge to the order.* after
+  the order summary. Empty or invalid: no surcharge (invalid logs `CDB UNLOAD_SURCHARGE_INVALID` once per
+  request). **The dashboard never adds an item line**: the rep does, and the balance fields then show it.
 
 ### A new delivery address (2.2)
 
@@ -904,7 +951,7 @@ differently. From 3.0 each setting is held **once** (Steve, 1 Oct 2026).
 | `custrecord_cdb_setting_notes` | Text Area, optional: what the setting means, for people. The code never reads it |
 | Inactive | Standard. **Inactive rows are ignored** |
 
-**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 34 (3.1: 31 plus the three record-only `UPD_` keys, which have no parameter on any script) in
+**One active row per key.** The keys are the `PARAMETERS` keys in `cdb_lib_config.js` — the 36 (3.1: 31 plus the three record-only `UPD_` keys, which have no parameter on any script; 3.2.1: plus the record-only `TIME_DEFAULT` and `UNLOAD_SURCHARGE`) in
 `docs/settings-seed.csv` — and no others. `SCRIPT_KEYS` says which keys each script needs.
 
 **How `config.load()` chooses each value** — for every key the script needs, first match wins:
@@ -1215,7 +1262,10 @@ Every title starts `CDB `.
 | `CDB OPP_WRITE` (2.1) | audit / error | The library's own `writeOppUpdate` log line (its log key) | — |
 | `CDB UPDATE_TASK` (2.1) | audit | The customer update or not-going-ahead Task, its assignee and `sendemail` | — |
 | `CDB UPDATE_REJECTED` (2.1) | audit | The update POST failed validation; nothing written | — |
-| `CDB OPP_NAME_FAILED` (2.2) | error | The project name (`title`) was not written; the Task says *Project name NOT saved* | Rename the opportunity by hand |
+| `CDB OPP_NAME_FAILED` (2.2) | error | The project details (`title` and/or, 2.2.1, `custbody_opp_site_adress`) were not written; the Task says *Project details NOT saved* | Make the change by hand (the Task lists it) |
+| `CDB SITE_ADDRESS_NOT_TEXT` (2.2.1) | audit | Once per execution: `custbody_opp_site_adress` is not a Free-Form Text or Text Area field (or is missing, or the opportunity could not be loaded), so *Site address* is not offered | Check the field's type |
+| `CDB TIME_DEFAULT_INVALID` (2.2.1) | audit | `TIME_DEFAULT` is set but not one of the times offered; no default time | Fix the setting (or `TIME_VALUES`) |
+| `CDB UNLOAD_SURCHARGE_INVALID` (2.2.1) | audit | `UNLOAD_SURCHARGE` is not a JSON object; no surcharge shown | Fix the JSON |
 | `CDB ADDRESS_MATCHED` (2.2) | audit | The new address is already in the address book (line 1 + postcode); that line is used | — |
 | `CDB ADDRESS_ADDED` (2.2) | audit | A new address book line: the customer, the address ID, and the county field used | — |
 | `CDB ADDRESS_ADD_FAILED` (2.2) | error | The address was not added (or not found again); the booking went ahead with the ship-to unchanged | Add it and set it as the ship-to by hand (the Task says so) |
@@ -1361,6 +1411,18 @@ In order. Nothing changes for customers at any step.
    `CDB ADDRESS_ADD_FAILED`).
 5. Test (section 9, scenarios 32–41).
 
+### 8.6 PR #8 amendment 1 (2.2.1): project details, default time, unloading surcharge (after 2.2)
+
+1. **Two settings rows** (optional; the seed has them): `TIME_DEFAULT` = the *Any time* ID of
+   `customlist_del_time_per` (one of `TIME_VALUES`), and `UNLOAD_SURCHARGE` = e.g. `{"<Moffett id>": "£45 + VAT"}`.
+   Without them the form behaves as in 2.2.
+2. **Check `custbody_opp_site_adress`'s type** (*Customization › Lists, Records & Fields › Transaction Body
+   Fields*): *Site address* is offered only for Free-Form Text or Text Area.
+3. **Upload**, overwriting, libraries first: `lib/cdb_lib_config.js` (3.2.1), `lib/cdb_lib_data.js` (2.2.1),
+   `lib/cdb_lib_render.js` (2.2.1), `lib/cdb_lib_task.js` (1.4.1), then `cdb_sl_dashboard.js` (2.2.1). The
+   digest, the Send link Suitelet and the User Event are unchanged.
+4. Test (section 9, scenarios 42–46).
+
 ### 8.2 First install on a new account (reference — not for 2.0)
 
 For an account with no customer dashboard at all. On the existing account these all exist already.
@@ -1445,6 +1507,11 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 | 39 (2.2) | Make the customer save fail (e.g. a temporary UE that throws on the customer) | The booking saves, ship-to unchanged; Task *New address NOT added …*; `CDB ADDRESS_ADD_FAILED` |
 | 40 (2.2) | An address-book booking | Exactly as 2.1: no *NEW ADDRESS*, no new sentences |
 | 41 (2.2) | The digest (TEST) for a customer with an open quote with and without a title | The explainer; the QR number once; *Project stage* / *Expected start* lines |
+| 42 (2.2.1) | *Give us an update*: the two inputs, on a desktop and a phone | Side by side / stacked; both prefilled (a multi-line site address on one line, with commas) |
+| 43 (2.2.1) | Change the site address only; then both; then blank both with a note | One write of the site address only (System Notes); one write of both; nothing written. Task and confirmation list each change |
+| 44 (2.2.1) | 301 characters of site address | An error; nothing written |
+| 45 (2.2.1) | `TIME_DEFAULT` = *Any time*: the form; then clear it | Pre-selected; the traffic note under the times. Cleared: nothing pre-selected |
+| 46 (2.2.1) | `UNLOAD_SURCHARGE` on the Moffett option: the form, then a booking with it and one without | The sentence under that card only; with it, the confirmation's note and the Task's *SURCHARGE* line; without, neither |
 | 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
@@ -1470,6 +1537,26 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### PR #8 amendment 1 (2.2.1) — findings, decisions and notes for Steve
+
+1. **The site address field's type is unverified.** Nothing in this repo or its docs records the type of
+   `custbody_opp_site_adress`. The render code turns newlines into commas wherever it shows it, which suggests
+   a **Text Area**, but that is an inference, not a finding. The code asks the field itself
+   (`getField().type`) and offers the input only for `text` or `textarea`; `CDB SITE_ADDRESS_NOT_TEXT` says if
+   not. Scenario 42 confirms it.
+2. **A multi-line site address** is prefilled on one line (newlines → `, `), and only written when the customer
+   changes it — then as one line. A rep's line breaks are therefore lost only if the customer edits the address.
+3. **A value equal to the current one is never an error**, for both inputs (a stored address over 300
+   characters can be left as it is).
+4. **The type check costs a load (10 units)** on every update GET and POST.
+5. **The log key for a failed details write stays `CDB OPP_NAME_FAILED`**, so existing searches keep working.
+6. **Curly apostrophes** in the new customer wording (*We’ll*, *can’t*, *It’s*), as in the rest of the pages.
+7. **Add to account and the surcharge:** that confirmation shows no amount to pay, so the surcharge note is on
+   its main card.
+8. **The 2.1.2 booking snapshot is unchanged.** The page, the writes and the Task are byte-identical; the
+   snapshot test applies the only difference — config's own `SETTINGS_SOURCE` / `PARAMETER_DEFAULT` lines for
+   the two new (empty) keys. The traffic note is on the form, not on the captured confirmation page.
 
 ### Release 2.2 — unverified, decisions and notes for Steve
 

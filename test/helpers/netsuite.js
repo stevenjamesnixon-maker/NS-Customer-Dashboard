@@ -264,9 +264,14 @@ function stubs(w) {
             }
             if (o.type === 'opportunity') {
                 // 2.2: only what writeDeliveryAddress() needs. w.missingOppFields: fields not on the form.
+                // 2.2.1: w.oppFieldTypes: fieldId -> Field.type ('text' when not given).
                 if (w.oppLoadThrows) { throw new Error('INSUFFICIENT_PERMISSION: opportunity'); }
+                w.oppLoads = (w.oppLoads || 0) + 1;
                 return {
-                    getField: function (f) { return (w.missingOppFields || []).indexOf(f.fieldId) >= 0 ? null : { id: f.fieldId }; },
+                    getField: function (f) {
+                        return (w.missingOppFields || []).indexOf(f.fieldId) >= 0 ? null :
+                            { id: f.fieldId, type: (w.oppFieldTypes || {})[f.fieldId] || 'text' };
+                    },
                     getValue: function (f) { var v = w.opps[o.id][f.fieldId]; return v === undefined ? '' : v; }
                 };
             }

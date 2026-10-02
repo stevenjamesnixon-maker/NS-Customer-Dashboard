@@ -130,12 +130,13 @@ function nothingWritten(s, why) {
 test('name: the update page asks first, prefilled with the title, maxlength 60, with the hint', function () {
     var s = setup();
     var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
-    var q = html.indexOf('<span class="num">1</span>What do you call this project?</h2>');
+    // 2.2.1 (PR #8 amendment 1): "Your project details", the reference first.
+    var q = html.indexOf('<span class="num">1</span>Your project details</h2>');
     assert.ok(q > 0, 'the first question');
     assert.ok(q < html.indexOf('What stage is your project at?'), 'before the stage');
-    assert.ok(html.indexOf('<input class="inp" type="text" id="f-projectName" name="projectName" value="New build" maxlength="60">') > 0,
-        html);
-    assert.ok(html.indexOf('For example, ‘Barn conversion’ or ‘Smith kitchen extension’.') > 0);
+    assert.ok(html.indexOf('<label class="lbl" for="f-projectName">Your reference</label>' +
+        '<input class="inp" type="text" id="f-projectName" name="projectName" value="New build" maxlength="60">') > 0, html);
+    assert.ok(html.indexOf('A name that makes this project easy for you to spot, e.g. ‘Barn conversion’.') > 0);
 });
 
 test('name: a changed title writes { title } only — one submitFields, after the library, no sourcing', function () {
@@ -146,7 +147,7 @@ test('name: a changed title writes { title } only — one submitFields, after th
     assert.deepStrictEqual(w.submits, [{ type: 'opportunity', id: '5', values: { title: 'Barn conversion' },
         options: { enableSourcing: false, ignoreMandatoryFields: true } }]);
     assert.ok(!w.calls[0][1].values.hasOwnProperty('title'), 'never through the library');
-    assert.ok(html.indexOf('Project name: <strong>Barn conversion</strong>') > 0, 'the confirmation lists it');
+    assert.ok(html.indexOf('Your reference: <strong>Barn conversion</strong>') > 0, 'the confirmation lists it');
     // The name alone: no library call at all.
     s = setup();
     update(s, { projectName: 'Barn conversion' });
@@ -184,14 +185,14 @@ test('name: 61 characters is an error and nothing is written', function () {
     assert.strictEqual(titleWrites(s.w).length, 1, '60 is allowed');
 });
 
-test('name: a failed title write says "Project name NOT saved" in the Task, apart from the stage', function () {
+test('name: a failed title write says "Project details NOT saved" in the Task, apart from the stage', function () {
     var s = setup();
     s.w.submitThrows = function (o) { return o.values.hasOwnProperty('title'); };
     var html = update(s, { projectName: 'Barn conversion', buildStage: '4' });
     var msg = s.w.tasks[0].values.message;
     assert.ok(msg.indexOf('Saved on the opportunity (old → new):\n- Project stage: Foundations → Roof on') > 0, msg);
-    assert.ok(msg.indexOf('Project name NOT saved: USER_ERROR: submitFields refused. Please update it by hand (old → new):\n' +
-        '- Project name: New build → Barn conversion') > 0, msg);
+    assert.ok(msg.indexOf('Project details NOT saved: USER_ERROR: submitFields refused. Please update them by hand (old → new):\n' +
+        '- Your reference: New build → Barn conversion') > 0, msg);
     assert.strictEqual(logs(s.w, 'OPP_NAME_FAILED')[0][0], 'error');
     assert.ok(html.indexOf('passed your update on') > 0);
     // And the other way round: the library fails, the name is saved; each reported on its own.
@@ -201,7 +202,7 @@ test('name: a failed title write says "Project name NOT saved" in the Task, apar
     msg = s.w.tasks[0].values.message;
     assert.ok(msg.indexOf('NOT saved on the opportunity (OPPLIB_WRITE_FAILED: submitFields refused). Please update it by hand ' +
         '(old → new):\n- Project stage: Foundations → Roof on\n\nSaved on the opportunity (old → new):\n' +
-        '- Project name: New build → Barn conversion') > 0, msg);
+        '- Your reference: New build → Barn conversion') > 0, msg);
     assert.strictEqual(titleWrites(s.w).length, 1);
 });
 
@@ -209,11 +210,11 @@ test('name: the Task shows old → new, and CDB OPP_UPDATED includes it', functi
     var s = setup();
     update(s, { projectName: 'Barn conversion', buildStage: '4' });
     var msg = s.w.tasks[0].values.message;
-    assert.ok(msg.indexOf('Saved on the opportunity (old → new):\n- Project name: New build → Barn conversion\n' +
+    assert.ok(msg.indexOf('Saved on the opportunity (old → new):\n- Your reference: New build → Barn conversion\n' +
         '- Project stage: Foundations → Roof on') > 0, msg);
-    assert.ok(logs(s.w, 'OPP_UPDATED')[0][2].indexOf('Project name New build -> Barn conversion; Project stage Foundations -> Roof on') > 0,
+    assert.ok(logs(s.w, 'OPP_UPDATED')[0][2].indexOf('Your reference New build -> Barn conversion; Project stage Foundations -> Roof on') > 0,
         logs(s.w, 'OPP_UPDATED')[0][2]);
-    assert.ok(/title written/.test(logs(s.w, 'OPP_UPDATED')[0][2]));
+    assert.ok(/ \| details written: title$/.test(logs(s.w, 'OPP_UPDATED')[0][2]));
 });
 
 test('name: escaped on the confirmation, in the Task, on the update page and on the dashboard', function () {
@@ -222,9 +223,9 @@ test('name: escaped on the confirmation, in the Task, on the update page and on 
     var html = update(s, { projectName: name });
     var esc = '&lt;b&gt;Tom &amp; Jerry&#39;s&lt;/b&gt;';
     assert.strictEqual(titleWrites(s.w)[0].values.title, name, 'stored as typed');
-    assert.ok(html.indexOf('Project name: <strong>' + esc + '</strong>') > 0, 'confirmation');
+    assert.ok(html.indexOf('Your reference: <strong>' + esc + '</strong>') > 0, 'confirmation');
     assert.strictEqual(html.indexOf('<b>Tom'), -1);
-    assert.ok(s.w.tasks[0].values.message.indexOf('- Project name: New build → ' + esc) > 0, 'Task');
+    assert.ok(s.w.tasks[0].values.message.indexOf('- Your reference: New build → ' + esc) > 0, 'Task');
     html = run(s.sl, 'GET', { t: s.tok });
     assert.ok(html.indexOf('<span class="name">' + esc + '</span>') > 0, 'dashboard');
     assert.strictEqual(html.indexOf('<b>Tom'), -1);
@@ -232,12 +233,21 @@ test('name: escaped on the confirmation, in the Task, on the update page and on 
     assert.ok(html.indexOf('name="projectName" value="' + esc + '"') > 0, 'update page');
 });
 
-test('name: writeProjectName refuses rather than writes a bad value (fail closed)', function () {
+test('name: writeProjectDetails refuses rather than writes a bad value (fail closed)', function () {
     var s = setup();
-    assert.throws(function () { s.data.writeProjectName('5', '  '); }, /CDB_BAD_PROJECT_NAME/);
-    assert.throws(function () { s.data.writeProjectName('5', new Array(62).join('x')); }, /CDB_BAD_PROJECT_NAME/);
-    assert.throws(function () { s.data.writeProjectName('5 OR 1', 'x'); }, /CDB_BAD_PROJECT_NAME/);
+    // 2.2.1: writeProjectName() became writeProjectDetails(oppId, { title, siteAddress }).
+    assert.throws(function () { s.data.writeProjectDetails('5', { title: '  ' }); }, /CDB_BAD_PROJECT_DETAILS/);
+    assert.throws(function () { s.data.writeProjectDetails('5', { title: new Array(62).join('x') }); }, /CDB_BAD_PROJECT_DETAILS/);
+    assert.throws(function () { s.data.writeProjectDetails('5 OR 1', { title: 'x' }); }, /CDB_BAD_PROJECT_DETAILS/);
+    assert.throws(function () { s.data.writeProjectDetails('5', {}); }, /CDB_BAD_PROJECT_DETAILS: opportunity "5": nothing to write/);
+    assert.throws(function () { s.data.writeProjectDetails('5', { title: 'Fine', siteAddress: ' ' }); }, /CDB_BAD_PROJECT_DETAILS/,
+        'one bad value refuses the whole write');
+    assert.throws(function () { s.data.writeProjectDetails('5', { siteAddress: new Array(302).join('x') }); },
+        /CDB_BAD_PROJECT_DETAILS/);
     assert.strictEqual(s.w.submits.length, 0);
+    assert.deepStrictEqual(s.data.writeProjectDetails('5', { title: 'Fine', siteAddress: 'Plot 4, Village', entitystatus: '14' }),
+        { title: 'Fine', custbody_opp_site_adress: 'Plot 4, Village' }, 'only these two fields, ever');
+    assert.deepStrictEqual(Object.keys(s.w.submits[0].values), ['title', 'custbody_opp_site_adress']);
 });
 
 // ---------------------------------------------------------------- 2 a new delivery address
@@ -464,7 +474,15 @@ test('address: what the customer typed is escaped in the Task and on the re-rend
 
 test('address: an address-book booking is byte-identical to 2.1.2 (page, writes, Task, logs)', function () {
     var snap = path.join(__dirname, 'snapshots', 'address-book-booking.json');
-    assert.deepStrictEqual(capture(), JSON.parse(fs.readFileSync(snap, 'utf8')));
+    var expected = JSON.parse(fs.readFileSync(snap, 'utf8'));
+    // 2.2.1 (PR #8 amendment 1): the snapshot file is unchanged. The page, the writes and the Task are byte-identical;
+    // the only difference is config's own logging of the two new record-only settings (empty here), applied below.
+    // (The delivery form's traffic note is on the form, not on this confirmation page, so it is not in the capture.)
+    expected.logs[0][2] += ', TIME_DEFAULT=none, UNLOAD_SURCHARGE=none';
+    expected.logs.splice(11, 0, ['audit', 'CDB PARAMETER_DEFAULT', 'setting TIME_DEFAULT is empty: treated as none'],
+        ['audit', 'CDB PARAMETER_DEFAULT', 'setting UNLOAD_SURCHARGE is empty: treated as none']);
+    assert.strictEqual(expected.logs[10][2], 'setting UPD_OBJECTION_TYPES is empty: treated as none', 'after the 3.1 keys');
+    assert.deepStrictEqual(capture(), expected);
 });
 
 // ---------------------------------------------------------------- 3 polish
