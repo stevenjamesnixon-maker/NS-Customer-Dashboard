@@ -10,7 +10,9 @@ var FILES = ['cdb_sl_dashboard.js', 'cdb_mr_digest.js', 'lib/cdb_lib_config.js',
     'lib/cdb_lib_dates.js', 'lib/cdb_lib_data.js', 'lib/cdb_lib_render.js', 'lib/cdb_lib_task.js',
     'cdb_ue_salesorder.js', 'cdb_sl_send_link.js',
     // "Request an update" part A: the stored link.
-    'lib/cdb_lib_link.js', 'cdb_ue_customer.js', 'cdb_mr_link_backfill.js'];
+    'lib/cdb_lib_link.js', 'cdb_ue_customer.js', 'cdb_mr_link_backfill.js',
+    // Release 2.3: "Tell us about your property".
+    'lib/cdb_lib_designinfo.js', 'cdb_ue_opportunity.js', 'cdb_sl_send_designinfo.js'];
 
 /**
  * 2.0: the ONE file that may read the current user — the login-required Send delivery link

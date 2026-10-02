@@ -12,6 +12,8 @@ function world() {
     var w = {
         logs: [], tasks: [], saves: [], emails: [], submits: [], contacts: {}, missingFields: [],
         redirects: [], urls: [], user: { id: 7, name: 'Sam Staff' },
+        // 2.3: Notes, attachments, File Cabinet files by path (w.files), uploaded files saved, forms written.
+        notes: [], attaches: [], files: {}, savedFiles: [], forms: [],
         customers: {
             42: { isinactive: false, custentity_cdb_link_version: '', entityid: 'C42', companyname: 'Acme Ltd',
                 isperson: false, email: 'acme@example.com', salesrep: [{ value: '88', text: 'Rep' }],
@@ -81,6 +83,12 @@ function stubs(w) {
             }
             o.columns.forEach(function (c) {
                 var v = r[c];
+                // 2.3: the Sales MI selects and the sub-status too, with '<field>_text' as their text when given.
+                if (o.type === 'opportunity' && ['custbody_mi_opp_fc', 'custbody_mi_heat_source', 'custbody_mis_opp_market',
+                    'custbody_opportunity_sub_status'].indexOf(c) >= 0 && v) {
+                    out[c] = [{ value: v, text: r[c + '_text'] || '' }];
+                    return;
+                }
                 out[c] = (((o.type === 'opportunity' && ['entity', 'salesrep', 'custbody_pe', 'custbody_value_proposition', 'entitystatus'].indexOf(c) >= 0) ||
                         (o.type === 'salesorder' && c === 'opportunity')) && v) ?
                     [{ value: v, text: '' }] : (v === undefined ? '' : v);
@@ -95,6 +103,10 @@ function stubs(w) {
             // As NetSuite does: the opportunity search type has no mainline filter.
             if (def.type === 'opportunity' && findClause(def.filters, 'mainline')) {
                 throw new Error('An nlobjSearchFilter contains invalid search criteria: mainline.');
+            }
+            if (def.type === 'opportunity' && w.oppExtrasThrow && (def.columns || []).indexOf('custbody_cdb_designinfo_state') >= 0) {
+                // 2.3: the design card extras search can be made to throw.
+                throw new Error('An nlobjSearchColumn contains an invalid column: custbody_cdb_designinfo_state.');
             }
             if (def.type === 'opportunity') {
                 clause = findClause(def.filters, 'entity');
@@ -229,7 +241,7 @@ function stubs(w) {
         };
     }
     var record = {
-        Type: { CUSTOMER: 'customer', SALES_ORDER: 'salesorder', TASK: 'task', OPPORTUNITY: 'opportunity' },
+        Type: { CUSTOMER: 'customer', SALES_ORDER: 'salesorder', TASK: 'task', OPPORTUNITY: 'opportunity', NOTE: 'note' },
         load: function (o) {
             if (o.type === 'customer') {
                 // A working copy: nothing reaches the book until save().
@@ -267,12 +279,24 @@ function stubs(w) {
                 // 2.2.1: w.oppFieldTypes: fieldId -> Field.type ('text' when not given).
                 if (w.oppLoadThrows) { throw new Error('INSUFFICIENT_PERMISSION: opportunity'); }
                 w.oppLoads = (w.oppLoads || 0) + 1;
+                // 2.3: how it was loaded; select options per field (w.selectOptions), getSelectOptions() failing
+                // (w.selectOptionsThrow), a field's maxLength (w.fieldMaxLength), a select's text ('<field>_text').
+                w.oppLoadModes = (w.oppLoadModes || []).concat([!!o.isDynamic]);
                 return {
                     getField: function (f) {
-                        return (w.missingOppFields || []).indexOf(f.fieldId) >= 0 ? null :
-                            { id: f.fieldId, type: (w.oppFieldTypes || {})[f.fieldId] || 'text' };
+                        var field;
+                        if ((w.missingOppFields || []).indexOf(f.fieldId) >= 0) { return null; }
+                        field = { id: f.fieldId, type: (w.oppFieldTypes || {})[f.fieldId] || 'text',
+                            getSelectOptions: function () {
+                                if (w.selectOptionsThrow) { throw new Error('SSS_INVALID_API_USAGE: getSelectOptions'); }
+                                return ((w.selectOptions || {})[f.fieldId] || []).slice();
+                            } };
+                        if ((w.fieldMaxLength || {})[f.fieldId]) { field.maxLength = w.fieldMaxLength[f.fieldId]; }
+                        return field;
                     },
-                    getValue: function (f) { var v = w.opps[o.id][f.fieldId]; return v === undefined ? '' : v; }
+                    getValue: function (f) { var v = w.opps[o.id][f.fieldId]; return v === undefined ? '' : v; },
+                    getText: function (f) { var v = w.opps[o.id][f.fieldId + '_text']; return v === undefined ? '' : v; },
+                    save: function () { throw new Error('the opportunity record must never be saved'); }
                 };
             }
             var src = w.orders[o.id];
@@ -301,10 +325,21 @@ function stubs(w) {
             }
             return o.id;
         },
-        create: function () {
+        // 2.3: a Note goes to w.notes (w.noteThrows fails it); everything else is a Task, as before (w.taskThrows).
+        create: function (c) {
             var t = { values: {} };
-            w.tasks.push(t);
-            return { setValue: function (f) { t.values[f.fieldId] = f.value; }, save: function () { return 555; } };
+            var isNote = c && c.type === 'note';
+            (isNote ? w.notes : w.tasks).push(t);
+            return { setValue: function (f) { t.values[f.fieldId] = f.value; }, save: function () {
+                if (isNote && w.noteThrows) { throw new Error('INSUFFICIENT_PERMISSION: note'); }
+                if (!isNote && w.taskThrows) { throw new Error('INSUFFICIENT_PERMISSION: task'); }
+                return isNote ? 777 : 555;
+            } };
+        },
+        // 2.3: record.attach, recorded (w.attachThrows fails it).
+        attach: function (o) {
+            if (w.attachThrows) { throw new Error('INVALID_RCRD_TYPE: file attach'); }
+            w.attaches.push(o);
         }
     };
     return {
@@ -346,7 +381,8 @@ function stubs(w) {
         } },
         // The dashboard link as before; 2.0: any further parameter appended, encoded, in order; an
         // internal URL (no returnExternalUrl) for the Send delivery link Suitelet.
-        'N/url': { resolveScript: function (o) {
+        'N/url': { resolveRecord: function (o) { return '/app/accounting/transactions/opprtnty.nl?id=' + o.recordId; },
+            resolveScript: function (o) {
             var extra = Object.keys(o.params || {}).filter(function (k) { return k !== 't'; }).map(function (k) {
                 return '&' + encodeURIComponent(k) + '=' + encodeURIComponent(o.params[k]);
             }).join('');
@@ -357,6 +393,35 @@ function stubs(w) {
             return 'https://acct.extforms.netsuite.com/sl?t=' + o.params.t + extra;
         } },
         'N/redirect': { toRecord: function (o) { w.redirects.push(o); } },
+        // 2.3: the File Cabinet by path (w.files[path] = text; missing throws as NetSuite does).
+        'N/file': {
+            load: function (o) {
+                w.fileLoads = (w.fileLoads || 0) + 1;
+                if (!w.files.hasOwnProperty(o.id)) { throw new Error('RCRD_DSNT_EXIST: ' + o.id); }
+                return { getContents: function () { return w.files[o.id]; } };
+            },
+            create: function (o) {
+                var f = { name: o.name, folder: o.folder, isOnline: o.isOnline, contents: o.contents };
+                f.save = function () { w.savedFiles.push(f); return 900 + w.savedFiles.length; };
+                return f;
+            }
+        },
+        // 2.3: the Send design information Suitelet's pages, recorded in w.forms.
+        'N/ui/serverWidget': {
+            FieldType: { INLINEHTML: 'INLINEHTML', TEXT: 'TEXT' },
+            FieldDisplayType: { HIDDEN: 'HIDDEN' },
+            createForm: function (o) {
+                var form = { title: o.title, fields: [], submit: null };
+                form.addField = function (f) {
+                    var field = { id: f.id, type: f.type, defaultValue: '', displayType: '' };
+                    field.updateDisplayType = function (d) { field.displayType = d.displayType; return field; };
+                    form.fields.push(field);
+                    return field;
+                };
+                form.addSubmitButton = function (b) { form.submit = b.label; };
+                return form;
+            }
+        },
         'N/ui/message': { Type: { CONFIRMATION: 'confirmation', WARNING: 'warning', ERROR: 'error', INFORMATION: 'information' } },
         'N/encode': { Encoding: { UTF_8: 'UTF_8', BASE_64: 'BASE_64' } },
         'N/crypto': {

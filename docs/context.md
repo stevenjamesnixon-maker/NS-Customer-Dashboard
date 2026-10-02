@@ -6,8 +6,17 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 2 Oct 2026 ("Request an update" part A, the stored link, config 3.3.0; release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 2 Oct 2026 (release 2.3, *Tell us about your property*, config 3.4.0; "Request an update" part A, the stored link, config 3.3.0; release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**Release 2.3 (2 Oct 2026, new PR, with amendment 1; config 3.4.0):** *Tell us about your property* replaces the
+design-information Gravity Form with a dashboard page, `a=designinfo&opp=<id>`, driven by a question registry CSV in the
+File Cabinet (`content/design-info-registry.csv`): it asks only what the opportunity's Sales MI and design service call
+for, saves section by section to the Project Specification fields, takes file uploads, adds a Note on every save and
+sends a *DESIGN INFO* Task on Send. The dashboard and digest show four design card states; staff request it with the
+opportunity's new **Request design information** button (`cdb_ue_opportunity.js` → `cdb_sl_send_designinfo.js`), which
+emails a v2 email with the direct link. **The goods date is Note and Task only: nothing writes `custbody_opp_del_date`.**
+Section 4, *Tell us about your property*; section 8.9. Not merged, not deployed.
 
 **"Request an update" part A (2 Oct 2026, new PR; config 3.3.0):** each customer's **base dashboard link
 is kept on the customer**, in the new hidden field `custentity_cdb_link`, so Online-quote's Update
@@ -18,8 +27,8 @@ writes it for existing customers, and is run again after every Sandbox refresh a
 API Secret's value or the dashboard deployment. One record-only setting, `LINK_BACKFILL_SCOPE`. Section 4,
 *The stored link*; section 8.7 and 8.8. Not merged, not deployed.
 
-**Release plan (Steve, 1 Oct 2026):** **2.2** is this release (project name, new delivery address, polish).
-**Design information and changes** moves to **2.3**, and **Place order** to **2.4**.
+**Release plan (Steve, 1 Oct 2026):** **2.2** (project name, new delivery address, polish). **Design information and
+changes** is **2.3** (this release: the design information part), and **Place order** **2.4**.
 
 **Release 2.2 (1 Oct 2026, new PR; config 3.2):** the customer can **rename the project** (the opportunity
 `title`) on *Give us an update* — written by the dashboard itself, one `submitFields` of `{ title }`, never
@@ -173,19 +182,23 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.2.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations | Not deployed |
-| Digest Map/Reduce | 2.0.4 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library) | Not deployed |
+| Dashboard Suitelet | 2.3.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
+| Digest Map/Reduce | 2.1.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states) | Not deployed |
+| Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
+| Send design information Suitelet (2.3) | 1.0.0 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page, then the *Tell us about your property* email | New |
 | Customer User Event (part A) | 1.0.0 | `cdb_ue_customer.js` | afterSubmit, create/edit/xedit, all contexts: keeps `custentity_cdb_link` right | New |
 | Link backfill Map/Reduce (part A) | 1.0.0 | `cdb_mr_link_backfill.js` | Rerunnable: writes `custentity_cdb_link` wherever it is missing or wrong | New |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.3.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.4.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.1.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)`; 2.1.0: the EXTERNAL CONSUMER note and the pure `linkMatches()` | Not deployed |
 | Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.2.3 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`) | Not deployed |
-| Render library | 2.2.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page; the email standard's blocks, the digest and the delivery-link email | Not deployed |
-| Task library | 1.4.1 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line | Not deployed |
+| Data library | 2.3.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
+| Design information library (2.3) | 1.0.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV, the facts, `when`, visibility, progress, the state JSON, upload names | New |
+| Render library | 2.3.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards; the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Task library | 1.5.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
+| Question registry (2.3) | 1 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -618,6 +631,213 @@ for it.
 - **Quote cards** get the dashboard's labelled lines, *Project stage: …* (`stageLabel`) and *Expected
   start: …* (`formatMonthYear`), only those with a value, in table-safe markup.
 - Otherwise the email is unchanged (`test/r2-2.test.js` compares it with the 2.1 snapshot).
+
+### Tell us about your property (2.3, release 2.3; amendment 1)
+
+**What it is.** The 80-field Gravity Form is replaced by a dashboard page, **`?t=…&a=designinfo&opp=<id>`**, that asks only
+what the opportunity's Sales MI and design service call for, saves each section on its own (pre-filled, blank never
+overwriting), writes the answers to the opportunity's **Project Specification** fields, adds a **Note** to the
+opportunity on every save, takes **file uploads** into the File Cabinet (attached to the opportunity), and sends a
+**DESIGN INFO – …** Task to the PE or AM when the customer presses **Send**. Staff ask for it with **Request design
+information** on the opportunity, which emails the customer a v2 email with a direct link. **Nothing moves the
+sub-status: a person always checks the submission.** The canvas mocks are not in the repo yet; the page and the email
+follow the brief's written descriptions with the update page and the delivery-link email as the visual reference
+(amendment 1 §6).
+
+**The guard** (`data.guardDesignInfo()`, one `lookupFields`; not `guardOpportunity()`, which refuses Won): the
+opportunity's entity is the token's customer; its status is Won; its sub-status is in `NEEDINFO_SUBSTATUS` → **edit**,
+else in `DESIGN_SUBSTATUS` → **view** (everything disabled, no buttons, a banner with the PE/AM's email and phone — the
+update page is not valid for Won, so no *Give us an update* link); its FC does not map to `none` (*Nothing is needed
+from you for this project*). A refusal logs `CDB DESIGNINFO_REFUSED` with the reason and writes nothing.
+
+**One record load.** `data.loadDesignInfo()` loads the opportunity **in dynamic mode** — `Field.getSelectOptions()`
+needs it (amendment 1 §8) — and **never saves it**: every write is `submitFields`. Dynamic is used for the POST too,
+because validating the build stage needs the same options. For each registry question with a field, `getField()`
+decides: missing → the question is **omitted** (`CDB DESIGNINFO_FIELD_MISSING`, listed in the Task); a type that cannot
+hold the answer → **read-only** with *(we'll cover this on your call)* (`CDB DESIGNINFO_FIELD_MISMATCH`, listed); a
+`choice @field` whose options cannot be read → read-only (`CDB DESIGNINFO_OPTIONS_UNAVAILABLE`). **A value is never
+written to a field whose type was not verified.** Compatible types (`Field.type`, upper-cased): text answers →
+`TEXT, TEXTAREA, LONGTEXT, CLOBTEXT, RICHTEXT, PHONE, EMAIL, URL`; `date` → `DATE`; `choice` with labels → a text
+type; `choice @field` → `SELECT`; `yesno` → `CHECKBOX` (true/false) or a text type (`Yes`/`No`). A PHONE, EMAIL or URL
+field is written only when the answer looks like one (otherwise Note only, *NOT saved to the record*). Long answers
+are clipped to the field's own `maxLength` when `getField()` exposes one, else to NetSuite's type limit (text 300,
+text area 4,000), and the Note says so.
+
+**The registry** — `content/design-info-registry.csv` in this repo (registry version 1), uploaded to
+`SuiteScripts/NuHeat/Customer Dashboard Content/`; its path is the setting `DESIGNINFO_REGISTRY`. Parsed per request
+(`designinfo.parseRegistry()`; the digest once per run). No JSON conversion step.
+
+| Column | Meaning |
+|---|---|
+| `section` | Section ID (`[a-z0-9_]+`). The first section is the project card's (*Checked*); the others are numbered in file order |
+| `section_title` | The section's heading (its first row's wins) |
+| `panel` | A group inside the section (`[a-z0-9_]+`); kept for the design team, not rendered separately in 2.3 |
+| `qid` | Unique (`[a-z0-9_]+`). Inputs are `q_<qid>`, files `f_<qid>_<n>` |
+| `type` | `info` (text only), `text` (≤ 300), `long` (≤ 4,000), `date` (`<input type="date">`, `yyyy-mm-dd`, the update page's rule: today to five years ahead), `yesno`, `choice`, `files` |
+| `label`, `hint`, `why` | Wording. `why` adds a **? Why** toggle (`<details>`, no script) |
+| `options` | `choice` only: labels separated by `\|`, or exactly `@field` (the field's own select list) |
+| `field` | Empty or `note`: the Note only (short answers also kept in the state for the progress; a `long` one is marked *noted*, not kept). `state`: the state only (`yesno` only). A `custbody…` ID: that opportunity field — it must be in `FIELDS.OPPORTUNITY` and **not** in `config.DESIGNINFO_DENY` |
+| `required` | `Y` / `N` (default N) |
+| `when` | `key=value[,value][;key=value…]`: AND across `;`, OR within `,`. Keys `service` (`ufh`, `ufh_plus`, `hp`, `unknown`), `fc` (`solid`, `joisted`, `overfloor`, `acoustic`, `none`, `hp`, `unknown`; matches when ANY of the project's tokens is listed), `heat` (`boiler`, `nuheat_hp`, `user_hp`, `other`), `newbuild` (`yes`/`no`). Empty: always. An unknown service matches as `ufh_plus` |
+
+A bad **row** (unknown type, duplicate `qid` — the second —, a field outside the allow-list or in the deny-list, a
+choice without options, a `when` that does not parse, an unknown key or value) is rejected and listed
+(`CDB DESIGNINFO_REGISTRY_REJECTED`, once per request); the file is invalid only when a column is missing or the CSV
+does not parse. The parser copes with a BOM, CRLF, quoted cells with commas, `""` and newlines, and unquoted cells.
+Every non-empty `label`, `hint`, `options`, `when` and `why` in the committed file is quoted (amendment 1 §2).
+
+**How to add a question or a product.** Add a row (Excel is fine); for a new Project Specification field, first add
+its ID to `FIELDS.OPPORTUNITY` (a code change — the allow-list is deliberate). A new floor construction or heat source
+is a new `FC_MAP` / `HEAT_MAP` entry pointing at an existing token; a new token is a code change (`designinfo`'s
+`WHEN_VALUES`). Upload the CSV over the old one: the next request reads it.
+
+**The settings** (record only; section 4, *Settings*):
+
+| Key | Kind | Empty means |
+|---|---|---|
+| `DESIGNINFO_REGISTRY` | text (path) | the action is unavailable (*This isn't available right now*, `CDB DESIGNINFO_NO_REGISTRY`); cards show no button |
+| `DESIGNINFO_FOLDER` | id | uploads refused with a message (`CDB DESIGNINFO_NO_FOLDER`); text answers still save |
+| `DESIGNINFO_MAX_FILES` | int | 6 (per question per post) |
+| `FC_MAP` | JSON | every FC is `unknown` on the page; **the request button and Suitelet refuse** (they cannot tell OneZone, Electric UFH or Parts apart) |
+| `HEAT_MAP` | JSON | `other` |
+| `VP_MAP` | JSON | `unknown` → the UFH Design + set, and the Task says so |
+| `NEWBUILD_MARKET_IDS` | idlist | existing (retro) |
+| `NOTE_TYPE` | id | the Note has no type |
+| `DESIGN_EMAIL_ADDRESS` | text | the request email's card prints the sender's own email |
+| `DESIGNINFO_EMAIL` | JSON | the built-in wording (`config.DESIGNINFO_EMAIL`); invalid logs `CDB DESIGNINFO_EMAIL_INVALID` |
+| `DESIGNINFO_DRAWINGS_URL` | https | the *Understanding your drawings* card is left out |
+
+Which script reads which (amendment 1 §3; `SCRIPT_KEYS`):
+
+| Script | Keys added in 3.4.0 |
+|---|---|
+| Dashboard Suitelet | `DESIGNINFO_REGISTRY`, `DESIGNINFO_FOLDER`, `DESIGNINFO_MAX_FILES`, `FC_MAP`, `HEAT_MAP`, `VP_MAP`, `NEWBUILD_MARKET_IDS`, `NOTE_TYPE`, `DESIGNINFO_DRAWINGS_URL` (and, as before, `WON_STATUSES`, `NEEDINFO_SUBSTATUS`, `DESIGN_SUBSTATUS`, `PE_VALUEPROPS`, `FALLBACK_EMPLOYEE`, `UPD_BUILD_STAGES`, `LOGO_URL`) |
+| Digest | `DESIGNINFO_REGISTRY`, `FC_MAP`, `HEAT_MAP`, `VP_MAP`, `NEWBUILD_MARKET_IDS`, `PE_VALUEPROPS` (record only: no `custscript_cdbmr_` twin) |
+| Opportunity User Event | `WON_STATUSES`, `NEEDINFO_SUBSTATUS`, `FC_MAP` — nothing else |
+| Send design information Suitelet | `WON_STATUSES`, `NEEDINFO_SUBSTATUS`, `PE_VALUEPROPS`, `FALLBACK_EMPLOYEE`, `LOGO_URL`, `DESIGNINFO_REGISTRY`, `FC_MAP`, `HEAT_MAP`, `VP_MAP`, `NEWBUILD_MARKET_IDS`, `DESIGN_EMAIL_ADDRESS`, `DESIGNINFO_EMAIL` |
+
+The two new scripts have **no parameters**: every key they read must be a **row** of `customrecord_cdb_setting`
+(`WON_STATUSES`, `NEEDINFO_SUBSTATUS`, `PE_VALUEPROPS`, `FALLBACK_EMPLOYEE`, `LOGO_URL` included), or they stop with
+`CDB_PARAMETER_MISSING` (the button simply does not show). `EMAIL_HERO_URL` and `EMAIL_ICONS` are config constants,
+not settings.
+
+**The facts** (`designinfo.buildFacts()`): `custbody_value_proposition` → `VP_MAP` → service; `custbody_mi_opp_fc` →
+`FC_MAP` → floor tokens; `custbody_mi_heat_source` → `HEAT_MAP` → heat; `custbody_mis_opp_market` in
+`NEWBUILD_MARKET_IDS` → new build. Unknowns are explicit values, and each is a warning in the Task, as is an HP Design
+without a Nu-Heat heat pump (or the reverse).
+
+**The page** (`render.designInfoPage()`): the header *Design questions? Call [PE or AM] on [phone]* (§5.3: the PE for a PE
+value proposition with a PE, else the rep, else `FALLBACK_EMPLOYEE`); *Your project, as we have it* (project, reference,
+site, *You're having* = FC text · heat source text, thermostats (`custbody16` + Neo hub), design service, who the design
+is with, the design call `custbody_next_contact` when today or later) with section 0's questions; one card per section
+with its status chip (*Needed to start*, *Done*, *Optional*) and its own **Save this section**; the aside (*Goes to*,
+the progress, *What each design service needs*, *Why do we ask?*, the drawings card); the bottom panel (*Still to do
+before your design can start: …*, **Send to my Project Engineer** / *account manager*, **Save and finish later**). The
+**goods date** shows the opportunity's `custbody_opp_del_date` read-only (*We currently have: …*) and asks *Has this
+changed? Tell us the new date*. A small inline script warns before posting a file over 10 MB; the server checks too.
+**One form** (multipart): each Save button posts `sec=<section>`, *Save and finish later* `sec=all`, Send `send=1`; the
+server saves the section pressed and every section with a change, so nothing typed elsewhere is lost.
+
+**The POST.** `data.validateDesignInfo()` first — trim, control characters stripped, `text` ≤ 300, `long` ≤ 4,000, the
+date rule, a `choice` one of the options (a label's index, or an offered option ID — for `custbody_build_stage` only the
+`UPD_BUILD_STAGES` IDs, as on the update page), `yesno` `yes`/`no`/blank, files (count ≤ `DESIGNINFO_MAX_FILES`, each
+≤ 10 MB and an allowed extension: pdf dwg dxf jpg jpeg png gif zip doc docx xls xlsx tif tiff; an empty part is not a
+file). Any error re-renders with the answers and **nothing is written** (`CDB DESIGNINFO_REJECTED`). Then, each step in
+its own try/catch and reported in the Note and the Task:
+
+1. **The fields** (`data.writeDesignInfo()`): only registry fields, only non-empty values that differ from the loaded
+   ones, one `submitFields` (`enableSourcing: false, ignoreMandatoryFields: true`); `date` a Date, `choice @field` the
+   option ID, `yesno` a boolean on a checkbox or *Yes*/*No* on text. **Blank never clears anything.** With no files the
+   state goes in the same write.
+2. **The files** (`data.saveUpload()` / `attachUpload()`): the uploaded `file.File` from `request.files`, named
+   `<tranid>_<qid>_<yyyymmdd-HHmm>_<sanitised original>`, `folder` = `DESIGNINFO_FOLDER`, `isOnline` false, saved, then
+   `record.attach({ record: { type: 'file', id }, to: { type: 'opportunity', id } })`. A failed attach leaves the file
+   in the folder and says so. `CDB DESIGNINFO_FILE` per file.
+3. **The state**, in step 1's write where possible, else a second write.
+4. **The Note**, every save: `record.Type.NOTE`, title *Design information from customer · dd/mm/yyyy HH:mm*,
+   `transaction` = the opportunity, `author` = the PE/AM, `notetype` only when `NOTE_TYPE` is set; the body lists the
+   sections saved, *Sent to PE*, each changed answer *label: old → new* (blank old as —, values clipped at 300 with …),
+   the files, *Not saved to the record*, *Large files*; clipped at 3,900 characters with *(truncated)*
+   (`CDB DESIGNINFO_NOTE_CLIPPED`). A Note failure never stops the save (`CDB DESIGNINFO_NOTE_FAILED`).
+5. **The Task**, only on Send: *DESIGN INFO – <project name or QR>*, to the PE/AM, medium priority; what is complete and
+   still missing, every change since the last Send (from the state), the files since the last Send with their folder,
+   the goods date line, the Mimecast line when *I have files bigger than 10 MB* is ticked, the fact warnings, *Not saved
+   to the record*, and anything that failed. A failed Task puts the state back (not sent, the change list kept) and the
+   page asks the customer to press Send again.
+
+`CDB DESIGNINFO_SAVED` closes every POST (sections, fields, files, send, Note), and the page re-renders with *Saved. Still
+to do: …* or *Sent to [name]. [First name] will read it all before your design call.*
+
+**The goods date (amendment 1 §1).** `goods_date` is **Note only**: a posted date goes into the state
+(`answers.goods_date`), the Note (*Goods needed: 14/11/2026 → customer says 28/11/2026*) and the Task (*Customer says goods
+are needed by 28/11/2026 (we hold 14/11/2026). Check and update the opportunity date yourself; the dashboard did not
+change it.*). **Nothing in this release writes `custbody_opp_del_date`**: after Won the sync copies it onto the sales
+orders' ship dates. It is in `DESIGNINFO_DENY`, so no registry row can write it.
+
+**Section 0** writes `custbody_build_stage` directly (`data.writeDesignInfo()`, an `UPD_BUILD_STAGES` option ID), never
+through the Online-quote library: this page does not depend on it.
+
+**The state** — `custbody_cdb_designinfo_state` (Long Text, hidden), written only by the dashboard and (`requested`)
+the Send design information Suitelet:
+
+```json
+{ "v": 1, "requested": "2026-10-01T09:00:00Z", "sent": "2026-10-02T14:10:00Z", "lastTaskAt": "2026-10-02T14:10:00Z",
+  "sections": { "plans": { "saved": "2026-10-02T14:02:00Z", "status": "done" } },
+  "answers": { "plans_current": "yes", "bigfiles": "no", "goods_date": "2026-11-28", "w3w": "///a.b.c" },
+  "noted": { "heat_boiler": "2026-10-02T14:02:00Z" },
+  "files": [ { "qid": "plans_files", "id": "123", "name": "QR20_plans_files_20261002-1502_plan.pdf",
+               "at": "2026-10-02T14:02:00Z", "size": 1258291, "attached": true } ],
+  "pending": [ { "s": "Your plans", "l": "Ceiling heights", "o": "", "n": "2.4 m", "at": "…" } ] }
+```
+
+`sections.<id>.status` is the section's status when it was saved (the cards read it without loading the record);
+`noted` marks a long Note-only answer as given (its text is in the Note, not here); `pending` is the change list since the
+last Send (cleared when the Task is made; at most 80). Missing or unparsable: treated as empty, `CDB DESIGNINFO_STATE_INVALID`
+once, never a throw (the request Suitelet leaves an unparsable value alone).
+
+**The project cards** (dashboard and digest; brief §6). `data.getOpportunityExtras()` — one fail-safe search of the
+customer's design opportunities for the state, `custbody_mi_opp_fc`, `custbody_mi_heat_source`, `custbody_mis_opp_market`
+and `custbody_next_contact` (`CDB OPP_EXTRAS_FAILED` → every card *needs information*) — and `data.decorateDesign()`
+give each design row one of:
+
+| State | Rule | Line | Button |
+|---|---|---|---|
+| `needs_info` | NEEDINFO, no section saved | *We need some information about your property to start your design. Plans are the main thing. It takes about 10 minutes, and you can do it in stages.* | **Tell us about your property** |
+| `info_partial` | NEEDINFO, a section saved, not sent | *Thanks, we have: [sections]. Still to do: [sections].* + a progress bar (no registry: *Still to do: a few more details.*) | **Continue** |
+| `info_sent` | NEEDINFO, sent | *Information received, [date]. [PE first name] is reviewing it and will go through any questions on your design call.* | **View or add to what you sent** |
+| `designing` | DESIGN, not NEEDINFO | *Your design is being prepared. We'll email you when your installation drawings are ready.* | none (*View what you sent* when something was saved) |
+
+*Design call: [date]* is added when `custbody_next_contact` is today or later. FC `none`: the card is as before
+(*Designing your system* / *In design*). The buttons show only while `DESIGNINFO_REGISTRY` is set. The dashboard reads the
+registry only when a card in progress needs its section titles; the digest reads it once per run.
+
+**Request design information** (`cdb_ue_opportunity.js` + `cdb_sl_send_designinfo.js`). The button shows on a VIEWED
+opportunity in the UI when it is Won, at a NEEDINFO sub-status, and its FC maps to anything but `none` with `FC_MAP` set
+(`data.requestRefusal()`, the one rule both scripts use); any error or missing setting: no button (`log.debug`
+*DESIGNINFO_NO_BUTTON*). It opens the internal Suitelet, which re-checks everything on the server, plus a customer with
+a usable email (`data.emailRecipient()`) and a readable registry, and shows a confirm page (customer, project, sender,
+recipient, the sections that will be asked); its POST sends the email (author = the sender, recipients =
+`[emailRecipient]`, related to the customer and the opportunity), records `state.requested` (merged), logs
+`CDB DESIGNINFO_REQUESTED` and goes back to the opportunity with the `cdbdi` banner (`config.DESIGNINFO_BANNERS`). A
+refusal is a page with the reason (`CDB DESIGNINFO_REQUEST_REFUSED`), nothing sent.
+
+**The email** (`render.designInfoRequestEmail()`, the email shell): the band (*Let's start your design* / *Tell us about
+your property, [first name]*), the hero, the personal paragraph (the PE's own words, or the account manager's naming the
+PE: `PERSONAL_PE` / `PERSONAL_AM`), *Your project* (reference · site, *You're having*, *Design call* when today or later,
+*Goods needed* when set), **TELL US ABOUT YOUR PROPERTY**, *Or view all your projects*, *What we'll ask* (plans; insulation
+unless UFH Design; where things go, with the heat pump sentence for a Nu-Heat heat pump), the yellow note, *What happens
+next*, the sender's card (*YOUR PROJECT ENGINEER* / *YOUR ACCOUNT MANAGER*; for the PE, `DESIGN_EMAIL_ADDRESS` instead
+of their own email when set), the footer.
+
+**Folders.** `SuiteScripts/NuHeat/Customer Dashboard/` (the scripts, as before); `SuiteScripts/NuHeat/Customer
+Dashboard Content/` (the registry); `Customer Dashboard Uploads/` (customers' files — **not** under SuiteScripts,
+private, not *Available Without Login*; its internal ID is `DESIGNINFO_FOLDER`).
+
+**Governance** (units). A design information GET ≈ 34 (settings 10, token and customer lookups 2, the guard 1, the
+registry 10, the record load 10, the employee 1). A POST with three files and Send ≈ 164 (the GET's 34, the field write
+10, three files × (save 20 + attach 10), the state write 10, the Note 10, the Task 10); a Send without files ≈ 64. The
+dynamic and standard loads of a transaction cost the same 10 units in NetSuite's table; the node stub cannot measure
+governance. The request Suitelet: GET ≈ 25, POST ≈ 60.
 
 ### Send delivery link (2.0)
 
@@ -1311,7 +1531,23 @@ account's lists before setting them**; they are not guaranteed to match between 
   chosen a date. An empty parameter writes nothing (fails closed).
 - **Canvas actions release 1.1 does not have are left out**: *Start a new project*, *Place order*,
   *Add design information*, *Provide information*, *Request design
-  changes*, and *View quote* / *View design* (no URL is read). No button goes nowhere.
+  changes*, and *View quote* / *View design* (no URL is read). No button goes nowhere. (2.3: design information is
+  *Tell us about your property*.)
+- **2.3, Tell us about your property — deliberate, do not reverse:**
+  - The customer **never** writes the Sales MI (`custbody_mi_opp_fc`, `custbody_mi_heat_source`,
+    `custbody_mis_opp_market`), the sub-status or `custbody_cad_des_contact` (Contact creation deferred), nor
+    **`custbody_opp_del_date`**: after Won the sync copies it onto the sales orders' ship dates, so the goods date is
+    Note, state and Task only (amendment 1 §1). `config.DESIGNINFO_DENY` holds them; `parseRegistry()` rejects a row
+    that names one.
+  - **Blank never overwrites.** A customer cannot clear a field from this page.
+  - The registry is **CSV, parsed per request**; no JSON conversion step.
+  - Field types are **discovered at run time**; a mismatch is shown read-only and reported, never written.
+  - `custbody_pq_cylinder_location` **is** the EPC/SAP field (a relabelled old field; commented in `FIELDS`).
+  - No Design Instruction row is read or written. The design call date is `custbody_next_contact`.
+  - One Note per save; one Task per Send. Nothing moves the sub-status.
+  - The request button lives here, not in Send Design (which hides itself at Awaiting Design Info in its own repo).
+  - Section 0 writes the build stage directly, not via the Online-quote library.
+  - The opportunity is loaded **dynamic and never saved**; every write is `submitFields`.
 
 ---
 
@@ -1394,6 +1630,23 @@ Every title starts `CDB `.
 | `CDB LINK_BACKFILL` (part A) | audit | The backfill's counts — checked, already right, written, failed, inactive — and the first 10 failures | Rerun after fixing a failure; a rerun writes only what is still wrong |
 | `CDB LINK_BACKFILL_INPUT_FAILED` (part A) | error | getInputData threw (often `CDB_PARAMETER_MISSING`: an "open" setting is not on the record); nothing was written | Set the row |
 | `CDB BUILD_STAGES_FAILED` / `OBJECTION_TYPES_FAILED` / `OPEN_QUOTES_FAILED` (2.1) | audit | A read for the update page or Task failed; the question or list is left out / the Task says the quotes could not be listed | Check the field or record type |
+| `CDB DESIGNINFO_REFUSED` (2.3) | audit | The design information guard refused (another customer's, not Won, the sub-status, FC none, not found) or a POST in view mode; nothing written | Expected for the wrong project |
+| `CDB DESIGNINFO_NO_REGISTRY` (2.3) | audit | `DESIGNINFO_REGISTRY` empty, the file unreadable, or no usable row: the page is unavailable / the cards say *a few more details* | Set the row; upload the CSV |
+| `CDB DESIGNINFO_REGISTRY_REJECTED` (2.3) | audit | Registry rows ignored, with their line, `qid` and reason | Fix the rows |
+| `CDB DESIGNINFO_MAP_INVALID` (2.3) | audit | `FC_MAP`, `HEAT_MAP` or `VP_MAP` is not JSON, or has entries ignored | Fix the JSON |
+| `CDB DESIGNINFO_FIELD_MISSING` / `_FIELD_MISMATCH` / `_OPTIONS_UNAVAILABLE` (2.3) | audit | A registry field is not on the record (question omitted), has a type that cannot hold the answer (read-only), or its options could not be read (read-only); listed in the Task | Fix the field or the registry |
+| `CDB DESIGNINFO_STATE_INVALID` (2.3) | audit | The state field is not a version 1 JSON object; treated as empty | — (the next save writes a fresh one) |
+| `CDB DESIGNINFO_REJECTED` (2.3) | audit | A POST failed validation; nothing written | — |
+| `CDB DESIGNINFO_WRITE_FAILED` / `_STATE_FAILED` (2.3) | error | The field write / the state write failed; the Note and Task say what was NOT saved | Enter it by hand from the Task |
+| `CDB DESIGNINFO_FILE` (2.3) | audit / error | A file saved (its ID, name, folder, attached or not) / not saved | Attach by hand if *NOT attached* |
+| `CDB DESIGNINFO_NO_FOLDER` (2.3) | audit | Files posted with `DESIGNINFO_FOLDER` empty: refused, answers saved | Set the row |
+| `CDB DESIGNINFO_NOTE_CLIPPED` / `_NOTE_FAILED` (2.3) | audit / error | The Note was clipped at 3,900 / not created (the save went ahead; the Task says *Audit note NOT created*) | — / read the details |
+| `CDB DESIGNINFO_SAVED` (2.3) | audit | Every design information POST: sections, changed field IDs, file count, send (and the Task ID), Note | — |
+| `CDB OPP_EXTRAS_FAILED` (2.3) | audit | The design cards' extras search threw; the cards show *we need information* | Read the details |
+| `CDB DESIGNINFO_REQUESTED` (2.3) | audit | The request email was sent: the opportunity, customer, recipient, sender, the sections asked | — |
+| `CDB DESIGNINFO_REQUEST_REFUSED` / `_REQUEST_FAILED` (2.3) | audit / error | Not sent: the reason (shown to staff too) / the email or a read threw | Read the reason |
+| `CDB DESIGNINFO_EMAIL_INVALID` (2.3) | audit | `DESIGNINFO_EMAIL` is not a JSON object; the built-in wording was used | Fix the JSON |
+| `CDB DESIGNINFO_NO_BUTTON` (2.3) | debug | Why the opportunity shows no *Request design information* button | — |
 
 ---
 
@@ -1570,6 +1823,30 @@ In order. Nothing changes for customers at any step.
    old link shows the invalid page.
 7. **Then Online-quote part B** can be deployed.
 
+### 8.9 Release 2.3: Tell us about your property (after part A)
+
+1. **Steve creates first:** the opportunity field `custbody_cdb_designinfo_state` (type `_cdb_designinfo_state`), **Long
+   Text**, label *Dashboard design info state*, not shown on forms; the folders `SuiteScripts/NuHeat/Customer Dashboard
+   Content/` and `Customer Dashboard Uploads/` (top level, private, **not** *Available Without Login*); upload
+   `content/design-info-registry.csv` to the content folder.
+2. **The settings rows** (section 4, *Tell us about your property*; `docs/settings-seed.csv`): `DESIGNINFO_REGISTRY`,
+   `DESIGNINFO_FOLDER`, `FC_MAP`, `HEAT_MAP`, `VP_MAP`, `NEWBUILD_MARKET_IDS`, and as wanted `DESIGNINFO_MAX_FILES`,
+   `NOTE_TYPE`, `DESIGN_EMAIL_ADDRESS`, `DESIGNINFO_EMAIL`, `DESIGNINFO_DRAWINGS_URL`. Check `WON_STATUSES`,
+   `NEEDINFO_SUBSTATUS`, `PE_VALUEPROPS`, `FALLBACK_EMPLOYEE` and `LOGO_URL` are **rows**, not only parameters: the two new
+   scripts have no parameters (and the digest reads `PE_VALUEPROPS` from the record).
+3. **Upload, in this order** (overwriting): the libraries — `lib/cdb_lib_config.js` (3.4.0), the new
+   `lib/cdb_lib_designinfo.js` (1.0.0), `lib/cdb_lib_data.js` (2.3.0), `lib/cdb_lib_render.js` (2.3.0),
+   `lib/cdb_lib_task.js` (1.5.0); then `cdb_sl_dashboard.js` (2.3.0); then the new `cdb_ue_opportunity.js` (1.0.0); then the
+   new `cdb_sl_send_designinfo.js` (1.0.0); then `cdb_mr_digest.js` (2.1.0).
+4. **The User Event**: script `customscript_cdb_ue_opportunity` (type `_cdb_ue_opportunity`), deployment
+   `customdeploy_cdb_ue_opportunity`, Applies To **Opportunity**, beforeLoad, Released, log level Debug while testing (the
+   no-button reasons are debug lines), all roles that view opportunities.
+5. **The Suitelet**: script `customscript_cdb_sl_send_designinfo`, deployment `customdeploy_cdb_sl_send_designinfo`,
+   **login required** (not Available Without Login), roles: the staff who request design
+   information; set it up as *Send delivery link* is (section 8.1). **Testing** status until the Sandbox test
+   passes; Released after.
+6. Test (section 9, scenarios 49–62).
+
 ### 8.8 After a Sandbox refresh — and after a secret or deployment change
 
 A refresh copies Production's `custentity_cdb_link` values into Sandbox: right payload, **Production's
@@ -1622,6 +1899,10 @@ parameter, blank, inactive, duplicate, unknown, no search, one search, the sourc
 and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm. 2.2 (`test/r2-2.test.js`): the project name (prefill, the one-field write and its order, blank / unchanged / 61 characters, a failed write, escaping), the new address (the dropdown, each validation failure writing nothing, postcodes, the line added, the duplicate, a failed save, the missing opportunity field, the county field, escaping) and an address-book booking compared byte for byte with 2.1.2; the digest polish against the 2.1 snapshot.
+2.3 (`test/designinfo-lib.test.js`, `test/r2-3.test.js`): the committed registry (0 rejected, 48 questions), the CSV
+rules, the deny-list, the facts, `when`, visibility, progress and the state; the page, the guard, view mode, each
+write rule, files, the Note, the Task, the card states on the dashboard and in the digest, the request button and the
+request Suitelet and its email.
 Part A (`test/link.test.js`): `linkMatches` (right, wrong customer, wrong version, empty and malformed, extra
 parameters, no crypto); the customer User Event (a match writes nothing, an empty link written once with only
 `custentity_cdb_link`, a version bump, a copied customer, inactive, xedit's one lookup, delete/view ignored,
@@ -1680,6 +1961,20 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
 | 46 (2.2.1) | `UNLOAD_SURCHARGE` on the Moffett option: the form, then a booking with it and one without | The sentence under that card only; with it, the confirmation's note and the Task's *SURCHARGE* line; without, neither |
 | 47 (2.2.2) | A ready-to-book order whose *Ship date* (`custbody_defaultshipdate`) is in the future: the dashboard, the delivery form, *Send delivery link* | *Currently planned for …* on the row; *We currently have this pencilled in for …* under the form's heading; the email's *Currently planned* row above *Earliest delivery* |
 | 48 (2.2.2) | The same with a past or blank ship date; and a requested / awaiting-payment / booked order with a future one | None of the three lines |
+| 49 (2.3) | A Won opportunity at Awaiting Design Info, FC mapped, HP Design: *Request design information* → confirm → Send | The confirm page lists the sections; the email on both Communication tabs; the banner; `state.requested` set; `CDB DESIGNINFO_REQUESTED` |
+| 50 (2.3) | The button at another sub-status, not Won, FC none, `FC_MAP` cleared | No button (debug line); a direct GET of the Suitelet shows the reason |
+| 51 (2.3) | Open the email's link: desktop and phone | Only the sections the facts call for; *Your project, as we have it*; the goods date read-only beside the question; *? Why* opens with no script |
+| 52 (2.3) | Save *Your plans* with two PDFs and a ceilings answer | The fields on the Project Specification tab (System Notes: one write of the fields, one of the state); the files in *Customer Dashboard Uploads*, private, **attached to the opportunity**; a Note on the opportunity |
+| 53 (2.3) | Blank a pre-filled answer and save | Nothing cleared; the Note lists nothing for it |
+| 54 (2.3) | Choose a 12 MB file (script on, then off) | Warned before posting / refused by the server; nothing written |
+| 55 (2.3) | Change the goods date | `custbody_opp_del_date` **unchanged** (and the sales orders' ship dates); the Note *customer says*; on Send the Task line |
+| 56 (2.3) | Send with sections still to do, *I have files bigger than 10 MB* ticked | *DESIGN INFO –* Task to the PE: still missing, the changes since the last Send, the files, the Mimecast line |
+| 57 (2.3) | Send again after one more change | The Task lists only that change |
+| 58 (2.3) | A registry field removed from the form / changed to another type | Omitted / read-only *(we'll cover this on your call)*; listed in the Task; `CDB DESIGNINFO_FIELD_*` |
+| 59 (2.3) | Move the sub-status to a design status, open the link | View only: disabled, no buttons, the banner with email and phone |
+| 60 (2.3) | The dashboard and the digest (TEST) at each of the four states, and with FC none | The four lines and buttons; FC none as before |
+| 61 (2.3) | Clear `DESIGNINFO_FOLDER`, post a file | *We can't take files here…*; the answers saved |
+| 62 (2.3) | Check the execution log | `CDB DESIGNINFO_SAVED` per POST; `CDB USAGE` within the governance figures (section 4) |
 | 20 (2.0.2) | Open each email in Outlook (desktop), Gmail (phone) and on the Communication tab's message view | Centred, single column; one of each button; the AM photo only for an https link; CALL / EMAIL the rep's first name; the teal footer with five social icons; on the delivery link the Send Quote hero and the three tip icons |
 
 ---
@@ -1705,6 +2000,52 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### Release 2.3 — unverified in the account (check in Sandbox)
+
+| API | What the code assumes | Source |
+|---|---|---|
+| `record.attach({ record: { type: 'file', id }, to: { type: 'opportunity', id } })` | Attaches the saved file to the opportunity (its *Files* subtab) | **Unverified in this account** (brief §11). A failure leaves the file in the folder and is reported |
+| A multipart POST to the Available Without Login Suitelet | Text fields arrive in `request.parameters`; files in `request.files` as `file.File` objects keyed by input name, with `name` and `size`; an input with no file chosen is absent or empty | Not verified. The page works without script, so this is the only upload path |
+| Saving an uploaded `file.File` after setting `name`, `folder`, `isOnline` | Saves it into `DESIGNINFO_FOLDER` and returns its ID | The documented Suitelet upload pattern; the brief said `file.create` (see the notes below) |
+| `record.load({ isDynamic: true })` + `Field.getSelectOptions()` on `custbody_build_stage` | Returns the active options (no inactive flag is exposed) | Not verified. Throws or empty → read-only, `CDB DESIGNINFO_OPTIONS_UNAVAILABLE` |
+| `Field.type` strings | `text`, `textarea`, `longtext` (seen in Production for `custbody_opp_site_adress`), `select`, `checkbox`, `date`, `phone`, `email`, `url` | Compared upper-cased; `clobtext` accepted too |
+| `Field.maxLength` | Not documented on `N/record` Field; read when present, else the type's own limit | The stub models both; expect it to be absent |
+| Note record: `title`, `note`, `transaction`, `author`, `notetype` | Settable from script; `note` holds 4,000 characters (the body is clipped at 3,900) | Not verified |
+| A Long Text column in a search (`custbody_cdb_designinfo_state` in the extras search) | Returns the whole value | Not verified. If it were cut, the JSON would not parse and the card would show *we need information* (`CDB DESIGNINFO_STATE_INVALID`) |
+| `lookupFields` on the Long Text state (the request Suitelet) | Returns the whole value | Not verified; an unparsable value is never overwritten |
+| `url.resolveRecord` for the request Suitelet's "back" link | The opportunity's page | Documented |
+
+### Release 2.3 — findings, decisions and notes for Steve
+
+1. **The goods date is Note and Task only** (amendment 1 §1), and `custbody_opp_del_date` is in the deny-list.
+2. **Uploads use the uploaded `file.File`, not `file.create`.** A Suitelet receives each file as a `file.File` in
+   `request.files`; the code sets its name, folder and `isOnline: false` and saves it. `file.create` would need the
+   contents re-read (base64 for binaries) and the type mapped by extension, for the same result. The `N/file` stub has
+   `create` and `load` as asked; `load` reads the registry.
+3. **One form for the whole page.** *Send* has to post every section, and forms cannot nest, so the page is one
+   multipart form: each *Save this section* posts `sec=<id>`, *Save and finish later* `sec=all`, Send `send=1`. The
+   server saves the section pressed **and** every other section with a change or a file, so nothing typed is lost.
+4. **Short Note-only answers are kept in the state** (`answers`) so they pre-fill and count for the progress; a `long`
+   Note-only answer is only marked (`noted`): its text is in the Note, which keeps the state small. The brief's example
+   state shows only the `state` answers.
+5. **The state carries each section's status and the change list since the last Send** (`sections.<id>.status`,
+   `pending`): the cards and the digest compute *Thanks, we have … Still to do …* from the state and the registry with no
+   record load, and the Task lists the changes since the last Send. On Send the state is written as sent; a failed Task
+   writes it back (a third write, only then).
+6. **Card wording.** *Thanks, we have: [section titles]* uses a colon: the titles (*Your plans*, *How well insulated is
+   it?*) do not read after "your". The `info_partial` badge is *In progress*. Change them in `render.DESIGN_TEXT`.
+7. **Dynamic load for the POST too** (amendment 1 §8 said the GET): validating the stage needs the same options. Both
+   loads are 10 units; the stub cannot measure governance.
+8. **The build stage** offers only `UPD_BUILD_STAGES` IDs, in that order (the update page's rule); empty → read-only.
+9. **`FC_MAP` empty**: the page treats every FC as unknown (and shows), but the button and the request Suitelet refuse
+   (fail closed: they cannot exclude OneZone, Electric UFH or Parts).
+10. **A PHONE / EMAIL / URL field** is written only when the answer looks like one; otherwise it stays in the Note,
+    *NOT saved to the record*. `custbody_des_cont_phone`'s type is unknown here and its question asks for *Name, role and
+    mobile*.
+11. **`DESIGNINFO_DRAWINGS_URL`** is a new key: the brief named the card but no setting.
+12. **`manifoldsText`** in the facts is `custbody_manifold_locations_2026`'s current text; no rule reads it in 2.3.
+13. **Not in 2.3**: Contact creation for the design contact, the Design Instruction record, any sub-status move.
 
 ### "Request an update" part A — findings, decisions and notes for Steve
 

@@ -30,17 +30,22 @@
  * address, each "label: old → new", saved or reported together ("Project details NOT saved: …"), as one
  * write. The delivery Task gains the SURCHARGE line when the unloading option chosen carries one.
  *
+ * 1.5.0 (release 2.3, "Tell us about your property"): the design information Note — one per save, on the
+ * opportunity, the audit trail (buildDesignInfoNote(), createNote(); its body clipped at 3,900 characters, under
+ * the Note's 4,000) — and the "DESIGN INFO – …" Task, one per Send (buildDesignInfoTitle(), buildDesignInfoMessage(),
+ * through createTask()). Plain text; the caller escapes the customer's words.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.4.1
+ * @version 1.5.0
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.4.1';
+    var VERSION = '1.5.0';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -259,8 +264,168 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
             opportunityId: opts.opportunityId, message: opts.message, todayKey: opts.todayKey, priority: PRIORITY.HIGH });
     }
 
+    // ---------------------------------------------------------------- 1.5.0: design information
+
+    /** The Note body's limit (Note.note holds 4,000 characters) and its marker. */
+    var NOTE_MAX = 3900;
+    var TRUNCATED = '\n(truncated)';
+    var DESIGN_PREFIX = 'DESIGN INFO \u2013 ';
+
+    /** Pure: "DESIGN INFO – <project name or QR>". */
+    function buildDesignInfoTitle(projectName, tranId) {
+        return clampTitle(DESIGN_PREFIX + (String(projectName || '') || String(tranId || '') || 'project'));
+    }
+
+    /** Pure: "Design information from customer · dd/mm/yyyy HH:mm". */
+    function buildDesignInfoNoteTitle(whenText) {
+        return 'Design information from customer \u00b7 ' + whenText;
+    }
+
+    /** One change line: " Label: old → new" (blank old as —). */
+    function diChangeLine(c, indent) {
+        return indent + c.label + ': ' + (c.oldText ? c.oldText : '\u2014') + ' \u2192 ' + c.newText;
+    }
+
+    function fileList(files) {
+        return files.map(function (f) { return f.name + (f.sizeText ? ' (' + f.sizeText + ')' : ''); }).join(', ');
+    }
+
+    /**
+     * Pure (brief §5.4): the Note's body.
+     * @param {Object} o - { sectionsSaved: [title], sent: boolean, blocks: [{ title, changes: [{label, oldText, newText}],
+     *   files: [{name, sizeText}] }] (sections with nothing changed are left out), notSaved: ['<qid> (why)'],
+     *   bigFiles: boolean, extra: [line] (file problems) } — every value already escaped and clipped by the caller
+     * @returns {{body: string, clipped: boolean}}
+     */
+    function buildDesignInfoNote(o) {
+        var lines = ['Sections saved: ' + ((o.sectionsSaved || []).join(', ') || '(none)'),
+            'Sent to PE: ' + (o.sent ? 'yes' : 'no')];
+        var body;
+        (o.blocks || []).forEach(function (b) {
+            if (!(b.changes || []).length && !(b.files || []).length) {
+                return;
+            }
+            lines.push('', b.title);
+            (b.changes || []).forEach(function (c) {
+                lines.push(diChangeLine(c, ' '));
+            });
+            if ((b.files || []).length) {
+                lines.push(' Files: ' + fileList(b.files));
+            }
+        });
+        if ((o.notSaved || []).length) {
+            lines.push('', 'Not saved to the record: ' + o.notSaved.join('; '));
+        }
+        if ((o.extra || []).length) {
+            lines.push('');
+            lines = lines.concat(o.extra);
+        }
+        if (o.bigFiles) {
+            lines.push('', 'Large files: customer has files over 10 MB');
+        }
+        body = lines.join('\n');
+        if (body.length > NOTE_MAX) {
+            return { body: body.slice(0, NOTE_MAX - TRUNCATED.length) + TRUNCATED, clipped: true };
+        }
+        return { body: body, clipped: false };
+    }
+
+    /**
+     * Pure (brief §5.5; amendment 1 §1): the "DESIGN INFO" Task's message.
+     * @param {Object} o - { complete, missing: [title], sections: [{title, status}], changes: [{section, label, oldText,
+     *   newText}] (since the last Send), files: [{name, sizeText, label}] (since the last Send), folderText, goodsLine
+     *   ('' or the goods date line), bigFiles, warnings: [line], notSaved: ['<qid> (why)'], failures: [line] (writes that
+     *   failed), noteFailed: boolean, serviceText } — every value already escaped by the caller
+     * @returns {string}
+     */
+    function buildDesignInfoMessage(o) {
+        var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
+            'attached files, then move the sub-status to Design Required when you\u2019re ready.', ''];
+        var last = '';
+        if ((o.failures || []).length) {
+            lines.push('NOT SAVED (please enter by hand):');
+            o.failures.forEach(function (f) { lines.push('- ' + f); });
+            lines.push('');
+        }
+        if (o.noteFailed) {
+            lines.push('Audit note NOT created: the change list below is the only record of this save.', '');
+        }
+        lines.push(o.complete ? 'Complete: everything the design needs has been answered.' :
+            'Still missing: ' + (o.missing || []).join(', ') + '.');
+        if ((o.sections || []).length) {
+            lines.push('Sections: ' + o.sections.map(function (s) {
+                return s.title + ' (' + (s.status === 'done' ? 'done' : s.status === 'todo' ? 'to do' : 'optional') + ')';
+            }).join(', ') + '.');
+        }
+        if (o.serviceText) {
+            lines.push('Design service: ' + o.serviceText + '.');
+        }
+        lines.push('');
+        if (o.goodsLine) {
+            lines.push(o.goodsLine, '');
+        }
+        if ((o.changes || []).length) {
+            lines.push('Changed since the last Send (old \u2192 new):');
+            o.changes.forEach(function (c) {
+                if (c.section !== last) {
+                    lines.push(c.section);
+                    last = c.section;
+                }
+                lines.push(diChangeLine(c, '- '));
+            });
+        } else {
+            lines.push('Nothing changed since the last Send.');
+        }
+        lines.push('');
+        if ((o.files || []).length) {
+            lines.push('Files uploaded since the last Send (' + o.folderText + '):');
+            o.files.forEach(function (f) {
+                lines.push('- ' + f.name + (f.sizeText ? ' (' + f.sizeText + ')' : '') + (f.label ? ', ' + f.label : '') +
+                    (f.attachNote ? ' ' + f.attachNote : ''));
+            });
+            lines.push('');
+        }
+        if (o.bigFiles) {
+            lines.push('LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.', '');
+        }
+        if ((o.notSaved || []).length) {
+            lines.push('Not saved to the record (the customer was told we\u2019ll cover it on the call): ' +
+                o.notSaved.join('; ') + '.', '');
+        }
+        if ((o.warnings || []).length) {
+            lines.push('Check these:');
+            o.warnings.forEach(function (w) { lines.push('- ' + w); });
+        }
+        return lines.join('\n').replace(/\n+$/, '');
+    }
+
+    /**
+     * 1.5.0: the audit Note on the opportunity (record.Type.NOTE). notetype only when given.
+     * @param {Object} opts - { title, note, opportunityId, authorId, noteTypeId }
+     * @returns {number} the Note's ID
+     * @throws whatever record.create/save throws — the caller catches
+     */
+    function createNote(opts) {
+        var note = record.create({ type: record.Type.NOTE, isDynamic: false });
+        note.setValue({ fieldId: 'title', value: opts.title });
+        note.setValue({ fieldId: 'note', value: opts.note });
+        note.setValue({ fieldId: 'transaction', value: opts.opportunityId });
+        note.setValue({ fieldId: 'author', value: opts.authorId });
+        if (opts.noteTypeId) {
+            note.setValue({ fieldId: 'notetype', value: opts.noteTypeId });
+        }
+        return note.save({ ignoreMandatoryFields: true });
+    }
+
     return {
         VERSION: VERSION,
+        NOTE_MAX: NOTE_MAX,
+        DESIGN_PREFIX: DESIGN_PREFIX,
+        buildDesignInfoTitle: buildDesignInfoTitle,
+        buildDesignInfoNoteTitle: buildDesignInfoNoteTitle,
+        buildDesignInfoNote: buildDesignInfoNote,
+        buildDesignInfoMessage: buildDesignInfoMessage,
+        createNote: createNote,
         NEW_ADDRESS_PREFIX: NEW_ADDRESS_PREFIX,
         buildTitle: buildTitle,
         buildMessage: buildMessage,

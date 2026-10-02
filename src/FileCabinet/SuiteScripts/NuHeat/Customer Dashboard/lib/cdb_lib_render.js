@@ -54,17 +54,26 @@
  * the delivery form's heading lines, and as the delivery-link email's "Currently planned" row. The digest
  * is unchanged.
  *
+ * 2.3.0 (release 2.3, "Tell us about your property"): designInfoPage() — one multipart form, a card per section
+ * with its own Save button, "? Why" toggles (<details>, no script), file inputs with a small size warning (the
+ * server checks too), the progress aside, view mode — designInfoMessagePage(); the four design card states on the
+ * dashboard (designRow()) and in the digest (projectCard(), digestRows()), used only when the row carries d.design
+ * (cdb_lib_data.decorateDesign()), otherwise exactly as before; the request email designInfoRequestEmail(). The
+ * canvas mocks are not in the repo yet (amendment 1 §6): built from the brief's descriptions, with the update page
+ * and the delivery-link email as the visual reference. emailRepCard() takes an optional role label ("YOUR PROJECT
+ * ENGINEER"); headerRight() a 'design' kind ("Design questions? Call …").
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.2
+ * @version 2.3.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.2.2';
+    var VERSION = '2.3.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -516,6 +525,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         if (kind === 'questions') {
             return '<span class="hq">' + questionsLine(am) + '</span>' + callButton(am);
         }
+        // 2.3: the design information page — "Design questions? Call [PE or AM] on [phone]".
+        if (kind === 'design') {
+            return '<span class="hq">' + designQuestionsLine(am) + '</span>' + callButton(am);
+        }
         // Amendment 2: name · phone, else name · email, else the name alone.
         c = contactParts(am);
         return '<div class="am"><span class="am-label">Your account manager</span><span class="am-name">' +
@@ -730,6 +743,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var j;
         var d;
         var count;
+        var designCards = false;
 
         if (m.notice) {
             body += '<div class="notice" role="status">' + esc(m.notice) + '</div>';
@@ -756,6 +770,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 colHead('Project');
             for (i = 0; i < g.inDesign.length; i++) {
                 d = g.inDesign[i];
+                // 2.3: the card states, when the row carries them (data.decorateDesign()).
+                if (d.design) {
+                    html += designRow(d, m);
+                    designCards = true;
+                    continue;
+                }
                 html += '<div class="row">' + projectCell(d.opp) + (d.badge === 'needs_info' ?
                     stateCell(badge('need', 'We need information'), 'Your design information') +
                         '<div class="acts"><span class="meta">' + AM_IN_TOUCH + '</span></div>' :
@@ -805,7 +825,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         body += '<footer class="foot">' + (questionsLine(m.am) ? '<span>' + questionsLine(m.am) + '.</span>' : '<span></span>') +
             '<span>This link is personal to you. Please don’t share it.</span></footer>';
 
-        return page({ title: 'Your projects', logoUrl: m.logoUrl, am: m.am, header: 'am', width: 'w1200', body: body });
+        return page({ title: 'Your projects', logoUrl: m.logoUrl, am: m.am, header: 'am', width: 'w1200', body: body,
+            css: designCards ? DESIGN_ROW_CSS : '' });
     }
 
     // ---------------------------------------------------------------- delivery form (Delivery)
@@ -1502,6 +1523,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         for (i = 0; i < groups.inDesign.length; i++) {
             opp = groups.inDesign[i].opp;
+            // 2.3: the card states, when the row carries them.
+            if (groups.inDesign[i].design) {
+                rows.push(designDigestRow(groups.inDesign[i]));
+                continue;
+            }
             rows.push(groups.inDesign[i].badge === 'needs_info' ?
                 { title: opp.title || opp.tranId, sub: 'We need some information from you for the design',
                     badgeKind: 'need', badgeText: 'We need information' } :
@@ -1523,6 +1549,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             }
         }
         return rows;
+    }
+
+    /** 2.3: a design row's digest line, from its card. */
+    function designDigestRow(d) {
+        var t = DESIGN_TEXT;
+        var k = d.design.key;
+        return { title: d.opp.title || d.opp.tranId, sub: designCardLines(d).join(' ') || config.DIGEST_EMAIL.DESIGNING,
+            badgeKind: k === 'needs_info' || k === 'info_partial' ? 'need' : 'work',
+            badgeText: k === 'needs_info' ? t.BADGE_NEEDS_INFO : k === 'info_partial' ? t.BADGE_PARTIAL :
+                k === 'info_sent' ? t.BADGE_SENT : 'In design' };
     }
 
     /**
@@ -1863,9 +1899,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * so both buttons always show.
      *
      * @param {Object} am - { name, phone, email, firstName, photoUrl }, plain text
+     * @param {string} [roleLabel] - 2.3: the label over the name; default YOUR ACCOUNT MANAGER
      * @returns {string}
      */
-    function emailRepCard(am) {
+    function emailRepCard(am, roleLabel) {
         var a = am || {};
         var c = amContact(a);
         var first = c.first.toUpperCase();
@@ -1880,7 +1917,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 '" width="96" height="96" alt="' + esc(c.name) + '" border="0" style="display:block;margin:0 auto;width:96px;height:96px;border-radius:48px;object-fit:cover;"></td></tr>\n' : '') +
             '<tr><td align="center" valign="top" style="padding:' + (photo ? '14px' : '24px') + ' 20px 0 20px;">\n' +
             '<p style="margin:0 0 4px 0;' + EF + 'font-size:13px;line-height:16px;letter-spacing:2px;color:#59315f;">' +
-            fontHtml('#59315f', '<b>YOUR ACCOUNT MANAGER</b>') + '</p>\n' +
+            fontHtml('#59315f', '<b>' + esc(roleLabel || 'YOUR ACCOUNT MANAGER') + '</b>') + '</p>\n' +
             '<p style="margin:0 0 6px 0;' + EF + 'font-size:24px;line-height:28px;font-weight:bold;color:#000000;">' +
             fontHtml('#000000', '<b>' + esc(c.name) + '</b>') + '</p>\n' +
             '<p style="margin:0;' + EF + 'font-size:17px;line-height:23px;color:#131313;">' +
@@ -2155,7 +2192,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * Pure (2.0.3): one card per project, in the existing section order — "For delivery" (what needs the
      * customer), then design, then quotes, then "Booked deliveries". A project in more than one section
      * is one card, with all its orders, where it first appears.
-     * @returns {Array<{opp: Object, kind: string, needsInfo: boolean, orders: Array<{order, state}>}>}
+     * @returns {Array<{opp: Object, kind: string, needsInfo: boolean, orders: Array<{order, state}>, design: Object}>}
      */
     function digestProjects(groups) {
         var cards = [];
@@ -2172,7 +2209,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             card(p.opp, 'delivery').orders = card(p.opp, 'delivery').orders.concat(p.orders);
         });
         (groups.inDesign || []).forEach(function (p) {
-            card(p.opp, 'design').needsInfo = p.badge === 'needs_info';
+            var c = card(p.opp, 'design');
+            c.needsInfo = p.badge === 'needs_info';
+            // 2.3: the card state, when the row carries one.
+            c.design = p.design || null;
         });
         (groups.toOrder || []).forEach(function (opp) {
             card(opp, 'quote');
@@ -2321,11 +2361,21 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * A project card: the name, the sub-line, the progress bar, then its order rows. 2.2: with no title the
      * heading is the QR number, so the sub-line leaves it out; a quote card adds its labelled lines.
      */
-    function projectCard(p, payBacs) {
+    function projectCard(p, payBacs, designLink) {
         var D = config.DIGEST_EMAIL;
+        var T = DESIGN_TEXT;
         var opp = p.opp;
-        var stageText = p.kind === 'design' ? (p.needsInfo ? D.NEEDS_INFO : D.DESIGNING) : p.kind === 'quote' ? D.QUOTE_SENT :
-            opp.siteAddress;
+        // 2.3: a design card with a state shows the state's line (an FC-none card: "In design", as before).
+        var lines = p.kind === 'design' && p.design && p.design.key !== 'fc_none' ? designCardLines(p) : null;
+        var stageText = lines ? lines.join(' ') : p.kind === 'design' ? (p.needsInfo ? D.NEEDS_INFO : D.DESIGNING) :
+            p.kind === 'quote' ? D.QUOTE_SENT : opp.siteAddress;
+        var k = lines ? p.design.key : '';
+        var link = lines && designLink ? designLink(opp.id) : '';
+        var designHtml = (k === 'info_partial' && p.design.progress ? emailProgress(p.design.progress) : '') +
+            (link && (k === 'needs_info' || k === 'info_partial' || k === 'info_sent') ?
+                '<table role="presentation" align="left" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;"><tr><td>\n' +
+                emailButton(link, (k === 'needs_info' ? T.BUTTON_START : k === 'info_partial' ? T.BUTTON_CONTINUE :
+                    T.BUTTON_VIEW).toUpperCase(), k === 'info_sent' ? 'outline' : 'yellowSmall') + '</td></tr></table>\n' : '');
         var sub = [opp.title ? opp.tranId : '', stageText].filter(function (x) { return !!x; }).join(' · ');
         var rows = p.orders.map(function (st) {
             var r = emailOrderRow(opp, st, payBacs);
@@ -2342,7 +2392,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<tr><td align="left" valign="top" style="padding:16px 20px 12px 20px;">' +
             emailP('0', 18, COLORS.TEXT, opp.title || opp.tranId, true) +
             (sub ? emailP('2px 0 0 0', 14, COLORS.MUTED, sub) : '') + (p.kind === 'quote' ? emailQuoteFacts(opp) : '') +
-            '</td></tr>\n' +
+            designHtml + '</td></tr>\n' +
             '<tr><td align="center" valign="top" style="padding:4px 18px 16px 18px;">\n' + progressBar(p) + '</td></tr>\n' +
             rows + '</table>\n';
     }
@@ -2364,7 +2414,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * @param {Object} m - { customerName, greetingName, logoUrl, groups (after data.arrangeSections()), payBacs,
      *                       link (the dashboard), orderLink (function(soId) -> that order's direct delivery
      *                       link; defaults to link), title (the subject), am {name, phone, email, firstName,
-     *                       photoUrl}, digestDays }
+     *                       photoUrl}, digestDays, designLink (2.3: function(oppId) -> that project's design
+     *                       information link; optional) }
      * @returns {string}
      */
     function digestEmail(m) {
@@ -2391,7 +2442,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 '<h2 style="margin:0;' + EF + 'font-size:22px;line-height:27px;font-weight:bold;color:' + COLORS.PURPLE + ';">' +
                 fontHtml(COLORS.PURPLE, esc(config.DIGEST_EMAIL.PROJECTS_HEADING)) + '</h2></td></tr>\n';
             body += cards.map(function (p) {
-                return '<tr><td align="center" valign="top" style="padding:0 0 16px 0;">\n' + projectCard(p, m.payBacs) + '</td></tr>\n';
+                return '<tr><td align="center" valign="top" style="padding:0 0 16px 0;">\n' + projectCard(p, m.payBacs, m.designLink) +
+                    '</td></tr>\n';
             }).join('');
         }
         html += '<tr><td align="center" valign="top" class="pad" style="padding:28px 40px 8px 40px;">\n' +
@@ -2409,6 +2461,570 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             footerLine: 'You get this update ' + everyText(m.digestDays) +
                 ' while you have an open project or order with us.<br>To stop these updates, reply to this email' +
                 emailFooterContact(m.am) + '.'
+        });
+    }
+
+    // ---------------------------------------------------------------- 2.3: "Tell us about your property"
+
+    /**
+     * 2.3: the design information wording — the page, and the project cards on the dashboard and in the digest.
+     * Plain text: escaped when used. {x} placeholders are filled before escaping.
+     */
+    var DESIGN_TEXT = {
+        TITLE: 'Tell us about your property',
+        PROJECT_HEADING: 'Your project, as we have it',
+        F_PROJECT: 'Project',
+        F_SITE: 'Site address',
+        F_REFERENCE: 'Reference',
+        F_HAVING: 'You’re having',
+        F_THERMOSTATS: 'Thermostats',
+        F_NEO_HUB: 'with a Neo hub',
+        F_SERVICE: 'Design service',
+        F_DESIGNER: 'Your design is with',
+        F_CALL: 'Design call',
+        CHIP_CHECKED: 'Checked',
+        CHIP_TODO: 'Needed to start',
+        CHIP_DONE: 'Done',
+        CHIP_OPTIONAL: 'Optional',
+        REQUIRED: 'Needed',
+        WHY: '? Why',
+        READ_ONLY: '(we’ll cover this on your call)',
+        GOODS_HAVE: 'We currently have: {date}',
+        GOODS_ASK: 'Has this changed? Tell us the new date',
+        NOTED: 'You sent us this on {date}. Anything new? Add it here.',
+        NOTED_NO_DATE: 'You’ve sent us this already. Anything new? Add it here.',
+        YES: 'Yes',
+        NO: 'No',
+        FILES_HAVE: 'Already sent:',
+        FILE_N: 'File {n}',
+        UPLOADS_OFF: 'We can’t take files here at the moment. Please email them to your Project Engineer instead.',
+        BIG_FILE: 'These files are bigger than 10 MB: {names}. Remove them and tick “I have files bigger than 10 MB”, ' +
+            'and we’ll send you a secure way to send them.',
+        SAVE_SECTION: 'Save this section',
+        STILL_TO_DO: 'Still to do before your design can start: {list}.',
+        ALL_HERE: 'Everything we need is here. Send it when you’re ready.',
+        SEND_PE: 'Send to my Project Engineer',
+        SEND_AM: 'Send to my account manager',
+        SAVE_LATER: 'Save and finish later',
+        GOES_TO: 'Goes to',
+        ROLE_PE: 'Your Project Engineer',
+        ROLE_AM: 'Your account manager',
+        PROGRESS: 'Your progress',
+        SERVICES_HEADING: 'What each design service needs',
+        SERVICES: [
+            ['UFH Design', 'Your plans, and where the manifolds go.'],
+            ['UFH Design +', 'As UFH Design, plus how well the property is insulated, for a room-by-room heat loss calculation.'],
+            ['HP Design', 'As UFH Design +, plus where the heat pump, cylinder and buffer tank go, and the noise check.']
+        ],
+        WHY_HEADING: 'Why do we ask?',
+        WHY_TEXT: 'Press “? Why” beside a question to see what we use the answer for. We only ask about what’s on ' +
+            'your quote.',
+        DRAWINGS_HEADING: 'Understanding your drawings',
+        DRAWINGS_LINK: 'How to read your installation drawings',
+        VIEW_BANNER: 'Your design is being prepared. Need to change something?',
+        SAVED: 'Saved.',
+        SENT: 'Sent to {name}.',
+        SENT_NEXT: '{first} will read it all before your design call.',
+        SENT_NEXT_NO_NAME: 'We’ll read it all before your design call.',
+        NOT_AVAILABLE: 'This isn’t available right now',
+        NOTHING_NEEDED: 'Nothing is needed from you for this project.',
+        NOT_HERE: 'That project isn’t waiting for design information.',
+        // The project cards (brief §6).
+        CARD_NEEDS_INFO: 'We need some information about your property to start your design. Plans are the main thing. ' +
+            'It takes about 10 minutes, and you can do it in stages.',
+        CARD_HAVE: 'Thanks, we have: {list}.',
+        CARD_HAVE_NONE: 'Thanks for what you’ve sent so far.',
+        CARD_TODO: 'Still to do: {list}.',
+        CARD_TODO_FALLBACK: 'Still to do: a few more details.',
+        CARD_READY: 'Everything’s here: press Send when you’re ready.',
+        CARD_SENT: 'Information received, {date}. {first} is reviewing it and will go through any questions on your design call.',
+        CARD_SENT_NO_NAME: 'Information received, {date}. We’re reviewing it and will go through any questions on your ' +
+            'design call.',
+        CARD_DESIGNING: 'Your design is being prepared. We’ll email you when your installation drawings are ready.',
+        CARD_CALL: 'Design call: {date}',
+        BADGE_NEEDS_INFO: 'We need information',
+        BADGE_PARTIAL: 'In progress',
+        BADGE_SENT: 'Information received',
+        BADGE_DESIGNING: 'Designing your system',
+        BUTTON_START: 'Tell us about your property',
+        BUTTON_CONTINUE: 'Continue',
+        BUTTON_VIEW: 'View or add to what you sent',
+        BUTTON_VIEW_ONLY: 'View what you sent'
+    };
+
+    /** Pure: "{x}" placeholders filled from vals (plain text in, plain text out). */
+    function fill(template, vals) {
+        return String(template).replace(/\{(\w+)\}/g, function (whole, k) {
+            return vals && vals.hasOwnProperty(k) ? String(vals[k]) : whole;
+        });
+    }
+
+    /** The page's own rules (page({ css })), so every other page stays byte-identical. */
+    function designCss() {
+        var c = COLORS;
+        return [
+            '.chip{display:inline-flex;align-items:center;padding:2px 10px;border-radius:11px;font-size:13px;font-weight:600;' +
+                'vertical-align:middle;margin-left:8px}',
+            '.chip-done{background:' + BADGES.ready.bg + ';color:' + BADGES.ready.fg + '}',
+            '.chip-todo{background:' + BADGES.need.bg + ';color:' + BADGES.need.fg + '}',
+            '.chip-optional,.chip-checked{background:' + BADGES.quote.bg + ';color:' + BADGES.quote.fg + '}',
+            '.dq{display:flex;flex-direction:column;gap:6px;padding-top:14px;border-top:1px solid #ece8e3}',
+            '.dq:first-of-type{border-top:0;padding-top:0}',
+            '.req{font-size:12px;font-weight:700;color:' + BADGES.need.fg + ';background:' + BADGES.need.bg +
+                ';border-radius:8px;padding:1px 7px;margin-left:6px}',
+            'details.why{font-size:15px}',
+            'details.why > summary{cursor:pointer;color:' + c.PURPLE + ';font-weight:600;display:inline}',
+            'details.why > p{margin:6px 0 0;background:' + c.TIP + ';border-radius:8px;padding:10px 12px;color:#3e3b39}',
+            '.ro{margin:0;font-size:16px}',
+            '.facts{margin:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 16px;font-size:15px}',
+            '.facts dt{color:' + c.MUTED + '}.facts dd{margin:0;font-weight:600}',
+            '.files{margin:0;padding-left:18px;font-size:14px;color:#3e3b39}',
+            '.fin{font:inherit;font-size:15px;max-width:100%}',
+            '.prog{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:15px}',
+            '.prog li{display:flex;justify-content:space-between;gap:12px}',
+            '.donep{background:' + BADGES.ready.bg + ';color:' + BADGES.ready.fg + ';border-radius:8px;padding:14px 16px}',
+            '.donep p{margin:0}.donep p + p{margin-top:6px}',
+            '#di-big{display:none}',
+            '.secsave{display:flex;justify-content:flex-end}'
+        ].join('\n');
+    }
+
+    /** A status chip. */
+    function chip(kind, text) {
+        return '<span class="chip chip-' + esc(kind) + '">' + esc(text) + '</span>';
+    }
+
+    function chipFor(status, first) {
+        var t = DESIGN_TEXT;
+        if (first) {
+            return chip('checked', t.CHIP_CHECKED);
+        }
+        return status === 'done' ? chip('done', t.CHIP_DONE) : status === 'todo' ? chip('todo', t.CHIP_TODO) :
+            chip('optional', t.CHIP_OPTIONAL);
+    }
+
+    /** The "? Why" toggle: HTML/CSS only. */
+    function whyToggle(q) {
+        return q.why ? '<details class="why"><summary>' + esc(DESIGN_TEXT.WHY) + '</summary><p>' + esc(q.why) + '</p></details>' : '';
+    }
+
+    /**
+     * One question. qm: { q, value, readOnly, readOnlyText, options ([{value, text}]: @field ids, or the literal
+     * labels' indexes), uploaded ([{name, dateText}]), goodsHave ('' or the opportunity's date as shown), notedText }.
+     */
+    function designQuestion(qm, m) {
+        var q = qm.q;
+        var t = DESIGN_TEXT;
+        var e = m.errors || {};
+        var name = 'q_' + q.qid;
+        var id = 'di-' + q.qid;
+        var off = m.mode === 'view' ? ' disabled' : '';
+        var label = esc(q.label) + (q.required && !qm.readOnly ? '<span class="req">' + esc(t.REQUIRED) + '</span>' : '');
+        var hint = q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '';
+        var html = '<div class="dq" id="q-' + esc(q.qid) + '">';
+        var n;
+        var i;
+
+        if (q.type === 'info') {
+            return html + '<p style="margin:0;font-weight:600">' + esc(q.label) + '</p>' + hint + whyToggle(q) + '</div>';
+        }
+        if (qm.readOnly) {
+            return html + '<p class="lbl" style="margin:0">' + esc(q.label) + '</p>' + whyToggle(q) +
+                '<p class="ro">' + esc(qm.readOnlyText || '—') + ' <span class="muted">' + esc(t.READ_ONLY) + '</span></p></div>';
+        }
+        if (q.type === 'yesno' || q.type === 'choice') {
+            html += '<fieldset><legend>' + label + '</legend>' + whyToggle(q) + fieldError(e, q.qid);
+            if (q.type === 'yesno') {
+                html += '<div class="segs">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
+                    return '<label class="seg"><input class="sr" type="radio" name="' + esc(name) + '" value="' + o[0] + '"' +
+                        (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span class="s">' + esc(o[1]) +
+                        '</span></label>';
+                }).join('') + '</div>';
+            } else {
+                html += '<div class="opts">' + (qm.options || []).map(function (o) {
+                    return '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
+                        (String(qm.value) === String(o.value) ? ' checked' : '') + off + describedBy(e, q.qid) +
+                        '><span><span class="ot">' + esc(o.text) + '</span></span></label>';
+                }).join('') + '</div>';
+            }
+            return html + hint + '</fieldset></div>';
+        }
+        html += '<label class="lbl" for="' + esc(id) + (q.type === 'files' ? '-1' : '') + '">' + label + '</label>' + whyToggle(q);
+        if (qm.goodsHave) {
+            html += '<p style="margin:0">' + esc(fill(t.GOODS_HAVE, { date: qm.goodsHave })) + '</p>' +
+                '<p class="hint" style="margin:0">' + esc(t.GOODS_ASK) + '</p>';
+        }
+        if (qm.notedText) {
+            html += '<p class="hint" style="margin:0">' + esc(qm.notedText) + '</p>';
+        }
+        html += fieldError(e, q.qid);
+        if (q.type === 'text') {
+            html += '<input class="inp" type="text" id="' + esc(id) + '" name="' + esc(name) + '" value="' + esc(qm.value) +
+                '" maxlength="300"' + off + describedBy(e, q.qid) + '>';
+        } else if (q.type === 'long') {
+            html += '<textarea class="inp" id="' + esc(id) + '" name="' + esc(name) + '" maxlength="4000"' + off +
+                describedBy(e, q.qid) + '>' + esc(qm.value) + '</textarea>';
+        } else if (q.type === 'date') {
+            html += '<input class="inp" type="date" id="' + esc(id) + '" name="' + esc(name) + '" value="' + esc(qm.value) + '"' +
+                off + describedBy(e, q.qid) + ' style="max-width:260px">';
+        } else if (q.type === 'files') {
+            if (!m.uploadsEnabled) {
+                html += '<p class="hint" style="margin:0">' + esc(t.UPLOADS_OFF) + '</p>';
+            } else {
+                n = parseInt(m.maxFiles, 10) || 6;
+                for (i = 1; i <= n; i++) {
+                    html += '<input class="fin" type="file" id="' + esc(id) + '-' + i + '" name="f_' + esc(q.qid) + '_' + i + '" ' +
+                        'accept="' + esc(m.accept) + '" aria-label="' + esc(q.label + ', ' + fill(t.FILE_N, { n: i })) + '"' + off + '>';
+                }
+            }
+            if ((qm.uploaded || []).length) {
+                html += '<p class="hint" style="margin:0">' + esc(t.FILES_HAVE) + '</p><ul class="files">' +
+                    qm.uploaded.map(function (f) {
+                        return '<li>' + esc(f.name) + (f.dateText ? ' <span class="muted">' + esc(f.dateText) + '</span>' : '') + '</li>';
+                    }).join('') + '</ul>';
+            }
+        }
+        return html + hint + '</div>';
+    }
+
+    /** A section's own Save button (one form: the button names the section). */
+    function saveButton(m, sectionId) {
+        return m.mode === 'view' ? '' : '<div class="secsave"><button type="submit" class="out" name="sec" value="' +
+            esc(sectionId) + '">' + esc(DESIGN_TEXT.SAVE_SECTION) + '</button></div>';
+    }
+
+    /** "Design questions? Call [name] on [phone]" — the page header's contact line. */
+    function designQuestionsLine(r) {
+        var c = contactParts(r);
+        if (!r || !r.name) {
+            return '';
+        }
+        if (c.kind === 'phone') {
+            return 'Design questions? Call ' + esc(r.name) + ' on <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        }
+        if (c.kind === 'email') {
+            return 'Design questions? Email ' + esc(r.name) + ' at <a href="' + esc(c.href) + '">' + esc(c.text) + '</a>';
+        }
+        return 'Design questions? Contact ' + esc(r.name);
+    }
+
+    /** The file-size warning: the server checks too, so it works without script. */
+    var DESIGN_SCRIPT = [
+        '(function(){var f=document.getElementById("diform"),m=document.getElementById("di-big");if(!f||!m||!f.addEventListener)return;',
+        'f.addEventListener("submit",function(e){var ins=f.querySelectorAll("input[type=file]"),big=[],i,j,fs;',
+        'for(i=0;i<ins.length;i++){fs=ins[i].files||[];for(j=0;j<fs.length;j++){if(fs[j].size>10485760){big.push(fs[j].name);}}}',
+        'if(big.length){e.preventDefault();m.textContent=m.getAttribute("data-msg").replace("{names}",big.join(", "));',
+        'm.style.display="block";m.focus();}});})();'
+    ].join('');
+
+    /**
+     * 2.3 (brief §4.4): the design information page. One form (multipart): each section's Save button posts sec=<id>,
+     * "Save and finish later" sec=all, "Send" send=1; the server saves whatever changed. View mode: everything
+     * disabled, no buttons, the "being prepared" banner.
+     *
+     * @param {Object} m - { logoUrl, recipient ({ name, firstName, phone, email, role 'pe'|'am' }), opp ({ id, tranId,
+     *   title, siteAddress }), project ({ havingText, thermostatsText, neoHub, serviceText, callKey }), token, actionUrl,
+     *   backUrl, mode ('edit'|'view'), sections ([{ id, title, status, questions: [qm] }], section 0 first), errors,
+     *   notice, confirmation (null or { lines: [text] }), completeness ({ complete, missing }), maxFiles, accept,
+     *   uploadsEnabled, drawingsUrl }
+     */
+    function designInfoPage(m) {
+        var t = DESIGN_TEXT;
+        var r = m.recipient || {};
+        var sections = m.sections || [];
+        var first = sections[0];
+        var rest = sections.slice(1);
+        var e = m.errors || {};
+        var hasErrors = Object.keys(e).length > 0;
+        var facts = [];
+        var body;
+        var how;
+        var aside;
+
+        function factRowHtml(label, value) {
+            return value ? '<dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd>' : '';
+        }
+
+        facts.push(factRowHtml(t.F_PROJECT, m.opp.title || m.opp.tranId));
+        facts.push(factRowHtml(t.F_REFERENCE, m.opp.title ? m.opp.tranId : ''));
+        facts.push(factRowHtml(t.F_SITE, String(m.opp.siteAddress || '').replace(/\s*\r?\n\s*/g, ', ')));
+        facts.push(factRowHtml(t.F_HAVING, m.project.havingText));
+        facts.push(factRowHtml(t.F_THERMOSTATS, [m.project.thermostatsText, m.project.neoHub ? t.F_NEO_HUB : '']
+            .filter(function (x) { return !!x; }).join(' ')));
+        facts.push(factRowHtml(t.F_SERVICE, m.project.serviceText));
+        facts.push(factRowHtml(t.F_DESIGNER, r.name));
+        facts.push(factRowHtml(t.F_CALL, m.project.callKey ? shortDate(m.project.callKey) : ''));
+
+        body = '<div style="display:flex;flex-direction:column;gap:8px">' +
+            '<a href="' + esc(m.backUrl) + '" style="font-size:15px;text-decoration:none">← Your projects</a>' +
+            '<h1>' + esc(t.TITLE) + '</h1>' +
+            '<p class="lead" style="margin:0">' + esc(oppLine(m.opp)) + '</p></div>';
+        if (m.confirmation) {
+            body += '<div class="donep" role="status">' + m.confirmation.lines.map(function (l) {
+                return '<p>' + esc(l) + '</p>';
+            }).join('') + '</div>';
+        }
+        if (m.notice) {
+            body += '<div class="notice" role="status">' + esc(m.notice) + '</div>';
+        }
+        if (hasErrors) {
+            body += '<div class="notice" role="alert">Please check the highlighted answers below. Nothing has been saved yet.</div>';
+        }
+        if (m.mode === 'view') {
+            how = r.email ? 'Send a note to <a href="mailto:' + esc(r.email) + '">' + esc(r.name || r.email) + '</a>' : '';
+            if (r.phone) {
+                how += (how ? ' or call ' : 'Call ') + esc(r.name || 'us') + ' on <a href="' + esc(telHref(r.phone)) + '">' +
+                    esc(r.phone) + '</a>';
+            }
+            body += '<div class="notice" role="status">' + esc(t.VIEW_BANNER) + (how ? ' ' + how + '.' : '') + '</div>';
+        }
+        body += '<p id="di-big" class="notice" role="alert" tabindex="-1" data-msg="' + esc(t.BIG_FILE) + '"></p>';
+
+        body += '<form id="diform" method="post" enctype="multipart/form-data" action="' + esc(m.actionUrl) +
+            '" accept-charset="utf-8">' +
+            '<input type="hidden" name="t" value="' + esc(m.token) + '">' +
+            '<input type="hidden" name="a" value="designinfo">' +
+            '<input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
+            '<div class="layout"><div class="fcol">';
+
+        // The project card, with section 0's questions.
+        body += '<section class="card" aria-labelledby="h-project"><h2 id="h-project">' + esc(t.PROJECT_HEADING) +
+            chipFor('', true) + '</h2><dl class="facts">' + facts.join('') + '</dl>' +
+            (first ? first.questions.map(function (qm) { return designQuestion(qm, m); }).join('') + saveButton(m, first.id) : '') +
+            '</section>';
+
+        rest.forEach(function (s, i) {
+            body += '<section class="card" id="sec-' + esc(s.id) + '" aria-labelledby="h-' + esc(s.id) + '"><h2 id="h-' + esc(s.id) +
+                '"><span class="num">' + (i + 1) + '</span>' + esc(s.title) + chipFor(s.status, false) + '</h2>' +
+                s.questions.map(function (qm) { return designQuestion(qm, m); }).join('') + saveButton(m, s.id) + '</section>';
+        });
+
+        if (m.mode !== 'view') {
+            body += '<section class="card" aria-label="Send"><p style="margin:0;font-size:17px;font-weight:600">' +
+                esc(m.completeness.complete ? t.ALL_HERE : fill(t.STILL_TO_DO, { list: m.completeness.missing.join(', ') })) +
+                '</p><div class="submitrow"><button type="submit" class="cta" name="send" value="1">' +
+                esc(r.role === 'pe' ? t.SEND_PE : t.SEND_AM) + '</button>' +
+                '<button type="submit" class="out" name="sec" value="all">' + esc(t.SAVE_LATER) + '</button></div></section>';
+        }
+        body += '</div>';
+
+        aside = '<aside class="card" aria-label="About this page"><div class="goes"><span class="cap">' + esc(t.GOES_TO) +
+            '</span><span class="amn">' + esc(r.name || (r.role === 'pe' ? t.ROLE_PE : t.ROLE_AM)) + '</span><span class="meta">' +
+            esc(r.role === 'pe' ? t.ROLE_PE : t.ROLE_AM) + '</span></div>' +
+            '<h2>' + esc(t.PROGRESS) + '</h2><ul class="prog">' + rest.map(function (s) {
+                return '<li><span>' + esc(s.title) + '</span>' + chipFor(s.status, false) + '</li>';
+            }).join('') + '</ul>' +
+            '<h3>' + esc(t.SERVICES_HEADING) + '</h3>' + t.SERVICES.map(function (sv) {
+                return '<p class="q-help"><strong>' + esc(sv[0]) + ':</strong> ' + esc(sv[1]) + '</p>';
+            }).join('') +
+            '<h3>' + esc(t.WHY_HEADING) + '</h3><p class="q-help">' + esc(t.WHY_TEXT) + '</p>' +
+            (m.drawingsUrl ? '<h3>' + esc(t.DRAWINGS_HEADING) + '</h3><p class="q-help"><a href="' + esc(m.drawingsUrl) +
+                '" target="_blank" rel="noopener">' + esc(t.DRAWINGS_LINK) + '</a></p>' : '') +
+            '</aside>';
+
+        body += aside + '</div></form>';
+
+        return page({ title: t.TITLE, logoUrl: m.logoUrl, am: r, header: 'design', width: 'w1120', body: body,
+            css: '\n' + designCss(), script: m.mode === 'view' ? '' : DESIGN_SCRIPT });
+    }
+
+    /**
+     * 2.3: the design information action cannot run (no registry, or the project is not waiting for information).
+     * @param {Object} m - { logoUrl, am, backUrl, text }
+     */
+    function designInfoMessagePage(m) {
+        return page({ title: DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: m.am, header: 'none', width: 'w600',
+            body: '<div class="card"><p style="margin:0">' + esc(m.text) + (questionsLine(m.am) ? ' ' + questionsLine(m.am) + '.' : '') +
+                '</p></div><a class="back" href="' + esc(m.backUrl) + '">Back to your projects</a>' });
+    }
+
+    // ---------------------------------------------------------------- 2.3: the design cards (brief §6)
+
+    /** Pure: the card's text lines for a design row with d.design. Plain text. */
+    function designCardLines(d) {
+        var t = DESIGN_TEXT;
+        var g = d.design;
+        var lines = [];
+        var p = g.progress;
+        if (g.key === 'needs_info') {
+            lines.push(t.CARD_NEEDS_INFO);
+        } else if (g.key === 'info_partial') {
+            lines.push((p && p.done.length ? fill(t.CARD_HAVE, { list: p.done.join(', ') }) : t.CARD_HAVE_NONE) + ' ' +
+                (!p ? t.CARD_TODO_FALLBACK : p.missing.length ? fill(t.CARD_TODO, { list: p.missing.join(', ') }) : t.CARD_READY));
+        } else if (g.key === 'info_sent') {
+            lines.push(fill(g.peFirst ? t.CARD_SENT : t.CARD_SENT_NO_NAME, { date: shortDate(g.sentKey) || 'recently',
+                first: g.peFirst }));
+        } else if (g.key === 'designing') {
+            lines.push(t.CARD_DESIGNING);
+        }
+        if (g.callKey && g.key !== 'fc_none') {
+            lines.push(fill(t.CARD_CALL, { date: shortDate(g.callKey) }));
+        }
+        return lines;
+    }
+
+    /** The page's progress bar: decorative, the text says it. */
+    function pageProgress(p) {
+        return p ? '<span class="pbar" aria-hidden="true"><span style="width:' + Math.max(0, Math.min(100, p.pct)) +
+            '%"></span></span>' : '';
+    }
+
+    /** The dashboard row of a project in design (2.3: the four card states; FC none as before). */
+    function designRow(d, m) {
+        var t = DESIGN_TEXT;
+        var g = d.design;
+        var url = m.designInfoUrl ? m.designInfoUrl(d.opp.id) : '';
+        var lines = designCardLines(d);
+        var meta = lines.map(function (l) { return '<span class="meta">' + esc(l) + '</span>'; }).join('');
+        var badgeHtml;
+        var acts;
+        if (g.key === 'needs_info') {
+            badgeHtml = badge('need', t.BADGE_NEEDS_INFO);
+            acts = url ? '<a class="cta" href="' + esc(url) + '">' + esc(t.BUTTON_START) + '</a>' :
+                '<span class="meta">' + AM_IN_TOUCH + '</span>';
+        } else if (g.key === 'info_partial') {
+            badgeHtml = badge('need', t.BADGE_PARTIAL);
+            meta += pageProgress(g.progress);
+            acts = url ? '<a class="cta" href="' + esc(url) + '">' + esc(t.BUTTON_CONTINUE) + '</a>' :
+                '<span class="meta">' + AM_IN_TOUCH + '</span>';
+        } else if (g.key === 'info_sent') {
+            badgeHtml = badge('work', t.BADGE_SENT);
+            acts = url ? '<a class="out" href="' + esc(url) + '">' + esc(t.BUTTON_VIEW) + '</a>' :
+                '<span class="meta">' + NOTHING_NEEDED + '</span>';
+        } else {
+            badgeHtml = badge('work', t.BADGE_DESIGNING);
+            acts = '<span class="meta">' + NOTHING_NEEDED + '</span>' + (g.key === 'designing' && g.anySaved && url ?
+                '<a class="out" href="' + esc(url) + '">' + esc(t.BUTTON_VIEW_ONLY) + '</a>' : '');
+        }
+        return '<div class="row">' + projectCell(d.opp) + '<div class="cell">' + badgeHtml + meta + '</div>' +
+            '<div class="acts">' + acts + '</div></div>';
+    }
+
+    /** The dashboard's extra rules when a design row has a card (page({ css })). */
+    var DESIGN_ROW_CSS = '\n.pbar{display:block;height:6px;border-radius:3px;background:#e2ded9;overflow:hidden;margin-top:4px;max-width:240px}' +
+        '\n.pbar > span{display:block;height:6px;background:' + COLORS.CTA + '}';
+
+    /** The email-safe progress bar: two bgcolor cells. */
+    function emailProgress(p) {
+        var pct = Math.max(0, Math.min(100, p.pct));
+        return '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;"><tr>' +
+            (pct > 0 ? '<td width="' + pct + '%" height="6" bgcolor="' + COLORS.CTA + '" style="background-color:' + COLORS.CTA +
+                ';height:6px;font-size:1px;line-height:1px;"><font size="1">&nbsp;</font></td>' : '') +
+            (pct < 100 ? '<td height="6" bgcolor="#e2ded9" style="background-color:#e2ded9;height:6px;font-size:1px;line-height:1px;">' +
+                '<font size="1">&nbsp;</font></td>' : '') + '</tr></table>';
+    }
+
+    // ---------------------------------------------------------------- 2.3: the request email (brief §7.3)
+
+    /** Pure: the request email's subject. */
+    function designInfoRequestSubject(text) {
+        return String((text || config.DESIGNINFO_EMAIL).SUBJECT);
+    }
+
+    /**
+     * 2.3 (brief §7.3): "Tell us about your property" — composed from the email shell, as the delivery-link email.
+     * Pure.
+     * @param {Object} m - { text (config.parseDesignInfoEmail().text), customerName, greetingName, logoUrl,
+     *   opp ({ tranId, title, siteAddress }), havingText, callKey ('' or the design call, today or later), goodsKey,
+     *   link (the direct link), dashboardLink, sender ({ name, firstName, phone, email, photoUrl }: the card; email
+     *   already DESIGN_EMAIL_ADDRESS when it applies), senderRole ('pe'|'am'), peName (the PE's name for the AM
+     *   variant, '' when none), steps ({ insulation: boolean, heatPump: boolean }) }
+     * @returns {string}
+     */
+    function designInfoRequestEmail(m) {
+        var t = m.text || config.DESIGNINFO_EMAIL;
+        var std = config.EMAIL_STANDARD;
+        var hero = config.EMAIL_HERO_URL;
+        var name = m.greetingName || m.customerName || '';
+        var sender = m.sender || {};
+        var senderFirst = resolveFirstName(sender.firstName, sender.name) || sender.name || 'your Nu-Heat team';
+        var facts = '';
+        var html = '';
+        var n = 0;
+        var personal;
+        var ref = [m.opp && m.opp.tranId, m.opp && String(m.opp.siteAddress || '').replace(/\s*\r?\n\s*/g, ', ')]
+            .filter(function (x) { return !!x; }).join(' · ');
+
+        html += emailLogo(m.logoUrl);
+        html += emailBand(t.EYEBROW, name ? fill(t.HEADING, { name: name }) : t.HEADING_NO_NAME, t.SUB);
+        if (isHttpsUrl(hero)) {
+            html += '<tr><td align="center" valign="top"><img src="' + esc(hero) + '" width="' + config.EMAIL_HERO_WIDTH +
+                '" height="' + config.EMAIL_HERO_HEIGHT + '" alt="" border="0" class="fluid" style="display:block;width:100%;' +
+                'max-width:600px;height:auto;"></td></tr>\n';
+        }
+
+        // The personal paragraph: the PE's own words, or the account manager's.
+        personal = fill(m.senderRole === 'pe' ? t.PERSONAL_PE : t.PERSONAL_AM, { sender: senderFirst,
+            pe: m.peName || t.PE_NONE });
+        html += '<tr><td align="left" valign="top" class="pad" style="padding:28px 48px 4px 48px;">' +
+            emailP('0 0 12px 0', 17, COLORS.TEXT, name ? fill(t.HELLO, { name: name }) : t.HELLO_NO_NAME) +
+            emailP('0', 17, COLORS.TEXT, personal) + '</td></tr>\n';
+
+        // "Your project".
+        if (ref) {
+            facts += factRow(t.FACT_REFERENCE, '<b>' + esc(ref) + '</b>');
+        }
+        if (m.havingText) {
+            facts += factRow(t.FACT_HAVING, '<b>' + esc(m.havingText) + '</b>');
+        }
+        if (m.callKey) {
+            facts += factRow(t.FACT_CALL, '<b>' + esc(shortDate(m.callKey)) + '</b>');
+        }
+        if (m.goodsKey) {
+            facts += factRow(t.FACT_GOODS, '<b>' + esc(shortDate(m.goodsKey)) + '</b>');
+        }
+        html += '<tr><td align="center" valign="top" class="pad" style="padding:24px 48px 8px 48px;">\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" ' +
+            'style="background-color:#ffffff;border:1px solid #e2ded9;border-radius:10px;border-collapse:separate;">\n' +
+            '<tr><td align="left" valign="top" style="padding:20px 22px 12px 22px;">\n' +
+            emailP('0 0 6px 0', 12, std.TEAL, t.FACTS_LABEL, true) +
+            emailP('0 0 8px 0', 19, COLORS.TEXT, (m.opp && (m.opp.title || m.opp.tranId)) || 'Your project', true) +
+            (facts ? '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n' + facts +
+                '</table>\n' : '') +
+            '</td></tr>\n</table>\n</td></tr>\n';
+
+        html += emailButtonRow(m.link, t.BUTTON, 'yellow', '24px 32px 8px');
+        html += '<tr><td align="center" valign="top" style="padding:4px 32px 8px;' + EF + 'font-size:15px;">' +
+            '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
+            ';text-decoration:underline;">' + fontHtml(COLORS.PURPLE, esc(t.DASHBOARD_LINK)) + '</a></td></tr>\n';
+
+        // What we'll ask: the plans; the insulation unless UFH Design; where things go (+ the heat pump).
+        html += '<tr><td align="center" valign="top" class="pad" style="padding:24px 48px 8px 48px;">\n' +
+            emailH2(t.ASK_HEADING, std.PURPLE) +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n';
+        n += 1;
+        html += stepRow(n, t.STEP1_TITLE, t.STEP1_TEXT);
+        if (m.steps && m.steps.insulation) {
+            n += 1;
+            html += stepRow(n, t.STEP2_TITLE, t.STEP2_TEXT);
+        }
+        n += 1;
+        html += stepRow(n, t.STEP3_TITLE, t.STEP3_TEXT + (m.steps && m.steps.heatPump ? ' ' + t.STEP3_HP : ''));
+        html += '</table>\n' +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#fff5dc" ' +
+            'style="background-color:#fff5dc;border-radius:6px;"><tr><td align="left" valign="top" bgcolor="#fff5dc" ' +
+            'style="padding:12px 14px;' + EF + 'font-size:15px;line-height:21px;color:' + COLORS.TEXT + ';">' +
+            fontHtml(COLORS.TEXT, esc(t.NOTE)) + '</td></tr></table>\n</td></tr>\n';
+
+        // What happens next: three tips, three across (stacked on phones).
+        html += '<tr><td align="center" valign="top" bgcolor="' + std.PANEL + '" class="pad" style="background-color:' + std.PANEL +
+            ';padding:28px 30px;">\n' + emailH2(t.NEXT_HEADING, std.MAGENTA, '0 0 18px 0') +
+            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n<tr>\n' +
+            t.TIPS.map(function (tip) {
+                return '<td class="stack" width="33%" align="center" valign="top" style="padding:0 10px 12px 10px;">\n' +
+                    emailP('0 0 6px 0', 16, COLORS.TEXT, tip[0], true, 'center') +
+                    emailP('0', 14, '#4a4650', tip[1], false, 'center') + '</td>\n';
+            }).join('') +
+            '</tr>\n</table>\n</td></tr>\n';
+
+        return emailShell({
+            title: esc(designInfoRequestSubject(t)),
+            preheader: esc(t.PREHEADER),
+            rows: html,
+            cardIntro: emailH2(t.QUESTIONS, std.PURPLE, '4px 0 16px 0'),
+            card: emailRepCard(sender, m.senderRole === 'pe' ? t.CARD_PE : t.CARD_AM),
+            after: emailPersonal(t.PERSONAL),
+            footerLine: esc(t.FOOTER)
         });
     }
 
@@ -2459,6 +3075,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         digestProjects: digestProjects,
         digestCounts: digestCounts,
         deliveryLinkSubject: deliveryLinkSubject,
-        deliveryLinkEmail: deliveryLinkEmail
+        deliveryLinkEmail: deliveryLinkEmail,
+        // 2.3
+        DESIGN_TEXT: DESIGN_TEXT,
+        designInfoPage: designInfoPage,
+        designInfoMessagePage: designInfoMessagePage,
+        designCardLines: designCardLines,
+        designInfoRequestSubject: designInfoRequestSubject,
+        designInfoRequestEmail: designInfoRequestEmail
     };
 });
