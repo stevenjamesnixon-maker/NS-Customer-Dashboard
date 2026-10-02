@@ -83,22 +83,25 @@
  * 2.2.1 (PR #8 amendment 1): "Your project details" — validateUpdate() takes siteAddress beside projectName,
  * with the same rules (<= 300), only when the page offered it; writeProjectName() becomes
  * writeProjectDetails(oppId, { title, siteAddress }), ONE submitFields of the changed ones of title and
- * custbody_opp_site_adress and never anything else. siteAddressFieldType() reads the field's type from the
- * loaded opportunity: the input is offered only for a text-type field (isTextFieldType()). siteAddressLine()
- * is the stored address as one line (newlines -> ", "), the form's prefill and what a post is compared with.
+ * custbody_opp_site_adress and never anything else. siteAddressLine() is the stored address as one line
+ * (newlines -> ", "), the form's prefill and what a post is compared with.
+ *
+ * 2.2.2 (PR #8 amendment 2): the site address is always offered. custbody_opp_site_adress is Long Text
+ * (confirmed in Production, 2 Oct 2026), so 2.2.1's runtime type check — siteAddressFieldType(),
+ * isTextFieldType() and the opportunity load behind them — is gone.
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.1
+ * @version 2.2.2
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
     function (search, record, format, log, config, dates) {
 
     'use strict';
 
-    var VERSION = '2.2.1';
+    var VERSION = '2.2.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -733,13 +736,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
      * 2.2: update mode also takes projectName — cleanLine() (trimmed, control characters out), <= 60. Blank
      * never clears the title; it is a change only when it differs from current.title.
      *
-     * 2.2.1: and siteAddress, only when ctx.siteAddress is true (the field is text-type), by the same rules,
-     * <= 300, compared with siteAddressLine(current.siteAddress). For both, a value equal to the current one
+     * 2.2.1: and siteAddress (2.2.2: always), by the same rules, <= 300, compared with
+     * siteAddressLine(current.siteAddress). For both, a value equal to the current one
      * is never an error, so an untouched prefill always posts cleanly.
      *
      * @param {Object} input - raw strings: mode, projectName, siteAddress, buildStage, delDate, note, call, phone,
      *                         callTime, reason, comment, confirm
-     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, siteAddress (offered), current: { title,
+     * @param {Object} ctx - { stageIds (offered; [] hidden), showDate, current: { title,
      *                         siteAddress, buildStage, delDateKey }, reasonIds (offered; [] none), todayKey }
      * @returns {{ok: boolean, mode: string, errors: Object, values: Object, changes: Object, nothing: boolean}}
      */
@@ -769,8 +772,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         } else {
             values.projectName = detailLine(input.projectName, cleanLine(current.title), limits.PROJECT_NAME,
                 'projectName', errors, changes);
-            values.siteAddress = ctx.siteAddress ? detailLine(input.siteAddress, siteAddressLine(current.siteAddress),
-                limits.SITE_ADDRESS, 'siteAddress', errors, changes) : '';
+            values.siteAddress = detailLine(input.siteAddress, siteAddressLine(current.siteAddress),
+                limits.SITE_ADDRESS, 'siteAddress', errors, changes);
 
             values.buildStage = (ctx.stageIds || []).length ? trim(input.buildStage) : '';
             if (values.buildStage !== '' && !contains(ctx.stageIds, values.buildStage)) {
@@ -1941,32 +1944,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return e;
     }
 
-    /** 2.2.1: the field types a site address may be offered for: Free-Form Text and Text Area. */
-    var TEXT_FIELD_TYPES = ['text', 'textarea'];
-
-    /** Pure (2.2.1): true for a Free-Form Text or Text Area field type (as Field.type gives it). */
-    function isTextFieldType(type) {
-        return TEXT_FIELD_TYPES.indexOf(trim(type).toLowerCase()) >= 0;
-    }
-
-    /**
-     * 2.2.1: the type of custbody_opp_site_adress, from the loaded opportunity's Field (10 units). The
-     * lookup guardOpportunity() makes returns the value only, which cannot tell a text field from any other
-     * kind that comes back as a string, so the field itself is asked.
-     * @returns {string|null} Field.type, lower case; null when the field is not on the opportunity
-     * @throws whatever the load throws
-     */
-    function siteAddressFieldType(oppId) {
-        var opp = record.load({ type: record.Type.OPPORTUNITY, id: trim(oppId), isDynamic: false });
-        var field = opp.getField({ fieldId: OPP.SITE_ADDRESS });
-        return field ? trim(field.type).toLowerCase() : null;
-    }
-
     /**
      * 2.2.1 (was 2.2's writeProjectName): "Your project details". ONE submitFields on the opportunity carrying
      * only the values given — title and/or custbody_opp_site_adress, NEVER any other field — no sourcing,
-     * mandatory fields ignored. The caller has run guardOpportunity() (the token's customer's, not Won or Lost),
-     * checked the site address field is text-type, and run validateUpdate(), and passes only the changed
+     * mandatory fields ignored. The caller has run guardOpportunity() (the token's customer's, not Won or Lost)
+     * and validateUpdate(), and passes only the changed
      * values; each is checked again here and the whole write refused rather than made (fail closed): a bad
      * opportunity ID, nothing to write, a blank value or one over its limit.
      * @param {string} oppId
@@ -2189,8 +2171,6 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         matchAddress: matchAddress,
         addressLabel: addressLabel,
         writeProjectDetails: writeProjectDetails,
-        siteAddressFieldType: siteAddressFieldType,
-        isTextFieldType: isTextFieldType,
         siteAddressLine: siteAddressLine,
         addToAddressBook: addToAddressBook,
         writeDeliveryAddress: writeDeliveryAddress

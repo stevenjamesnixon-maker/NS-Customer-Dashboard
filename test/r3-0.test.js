@@ -380,5 +380,5 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND].sort());
     assert.strictEqual(Object.keys(c.PARAMETERS).length, 36,
         'the 2.0.5 keys, the three 3.1 keys and the two 3.2.1 keys, no more (3.2 adds none)');
-    assert.strictEqual(c.VERSION, '3.2.1');
+    assert.strictEqual(c.VERSION, '3.2.2');
 });

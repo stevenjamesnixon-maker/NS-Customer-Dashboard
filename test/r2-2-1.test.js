@@ -115,7 +115,8 @@ test('details: one question, "Your project details", two inputs side by side, bo
     // .g2 is two equal columns, one column at the phone breakpoint.
     assert.ok(/\.g2\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/.test(html));
     assert.ok(/@media \(max-width:719px\)\{[^]*\.g2,\.g3\{grid-template-columns:minmax\(0,1fr\)\}/.test(html));
-    assert.strictEqual(s.w.oppLoads, 1, 'the type is read from the loaded opportunity');
+    // 2.2.2 (PR #8 amendment 2): no opportunity load to check the field's type.
+    assert.strictEqual(s.w.oppLoads || 0, 0);
 });
 
 test('details: only the changed fields go, in ONE submitFields, no sourcing; the untouched prefill is no change', function () {
@@ -202,31 +203,36 @@ test('details: a failed write says "Project details NOT saved" with both lines, 
     assert.ok(html.indexOf('passed your update on') > 0);
 });
 
-test('details: a site address field that is not text hides the input, logs SITE_ADDRESS_NOT_TEXT once, and is never written', function () {
-    var s = setup([], function (w) { w.oppFieldTypes = { custbody_opp_site_adress: 'select' }; });
+test('details (2.2.2): the site address input always shows — a longtext field, no type check, no opportunity load', function () {
+    var s = setup([], function (w) { w.oppFieldTypes = { custbody_opp_site_adress: 'longtext' }; });
     var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
-    assert.strictEqual(html.indexOf('name="siteAddress"'), -1, 'not offered');
-    assert.strictEqual(html.indexOf('<div class="g2"><div><label class="lbl" for="f-projectName">'), -1, 'the reference alone');
-    assert.ok(html.indexOf('<span class="num">1</span>Your project details</h2><div><label class="lbl" for="f-projectName">' +
-        'Your reference</label>') > 0, html);
-    update(s, { projectName: 'Barn conversion', siteAddress: 'Plot 5' });
-    assert.deepStrictEqual(oppSubmits(s.w).map(function (o) { return o.values; }), [{ title: 'Barn conversion' }], 'posted, ignored');
-    assert.strictEqual(logs(s.w, 'SITE_ADDRESS_NOT_TEXT').length, 1, 'once per execution');
-    assert.ok(/custbody_opp_site_adress is not offered on "Give us an update": its type is "select"/
-        .test(logs(s.w, 'SITE_ADDRESS_NOT_TEXT')[0][2]));
-    // Missing from the opportunity, or unreadable: the same.
-    s = setup([], function (w) { w.missingOppFields = ['custbody_opp_site_adress']; });
-    assert.strictEqual(run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' }).indexOf('name="siteAddress"'), -1);
-    assert.ok(/it is not on the opportunity/.test(logs(s.w, 'SITE_ADDRESS_NOT_TEXT')[0][2]));
-    s = setup([], function (w) { w.oppLoadThrows = true; });
-    assert.strictEqual(run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' }).indexOf('name="siteAddress"'), -1);
-    assert.ok(/its type could not be read/.test(logs(s.w, 'SITE_ADDRESS_NOT_TEXT')[0][2]));
-    // A Text Area is offered like Free-Form Text.
-    s = setup([], function (w) { w.oppFieldTypes = { custbody_opp_site_adress: 'textarea' }; });
-    assert.ok(run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' }).indexOf('name="siteAddress" value="Plot 4, Village"') > 0);
+    assert.ok(html.indexOf('<input class="inp" type="text" id="f-siteAddress" name="siteAddress" value="Plot 4, Village" ' +
+        'maxlength="300">') > 0, html);
+    update(s, { siteAddress: 'Plot 5, Village' });
+    assert.deepStrictEqual(oppSubmits(s.w).map(function (o) { return o.values; }), [{ custbody_opp_site_adress: 'Plot 5, Village' }]);
+    assert.strictEqual(s.w.oppLoads || 0, 0, 'nothing loads the opportunity to check the field');
     assert.strictEqual(logs(s.w, 'SITE_ADDRESS_NOT_TEXT').length, 0);
-    assert.deepStrictEqual(['text', 'TEXTAREA', 'select', 'richtext', '', null].map(s.data.isTextFieldType),
-        [true, true, false, false, false, false]);
+    assert.strictEqual(s.data.siteAddressFieldType, undefined, 'the check is gone');
+    assert.strictEqual(s.data.isTextFieldType, undefined);
+    // Even a field the old check refused: the input shows (a refused write is the existing failure path).
+    s = setup([], function (w) { w.oppFieldTypes = { custbody_opp_site_adress: 'select' }; w.oppLoadThrows = true; });
+    assert.ok(run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' }).indexOf('name="siteAddress"') > 0);
+});
+
+test('details (2.2.2): a blank stored site address shows an empty input that can be filled and written', function () {
+    var s = setup([], function (w) { w.opps[5].custbody_opp_site_adress = ''; });
+    var html = run(s.sl, 'GET', { t: s.tok, a: 'update', opp: '5' });
+    assert.ok(html.indexOf('<input class="inp" type="text" id="f-siteAddress" name="siteAddress" value="" maxlength="300">') > 0, html);
+    html = update(s, { projectName: 'New build', siteAddress: '12 Mill Lane, Hexham' });
+    assert.deepStrictEqual(oppSubmits(s.w).map(function (o) { return o.values; }), [{ custbody_opp_site_adress: '12 Mill Lane, Hexham' }]);
+    assert.strictEqual(s.w.opps[5].custbody_opp_site_adress, '12 Mill Lane, Hexham');
+    assert.ok(s.w.tasks[0].values.message.indexOf('- Site address: (empty) → 12 Mill Lane, Hexham') > 0);
+    assert.ok(html.indexOf('Site address: <strong>12 Mill Lane, Hexham</strong>') > 0);
+    // Blank still never clears, and a refused write is "Project details NOT saved".
+    s = setup([], function (w) { w.submitThrows = function (o) { return o.type === 'opportunity'; }; });
+    update(s, { siteAddress: 'Plot 5' });
+    assert.ok(s.w.tasks[0].values.message.indexOf('Project details NOT saved: USER_ERROR: submitFields refused.') > 0);
+    assert.strictEqual(logs(s.w, 'OPP_NAME_FAILED').length, 1);
 });
 
 // ---------------------------------------------------------------- 2 time of day

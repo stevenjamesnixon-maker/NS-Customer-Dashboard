@@ -52,13 +52,16 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 3.2.1
+ * 3.2.2 (PR #8 amendment 2): DELIVERY_LINK_EMAIL.FACT_PLANNED ("Currently planned"); custbody_opp_site_adress
+ * is Long Text (confirmed in Production, 2 Oct 2026), so its comment no longer speaks of a type check.
+ *
+ * @version 3.2.2
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.2.1';
+    var VERSION = '3.2.2';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -118,8 +121,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         OPPORTUNITY: {
             STATUS: 'entitystatus',
             SUB_STATUS: 'custbody_opportunity_sub_status',
-            // 3.2.1: also written, ONLY by cdb_lib_data.writeProjectDetails() with the title, and only when
-            // the field is text-type (Free-Form Text or Text Area). One d: the real ID.
+            // 3.2.1: also written, ONLY by cdb_lib_data.writeProjectDetails() with the title. Long Text
+            // (confirmed in Production, 2 Oct 2026). One d: the real ID.
             SITE_ADDRESS: 'custbody_opp_site_adress',
             PE: 'custbody_pe',
             VALUE_PROPOSITION: 'custbody_value_proposition',
@@ -308,6 +311,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         FACT_ORDER: 'Order',
         FACT_PROJECT: 'Project',
         FACT_THIS_ORDER: 'This order',
+        // 3.2.2: the order's current forecast date (custbody_defaultshipdate), above Earliest delivery.
+        FACT_PLANNED: 'Currently planned',
         FACT_EARLIEST: 'Earliest delivery',
         EARLIEST_SOONER: '(sooner? call us)',
         FACT_AMOUNT: 'Amount to pay',

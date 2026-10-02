@@ -37,7 +37,7 @@
  *     clears), entitystatus = the Lost status for the customer's stage (writeOppUpdate), and one
  *     Customer Objection (createObjections);
  *   - 2.2, the opportunity's title (the project name), by the dashboard ITSELF; 2.2.1, with the site address
- *     (custbody_opp_site_adress, only when it is a text-type field) — data.writeProjectDetails(), one
+ *     (custbody_opp_site_adress, Long Text) — data.writeProjectDetails(), one
  *     write of the changed ones of those two fields only, after guardOpportunity(), after the
  *     library's write;
  *   - 2.2, with "Add a new address…": one line on the customer's address book (data.addToAddressBook(),
@@ -58,19 +58,24 @@
  * is logged at the end of every request as CDB USAGE. 2.2: a new address adds up to 40 — the customer's
  * load (5), save (10) and reload to find the line (5), then the opportunity's load (10) and its one-field
  * write (10); a project name adds one one-field write (10). Both writes are in cdb_lib_data, never here.
- * 2.2.1: the update page (GET and POST) loads the opportunity once (10) to read the site address field's
- * type; the project details write is still one write (10) for either or both fields.
+ * 2.2.1: the project details write is one write (10) for either or both fields. (2.2.2: no opportunity load
+ * on the update page: 2.2.1's site address type check is gone.)
  *
  * 2.2.1 (PR #8 amendment 1): "Your project details" (the reference and the site address); the delivery
  * form's TIME_DEFAULT (pre-selected, and booked when no time is posted) and UNLOAD_SURCHARGE (shown under
  * the option, on the confirmation and in the Task — the dashboard never adds an item line: the rep does).
+ *
+ * 2.2.2 (PR #8 amendment 2): "Site address" is always offered (the field is Long Text, confirmed in
+ * Production, 2 Oct 2026; the runtime type check and CDB SITE_ADDRESS_NOT_TEXT are gone). Ready-to-book
+ * orders show their current forecast date — the order's own custbody_defaultshipdate (order.shipDateKey,
+ * already read), today or later — on the dashboard row and the delivery form (render).
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.2.1
+ * @version 2.2.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
@@ -78,7 +83,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.2.1';
+    var VERSION = '2.2.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -817,35 +822,6 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return NOTICES.OPP_GENERIC;
     }
 
-    /** 2.2.1: CDB SITE_ADDRESS_NOT_TEXT is logged once per execution. */
-    var siteAddressLogged = false;
-
-    /**
-     * 2.2.1: whether "Site address" is offered — custbody_opp_site_adress is a text-type field (Free-Form Text
-     * or Text Area) on this opportunity. Anything else (another type, the field missing, the load failing)
-     * hides the input and logs CDB SITE_ADDRESS_NOT_TEXT once. Never fails the page.
-     */
-    function siteAddressOffered(opp) {
-        var type;
-        var why = '';
-        try {
-            type = data.siteAddressFieldType(opp.id);
-            if (type === null) {
-                why = 'it is not on the opportunity';
-            } else if (!data.isTextFieldType(type)) {
-                why = 'its type is "' + type + '"';
-            }
-        } catch (e) {
-            why = 'its type could not be read (' + errorText(e) + ')';
-        }
-        if (why && !siteAddressLogged) {
-            siteAddressLogged = true;
-            log.audit({ title: title('SITE_ADDRESS_NOT_TEXT'), details: 'Opportunity ' + opp.id + ': ' + OPP.SITE_ADDRESS +
-                ' is not offered on "Give us an update": ' + why + ', and only Free-Form Text or Text Area is written' });
-        }
-        return !why;
-    }
-
     /** The call-time choices, in display order. */
     function callTimeOptions() {
         return config.CALL_TIME_ORDER.map(function (k) {
@@ -882,8 +858,6 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             // custbody_opp_del_date to the sales orders' ship dates, so a customer edit would move them.
             // guardOpportunity() already refuses Won; this keeps the rule where the field is shown.
             showDate: !data.contains(ctx.cfg.WON_STATUSES, opp.status),
-            // 2.2.1
-            showSiteAddress: siteAddressOffered(opp),
             reasons: reasons.options,
             am: customerManager(ctx),
             assignee: taskAssignee(opp, ctx.cfg)
@@ -919,7 +893,6 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             token: ctx.token,
             stages: uc.stages,
             showDate: uc.showDate,
-            showSiteAddress: uc.showSiteAddress,
             values: values,
             errors: errors || {},
             notice: notice || '',
@@ -1265,7 +1238,6 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         check = data.validateUpdate(updateInput(params), {
             stageIds: ids(uc.stages),
             showDate: uc.showDate,
-            siteAddress: uc.showSiteAddress,
             current: { title: guard.opportunity.title, siteAddress: guard.opportunity.siteAddress,
                 buildStage: guard.opportunity.buildStage, delDateKey: guard.opportunity.delDateKey },
             reasonIds: ids(uc.reasons),

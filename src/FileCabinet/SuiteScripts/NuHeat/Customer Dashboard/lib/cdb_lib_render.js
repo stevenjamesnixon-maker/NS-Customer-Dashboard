@@ -48,17 +48,23 @@
  * guide (DELIVERY_TEXT.TIME_NOTE), and shows an unloading option's surcharge under its card, in the hint's
  * place, so it shows without script; the confirmation says the surcharge will be added to the balance.
  *
+ * 2.2.2 (PR #8 amendment 2): both "Your project details" inputs always show (showSiteAddress is gone). A
+ * ready-to-book order's current forecast date — plannedDate(): the ORDER's custbody_defaultshipdate
+ * (order.shipDateKey), today or later, never the opportunity's date — shows on its dashboard row, under
+ * the delivery form's heading lines, and as the delivery-link email's "Currently planned" row. The digest
+ * is unchanged.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.1
+ * @version 2.2.2
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.2.1';
+    var VERSION = '2.2.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -207,6 +213,23 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
     function shortDate(key) {
         return dates.formatDisplay(key, dates.londonTodayKey(Date.now()));
     }
+
+    /**
+     * Pure (2.2.2): a ready-to-book order's current forecast date, as shortDate() shows it — the ORDER's
+     * custbody_defaultshipdate (order.shipDateKey, read by the main order search), never the opportunity's
+     * date — when it is today or later in Europe/London. '' for a blank, invalid or past date. The caller
+     * decides the order is ready to book (the dashboard's row state; the guard, for the form and the email).
+     */
+    function plannedDate(order) {
+        var key = String((order && order.shipDateKey) || '');
+        return key && key >= dates.londonTodayKey(Date.now()) ? shortDate(key) : '';
+    }
+
+    /** 2.2.2: the forecast date's wording. Plain text: escaped when used. */
+    var PLANNED_TEXT = {
+        ROW: 'Currently planned for {date}. Choose your date to confirm.',
+        FORM: 'We currently have this pencilled in for {date}. Choose the date that suits you below.'
+    };
 
     // ---------------------------------------------------------------- page CSS
 
@@ -681,7 +704,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 (shortDate(o.shipDateKey) || 'date to be confirmed') + (o.timeText ? ', ' + o.timeText : ''));
             acts = '<span class="meta">' + NOTHING_NEEDED + '</span>';
         } else if (row.state === 'ready') {
-            state = stateCell(badge('ready', 'Ready to deliver'), '');
+            // 2.2.2: the order's current forecast date, today or later.
+            state = stateCell(badge('ready', 'Ready to deliver'), plannedDate(o) ?
+                PLANNED_TEXT.ROW.replace('{date}', plannedDate(o)) : '');
             acts = '<a class="cta" href="' + esc(m.deliveryUrl(o.id)) + '">Arrange delivery</a>';
         } else {
             state = stateCell(badge('need', 'Needs information'), o.holdReason);
@@ -1072,7 +1097,10 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<h1>Arrange delivery</h1>' +
             '<p class="lead" style="margin:0">' + esc([m.opp && m.opp.title, title, 'Order ' + o.tranId]
                 .filter(function (x) { return !!x; }).join(' · ')) + '</p>' +
-            (o.uniqueRef ? '<p class="soref" style="margin:0">' + esc(o.uniqueRef) + '</p>' : '') + '</div>' +
+            (o.uniqueRef ? '<p class="soref" style="margin:0">' + esc(o.uniqueRef) + '</p>' : '') +
+            // 2.2.2: the guard only lets a ready-to-book order here.
+            (plannedDate(o) ? '<p class="hint" style="margin:0">' + esc(PLANNED_TEXT.FORM.replace('{date}', plannedDate(o))) +
+                '</p>' : '') + '</div>' +
             (m.hasErrors ? '<div class="notice" role="alert">Please check the highlighted answers below.</div>' : '') +
             '<div class="layout"><form class="fcol" id="dform" method="post" action="' + esc(m.actionUrl) +
             '" accept-charset="utf-8">' +
@@ -1285,7 +1313,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * @param {Object} m - { logoUrl, am (header), assignee ({ name }, the "Goes to" card), opp,
      *   actionUrl, backUrl, token, stages ([{id, text}]; [] hides the question), showDate, values (2.2:
      *   projectName, prefilled with the title; 2.2.1: siteAddress, prefilled with data.siteAddressLine()),
-     *   showSiteAddress (2.2.1: the field is text-type),
      *   errors, notice, reasons ([{id, text}]; [] no list), notGoingOpen, limits, callTimes
      *   ([{id, text}]) }
      */
@@ -1331,12 +1358,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             hidden('update');
 
         // 2.2: always first. Optional like the rest: blank or unchanged writes nothing. 2.2.1: the reference and
-        // the site address side by side, one line each (.g2 stacks them on a phone).
-        body += '<section class="card"><h2>' + num() + esc(t.Q_DETAILS) + '</h2>' +
-            (m.showSiteAddress ? '<div class="g2">' : '') +
+        // the site address side by side, one line each (.g2 stacks them on a phone); 2.2.2: both, always.
+        body += '<section class="card"><h2>' + num() + esc(t.Q_DETAILS) + '</h2><div class="g2">' +
             detailInput('projectName', t.NAME_LABEL, t.NAME_HINT, v.projectName, m.limits.PROJECT_NAME, e) +
-            (m.showSiteAddress ? detailInput('siteAddress', t.SITE_LABEL, t.SITE_HINT, v.siteAddress,
-                m.limits.SITE_ADDRESS, e) + '</div>' : '') + '</section>';
+            detailInput('siteAddress', t.SITE_LABEL, t.SITE_HINT, v.siteAddress, m.limits.SITE_ADDRESS, e) +
+            '</div></section>';
 
         if ((m.stages || []).length) {
             body += '<section class="card"><h2>' + num() + esc(t.Q_STAGE) + '</h2>' +
@@ -1978,6 +2004,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var project = [m.opp && m.opp.tranId, m.opp && m.opp.siteAddress].filter(function (x) { return !!x; }).join(' · ');
         var amount = amountToPayText(o);
         var earliest = m.earliestKey ? shortDate(m.earliestKey) : '';
+        // 2.2.2: the order's current forecast date (the Send link Suitelet's guard only passes a ready order).
+        var planned = plannedDate(o);
         var icons = config.EMAIL_ICONS;
         var html = '';
         var facts = '';
@@ -1999,6 +2027,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         if (o.uniqueRef) {
             facts += factRow(t.FACT_THIS_ORDER, '<b>' + esc(o.uniqueRef) + '</b>');
+        }
+        if (planned) {
+            facts += factRow(t.FACT_PLANNED, '<b>' + esc(planned) + '</b>');
         }
         if (earliest) {
             facts += factRow(t.FACT_EARLIEST, '<b>' + esc(earliest) + '</b> ' + fontHtml(COLORS.MUTED, esc(t.EARLIEST_SOONER)));
@@ -2389,6 +2420,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         esc: esc,
         orderTitle: orderTitle,
         stageLabel: stageLabel,
+        plannedDate: plannedDate,
+        PLANNED_TEXT: PLANNED_TEXT,
         quoteFacts: quoteFacts,
         contactParts: contactParts,
         questionsLine: questionsLine,
