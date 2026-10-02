@@ -34,18 +34,29 @@
  * (test/token.test.js). The payload is ASCII, so base64 is done here in plain code rather than
  * through N/encode, which keeps it testable.
  *
+ * EXTERNAL CONSUMER (2.1.0). The token FORMAT (base64url(payload).base64url(hmac), payload
+ * c<customerId>.v<version>) is read by Online-quote's Update Opportunity page through
+ * custentity_cdb_link: it reads the customer's stored base link and appends &a=update&opp=<id>,
+ * exactly as cdb_sl_dashboard.js does. Don't change the format, or the t parameter name, without a
+ * matching Online-quote change.
+ *
+ * THE STORED LINK (2.1.0). custentity_cdb_link holds each customer's base dashboard link, written by
+ * cdb_ue_customer.js and cdb_mr_link_backfill.js through lib/cdb_lib_link.js. linkMatches() is the
+ * User Event's cheap check: pure, no crypto, it compares the stored link's payload with the customer
+ * and version and never checks the signature.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.0.0
+ * @version 2.1.0
  */
 define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
     function (crypto, encode, search, url, config) {
 
     'use strict';
 
-    var VERSION = '2.0.0';
+    var VERSION = '2.1.0';
 
     var ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -339,6 +350,42 @@ define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
         return linkForToken(sign(customerId, customer.version), extra);
     }
 
+    /**
+     * Pure (2.1.0): the t parameter of a link, or '' when it has none.
+     * @param {string} link
+     * @returns {string}
+     */
+    function tokenFromLink(link) {
+        var match = /[?&]t=([^&#]*)/.exec(String(link === null || link === undefined ? '' : link));
+        if (!match) {
+            return '';
+        }
+        try {
+            return decodeURIComponent(match[1]);
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /**
+     * Pure (2.1.0): true only when the link's token names this customer at this version. No crypto:
+     * the signature is NOT checked. Extra parameters (&a=update&opp=…) do not matter.
+     * @param {string} link - e.g. the stored custentity_cdb_link
+     * @param {string|number} customerId
+     * @param {string|number} version - normalised as everywhere: empty means 0
+     * @returns {boolean}
+     */
+    function linkMatches(link, customerId, version) {
+        var parts = splitToken(tokenFromLink(link));
+        var parsed = parts ? parsePayload(parts.payload) : null;
+        var id = String(customerId === null || customerId === undefined ? '' : customerId)
+            .replace(/^\s+|\s+$/g, '');
+        if (!parsed || !/^\d+$/.test(id)) {
+            return false;
+        }
+        return parsed.customerId === String(parseInt(id, 10)) && parsed.version === normaliseVersion(version);
+    }
+
     return {
         VERSION: VERSION,
         REASONS: REASONS,
@@ -355,6 +402,8 @@ define(['N/crypto', 'N/encode', 'N/search', 'N/url', './cdb_lib_config'],
         sign: sign,
         verify: verify,
         linkForToken: linkForToken,
-        buildLink: buildLink
+        buildLink: buildLink,
+        tokenFromLink: tokenFromLink,
+        linkMatches: linkMatches
     };
 });

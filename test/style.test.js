@@ -8,7 +8,9 @@ var path = require('path');
 var ROOT = path.join(__dirname, '..', 'src', 'FileCabinet', 'SuiteScripts', 'NuHeat', 'Customer Dashboard');
 var FILES = ['cdb_sl_dashboard.js', 'cdb_mr_digest.js', 'lib/cdb_lib_config.js', 'lib/cdb_lib_token.js',
     'lib/cdb_lib_dates.js', 'lib/cdb_lib_data.js', 'lib/cdb_lib_render.js', 'lib/cdb_lib_task.js',
-    'cdb_ue_salesorder.js', 'cdb_sl_send_link.js'];
+    'cdb_ue_salesorder.js', 'cdb_sl_send_link.js',
+    // "Request an update" part A: the stored link.
+    'lib/cdb_lib_link.js', 'cdb_ue_customer.js', 'cdb_mr_link_backfill.js'];
 
 /**
  * 2.0: the ONE file that may read the current user — the login-required Send delivery link

@@ -228,11 +228,12 @@ test('10. the same values from the record or the parameters give identical confi
         assert.deepStrictEqual(b, a, scriptId);
         assert.ok(!/=parameter/.test(logs(fromRecord.w, 'SETTINGS_SOURCE')[0][2]), scriptId + ' all from the record');
     });
-    // Kinds covered: idlist, id (an Integer parameter returns a number), int, https, text, mode.
+    // Kinds covered: idlist, id (an Integer parameter returns a number), int, https, text, mode. 3.3.0: scope
+    // is record only (LINK_BACKFILL_SCOPE has no parameter), so it has no parameter twin to compare.
     var kinds = {};
     var c = setup().config;
     Object.keys(c.PARAMETERS).forEach(function (k) { kinds[c.PARAMETERS[k].kind] = true; });
-    assert.deepStrictEqual(Object.keys(kinds).sort(), ['https', 'id', 'idlist', 'int', 'mode', 'text']);
+    assert.deepStrictEqual(Object.keys(kinds).sort(), ['https', 'id', 'idlist', 'int', 'mode', 'scope', 'text']);
 });
 
 test('10b. invalid values give the same result from either source (the empty rule)', function () {
@@ -372,13 +373,19 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     // 3.1: the record-only keys (no parameter on any script) — the dashboard Suitelet's update settings.
     var recordOnly = Object.keys(c.PARAMETERS).filter(function (k) { return !Object.keys(c.PARAMETERS[k].ids).length; });
     assert.deepStrictEqual(recordOnly, ['UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES',
-        'TIME_DEFAULT', 'UNLOAD_SURCHARGE']);
+        'TIME_DEFAULT', 'UNLOAD_SURCHARGE', 'LINK_BACKFILL_SCOPE']);
+    // 3.3.0: LINK_BACKFILL_SCOPE is the link backfill's, not the dashboard's.
+    var slRecordOnly = recordOnly.filter(function (k) { return k !== 'LINK_BACKFILL_SCOPE'; });
     Object.keys(c.PARAMETER_COLUMNS).forEach(function (scriptId) {
         assert.deepStrictEqual(c.SCRIPT_KEYS[scriptId].slice().sort(),
-            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? recordOnly : []).sort(), scriptId);
+            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? slRecordOnly : []).sort(), scriptId);
     });
-    assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 36,
-        'the 2.0.5 keys, the three 3.1 keys and the two 3.2.1 keys, no more (3.2 adds none)');
-    assert.strictEqual(c.VERSION, '3.2.2');
+    // 3.3.0: the link backfill has no parameters: the "open" keys and its scope, from the record only.
+    assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.LINK_BACKFILL], undefined);
+    assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.LINK_BACKFILL], ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS',
+        'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE']);
+    assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND, c.SCRIPTS.LINK_BACKFILL].sort());
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 37,
+        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys and the 3.3.0 key, no more (3.2 adds none)');
+    assert.strictEqual(c.VERSION, '3.3.0');
 });

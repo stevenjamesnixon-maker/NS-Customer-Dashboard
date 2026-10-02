@@ -31,15 +31,20 @@
  *              per project with a progress bar
  *   send       email.send with relatedRecords.entityId = customer, so it lands on the customer's
  *              Communication tab
- *   stamp      custentity_cdb_last_digest = today (London). THE ONLY CUSTOMER FIELD THIS REPO
- *              WRITES.
+ *   stamp      custentity_cdb_last_digest = today (London). The only customer field THE DIGEST
+ *              writes. (2.0.4: not the only one this repo writes: custentity_cdb_link, the customer's
+ *              base dashboard link, is written by cdb_ue_customer.js and cdb_mr_link_backfill.js
+ *              through lib/cdb_lib_link.js; and the dashboard adds address book lines, 2.2.)
+ *
+ * 2.0.4: the LIVE input's two "open customer" searches moved, unchanged, to cdb_lib_data.js
+ * (customersWithOpenOpportunity, customersWithOpenOrder), shared with the link backfill.
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 2.0.3
+ * @version 2.0.4
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -47,11 +52,9 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '2.0.3';
+    var VERSION = '2.0.4';
 
     var CUST = config.FIELDS.CUSTOMER;
-    var OPP = config.FIELDS.OPPORTUNITY;
-    var SO = config.FIELDS.SALES_ORDER;
 
     var SUBJECT = 'Your Nu-Heat projects: an update';
 
@@ -71,50 +74,6 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         paged.pageRanges.forEach(function (range) {
             paged.fetch({ index: range.index }).data.forEach(fn);
         });
-    }
-
-    /**
-     * Customers with an open opportunity: not Lost, and either not Won, or Won at a design or
-     * delivery sub-status. The same opportunities the dashboard shows. Grouped by customer.
-     * @returns {Object} set of customer IDs
-     */
-    function customersWithOpenOpportunity(cfg) {
-        var set = {};
-        each(search.create({
-            type: search.Type.OPPORTUNITY,
-            // No mainline: the opportunity search rejects it. See cdb_lib_data.getOpportunities().
-            filters: [
-                [OPP.STATUS, 'noneof', cfg.LOST_STATUSES], 'AND',
-                [[OPP.STATUS, 'noneof', cfg.WON_STATUSES], 'OR',
-                    [OPP.SUB_STATUS, 'anyof', cfg.DESIGN_SUBSTATUS.concat(cfg.DELIVERY_SUBSTATUS)]]
-            ],
-            columns: [search.createColumn({ name: 'entity', summary: search.Summary.GROUP })]
-        }), function (r) {
-            set[String(r.getValue({ name: 'entity', summary: search.Summary.GROUP }))] = true;
-        });
-        return set;
-    }
-
-    /**
-     * Customers with an open sales order: every rule of "open" (cdb_lib_data.js header),
-     * including the addendum's native status filter. Grouped by the order's own customer.
-     * @returns {Object} set of customer IDs
-     */
-    function customersWithOpenOrder(cfg) {
-        var set = {};
-        each(search.create({
-            type: search.Type.SALES_ORDER,
-            // 1.3: data.recordStatusFilter() carries the released exception when the list is set.
-            filters: data.openOrderFilters().concat([
-                'AND', data.recordStatusFilter(cfg),
-                'AND', [[SO.QUOTE_TYPE, 'anyof', '@NONE@'], 'OR',
-                    [SO.QUOTE_TYPE, 'noneof', cfg.EXCLUDED_QUOTE_TYPES]]
-            ]),
-            columns: [search.createColumn({ name: 'entity', summary: search.Summary.GROUP })]
-        }), function (r) {
-            set[String(r.getValue({ name: 'entity', summary: search.Summary.GROUP }))] = true;
-        });
-        return set;
     }
 
     /**
@@ -175,8 +134,8 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             });
         }
 
-        withOpp = customersWithOpenOpportunity(cfg);
-        withOrder = customersWithOpenOrder(cfg);
+        withOpp = data.customersWithOpenOpportunity(cfg);
+        withOrder = data.customersWithOpenOrder(cfg);
         eligible = eligibleCustomers(cfg, todayKey);
         for (i = 0; i < eligible.length; i++) {
             if (withOpp[eligible[i].customerId] || withOrder[eligible[i].customerId]) {
