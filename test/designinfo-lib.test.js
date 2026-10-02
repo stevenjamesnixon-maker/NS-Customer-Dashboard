@@ -310,22 +310,96 @@ test('progressFromState, cardState: the four card states and FC none', function 
 
 // ---------------------------------------------------------------- the state
 
-test('parseState: empty, unparsable, wrong version and a good one; stateText round-trips, small keys first', function () {
+test('parseState: empty, unparsable, wrong version and a good one; stateText writes version 2 and round-trips', function () {
     assert.strictEqual(di.parseState('').status, 'empty');
     assert.strictEqual(di.parseState('{oops').status, 'invalid');
     assert.strictEqual(di.parseState('[1]').status, 'invalid');
-    assert.strictEqual(di.parseState('{"v": 2}').status, 'invalid');
+    assert.strictEqual(di.parseState('{"v": 3}').status, 'invalid');
     assert.deepStrictEqual(di.parseState('{oops').state, di.emptyState(), 'never throws: an empty state');
     var s = di.emptyState();
-    s.answers.bigfiles = 'no';
-    s.sections.plans = { saved: 'x', status: 'done' };
+    s.answers = { bigfiles: 'no', goods_date: '2026-11-28' };
+    s.sections = { plans: { saved: '2026-10-02T14:02:33.123Z', status: 'done' }, other: { saved: '2026-10-02T14:02Z',
+        status: 'optional' } };
+    s.noted = { heat_boiler: true };
+    s.files = [{ qid: 'plans_files', id: '123', name: 'a.pdf', at: '2026-10-02T14:02Z', attached: false }];
     s.requested = '2026-10-01T09:00:00Z';
     var text = di.stateText(s);
-    assert.ok(text.indexOf('{"v":1,"requested":"2026-10-01T09:00:00Z","sent":"","lastTaskAt":""') === 0);
-    assert.deepStrictEqual(di.parseState(text).state, s);
+    assert.deepStrictEqual(JSON.parse(text), { v: 2, s: { plans: { at: '2026-10-02T14:02Z', st: 'done' }, other: {
+        at: '2026-10-02T14:02Z', st: 'opt' } }, a: { bigfiles: 'no', goods_date: '2026-11-28' }, n: ['heat_boiler'],
+        f: [{ q: 'plans_files', id: '123', n: 'a.pdf', at: '2026-10-02T14:02Z', x: 1 }], req: '2026-10-01T09:00Z', sent: '',
+        task: '' });
+    var back = di.parseState(text).state;
+    assert.strictEqual(back.sections.other.status, 'optional');
+    assert.strictEqual(back.files[0].attached, false);
+    assert.deepStrictEqual(back.noted, { heat_boiler: true });
+    assert.strictEqual(di.stateText(back), text, 'stable');
 });
 
-// ---------------------------------------------------------------- uploads
+test('A3. a version 1 state migrates on read: pending dropped, keys renamed, written back as version 2', function () {
+    var v1 = JSON.stringify({ v: 1, requested: '2026-10-01T09:00:00Z', sent: '2026-10-02T14:10:00Z', lastTaskAt: '2026-10-02T14:10:00Z',
+        sections: { plans: { saved: '2026-10-02T14:02:00Z', status: 'done' }, other: { saved: 'x', status: 'optional' } },
+        answers: { plans_current: 'yes' }, noted: { heat_boiler: '2026-10-02T14:02:00Z' },
+        files: [{ qid: 'plans_files', id: '123', name: 'a.pdf', at: '2026-10-02T14:02:00Z', size: 99, attached: true }],
+        pending: [{ s: 'Your plans', l: 'Ceilings', o: '', n: '2.4 m', at: 'x' }] });
+    var p = di.parseState(v1);
+    assert.strictEqual(p.status, 'ok');
+    assert.strictEqual(p.detail, 'migrated from version 1');
+    assert.deepStrictEqual(p.state.sections.plans, { saved: '2026-10-02T14:02:00Z', status: 'done' });
+    assert.strictEqual(p.state.sections.other.status, 'optional');
+    assert.deepStrictEqual(p.state.noted, { heat_boiler: true });
+    assert.strictEqual(p.state.lastTaskAt, '2026-10-02T14:10:00Z');
+    assert.strictEqual(p.state.pending, undefined, 'no change list any more');
+    var v2 = JSON.parse(di.stateText(p.state));
+    assert.strictEqual(v2.v, 2);
+    assert.deepStrictEqual([v2.req, v2.sent, v2.task], ['2026-10-01T09:00Z', '2026-10-02T14:10Z', '2026-10-02T14:10Z']);
+    assert.strictEqual(JSON.stringify(v2).indexOf('pending'), -1);
+});
+
+test('A3. the worst case fits: every section saved, 20 files with 60-character names, every state answer — under 3,500', function () {
+    var s = di.emptyState();
+    var reg = parse(REGISTRY).questions;
+    var i;
+    di.sectionsOf(reg).forEach(function (sec) {
+        s.sections[sec.id] = { saved: '2026-10-02T14:02:33.000Z', status: 'todo' };
+    });
+    reg.forEach(function (q) {
+        if (q.store === 'state') { s.answers[q.qid] = 'yes'; }
+        if (q.store === 'note' && q.type === 'date') { s.answers[q.qid] = '2026-11-28'; }
+        if (q.store === 'note' && q.type !== 'date' && q.type !== 'files') { s.noted[q.qid] = true; }
+    });
+    for (i = 0; i < 25; i++) {
+        s.files.push({ qid: 'layouts_files', id: String(45288000 + i), name: Array(80).join('n'), at: '2026-10-02T14:02:33Z',
+            attached: i % 2 === 0 });
+    }
+    s.requested = s.sent = s.lastTaskAt = '2026-10-02T14:02:33Z';
+    var text = di.stateText(s);
+    var g = di.stateTextGuarded(s);
+    assert.strictEqual(JSON.parse(text).f.length, 20, 'at most 20 files');
+    assert.strictEqual(JSON.parse(text).f[19].n.length, 60, 'names clipped to 60');
+    assert.strictEqual(JSON.parse(text).f[0].id, '45288005', 'the newest kept');
+    assert.ok(text.length < 3500, 'worst case ' + text.length + ' characters');
+    assert.strictEqual(g.trimmed, false);
+    assert.strictEqual(g.text, text);
+});
+
+test('A3. the size guard: over 3,500 the files drop to the last 5; never over the field', function () {
+    var s = di.emptyState();
+    var i;
+    for (i = 0; i < 20; i++) {
+        s.files.push({ qid: 'plans_files', id: String(i), name: Array(70).join('n'), at: '2026-10-02T14:02Z' });
+        s.answers['answer_' + i] = Array(40).join('a');
+    }
+    assert.ok(di.stateText(s).length > 3500);
+    var g = di.stateTextGuarded(s);
+    assert.strictEqual(g.trimmed, true);
+    assert.deepStrictEqual(JSON.parse(g.text).f.map(function (f) { return f.id; }), ['15', '16', '17', '18', '19']);
+    assert.ok(g.text.length <= 3900);
+    // Pathological: far too many answers — files and noted go, then the answers; it still fits.
+    for (i = 0; i < 200; i++) { s.answers['more_' + i] = Array(40).join('b'); }
+    g = di.stateTextGuarded(s);
+    assert.ok(g.trimmed && g.text.length <= 3900, String(g.text.length));
+    assert.strictEqual(JSON.parse(g.text).v, 2);
+});
 
 test('uploads: extensions, the stored name, sizes, London time', function () {
     assert.strictEqual(di.extensionAllowed('Plans.PDF'), true);
@@ -362,26 +436,35 @@ test('the Note: sections, sent, old → new with — for blank, files, not saved
     assert.strictEqual(task.buildDesignInfoTitle('', 'QR1'), 'DESIGN INFO \u2013 QR1');
 });
 
-test('the Task message: the opening, what is missing, the changes since the last Send, the files, Mimecast, warnings', function () {
-    var m = task.buildDesignInfoMessage({ complete: false, missing: ['Heating and controls'], sections: [{ title: 'Your plans',
-        status: 'done' }, { title: 'Heating and controls', status: 'todo' }], changes: [{ section: 'Your plans', label: 'Ceilings',
-        oldText: '', newText: '2.4 m' }], files: [{ name: 'a.pdf', sizeText: '1 MB', label: 'plans_files' }],
-        folderText: 'File Cabinet folder 555', goodsLine: 'Customer says goods are needed by 28/11/2026 (we hold 14/11/2026).',
-        bigFiles: true, warnings: ['Heat source 15 is not in HEAT_MAP'], notSaved: ['coverings (field missing)'],
-        failures: [], noteFailed: true });
+test('A3. the Task snapshot: every section, (nothing yet), the Notes pointer with and without a previous send, files, Mimecast, warnings', function () {
+    var o = { complete: false, missing: ['Heating and controls'], sections: [
+        { title: 'Your plans', status: 'done', lines: ['Ceilings: 2.4 m', 'New or extra plans: a.pdf'] },
+        { title: 'Heating and controls', status: 'todo', lines: [] }, { title: 'Anything else', status: 'optional', lines: [] }],
+        sinceText: '02/10/2026 15:10', files: [{ name: 'a.pdf', label: 'plans_files' }], folderText: 'File Cabinet folder 555',
+        goodsLine: 'Customer says goods are needed by 28/11/2026 (we hold 14/11/2026).', bigFiles: true,
+        warnings: ['Heat source 15 is not in HEAT_MAP'], notSaved: ['coverings (field missing)'], failures: [], noteFailed: true };
+    var m = task.buildDesignInfoMessage(o);
     assert.ok(m.indexOf('The customer has sent design information. Check it on the Project Specification tab and the attached ' +
         'files, then move the sub-status to Design Required when you\u2019re ready.') === 0);
     assert.ok(m.indexOf('Still missing: Heating and controls.') > 0);
-    assert.ok(m.indexOf('Changed since the last Send (old \u2192 new):\nYour plans\n- Ceilings: \u2014 \u2192 2.4 m') > 0);
-    assert.ok(m.indexOf('Files uploaded since the last Send (File Cabinet folder 555):\n- a.pdf (1 MB), plans_files') > 0);
+    assert.ok(m.indexOf('Your plans (done)\n- Ceilings: 2.4 m\n- New or extra plans: a.pdf\n') > 0);
+    assert.ok(m.indexOf('Heating and controls (to do)\n(nothing yet)\n') > 0);
+    assert.ok(m.indexOf('Anything else (optional)\n(nothing yet)') > 0);
+    assert.ok(m.indexOf('Changes since the last send are in the opportunity\u2019s Notes dated after 02/10/2026 15:10.') > 0);
+    assert.ok(m.indexOf('Files uploaded since the last Send (File Cabinet folder 555):\n- a.pdf, plans_files') > 0);
     assert.ok(m.indexOf('Send a Mimecast large-file request.') > 0);
     assert.ok(m.indexOf('Customer says goods are needed by 28/11/2026') > 0);
     assert.ok(m.indexOf('Audit note NOT created') > 0);
     assert.ok(m.indexOf('- Heat source 15 is not in HEAT_MAP') > 0);
     assert.ok(m.indexOf('Not saved to the record (the customer was told we\u2019ll cover it on the call): coverings (field missing).') > 0);
+    o.sinceText = '';
+    assert.strictEqual(task.buildDesignInfoMessage(o).indexOf('Changes since the last send'), -1, 'omitted with none');
+    // Clipped at 3,900.
+    o.sections[0].lines = Array(40).join('x').split('x').map(function () { return 'Label: ' + Array(200).join('v'); });
+    var c = task.clipBody(task.buildDesignInfoMessage(o));
+    assert.strictEqual(c.clipped, true);
+    assert.strictEqual(c.body.length, 3900);
 });
-
-// ---------------------------------------------------------------- the email's wording
 
 test('DESIGNINFO_EMAIL: defaults; string overrides of known keys; TIPS only as pairs; invalid keeps the defaults', function () {
     var p = config.parseDesignInfoEmail('');
@@ -398,40 +481,6 @@ test('DESIGNINFO_EMAIL: defaults; string overrides of known keys; TIPS only as p
 });
 
 // ---------------------------------------------------------------- amendment 2 (1.0.1)
-
-test('A2. capPending: at most 40 entries and 12,000 characters, the oldest dropped behind ONE marker', function () {
-    var list = [];
-    var i;
-    for (i = 0; i < 60; i++) { list.push({ s: 'S', l: 'L' + i, o: '', n: 'x', at: 't' }); }
-    var c = di.capPending(list, 'now');
-    assert.strictEqual(c.length, 40);
-    assert.deepStrictEqual([c[0].m, c[0].l], [true, '(earlier changes are in the opportunity’s Notes)']);
-    assert.strictEqual(c[1].l, 'L21', 'the newest 39 kept');
-    assert.strictEqual(c[39].l, 'L59');
-    var big = [];
-    for (i = 0; i < 30; i++) { big.push({ s: 'S', l: 'L' + i, o: Array(300).join('o'), n: Array(300).join('n'), at: 't' }); }
-    c = di.capPending(big, 'now');
-    assert.ok(JSON.stringify(c).length <= 12000);
-    assert.ok(c[0].m && c.length < 31);
-    var again = di.capPending(c.concat([{ s: 'S', l: 'new', o: '', n: 'n', at: 't' }]), 'later');
-    assert.strictEqual(again.filter(function (p) { return p.m; }).length, 1, 'never two markers');
-    assert.strictEqual(again[0].m, true);
-    assert.deepStrictEqual(di.capPending(list.slice(0, 3), 'now'), list.slice(0, 3), 'under the cap: unchanged');
-});
-
-test('A2. stateTextGuarded: over 50,000 characters the pending list keeps its last 10', function () {
-    var s = di.emptyState();
-    var i;
-    for (i = 0; i < 400; i++) { s.files.push({ qid: 'q', id: String(i), name: Array(150).join('f'), at: 't' }); }
-    for (i = 0; i < 25; i++) { s.pending.push({ s: 'S', l: 'L' + i, o: '', n: 'n', at: 't' }); }
-    var g = di.stateTextGuarded(s);
-    assert.strictEqual(g.trimmed, true);
-    var back = di.parseState(g.text).state;
-    assert.deepStrictEqual(back.pending.filter(function (p) { return !p.m; }).map(function (p) { return p.l; }),
-        ['L15', 'L16', 'L17', 'L18', 'L19', 'L20', 'L21', 'L22', 'L23', 'L24']);
-    assert.strictEqual(back.files.length, 400, 'the files are kept');
-    assert.strictEqual(di.stateTextGuarded(di.emptyState()).trimmed, false);
-});
 
 test('A2. plainValue strips control characters, keeps newlines, never escapes; sameText ignores line endings', function () {
     assert.strictEqual(di.plainValue('Don\'t & "q" <b>\u0007\r\nok'), 'Don\'t & "q" <b>\nok');

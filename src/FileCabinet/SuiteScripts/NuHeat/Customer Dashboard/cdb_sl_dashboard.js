@@ -103,12 +103,18 @@
  * (CDB DESIGNINFO_STATE_TRIMMED); when the one write of the fields and the state fails, the fields are retried on
  * their own, so the state never blocks them.
  *
+ * 2.3.2 (amendment 3): the state field is a Text Area (a Long Text field is not a valid search or lookupFields column)
+ * and the state is version 2, compact (designinfo 1.0.2): no change list; the answers kept are the yes/no state answers
+ * and the Note-only dates (other Note-only answers are only marked as given, in `n`); times to the minute. The DESIGN
+ * INFO Task is a snapshot of every shown section's current answers, with a pointer to the Notes for the changes since
+ * the last send.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.3.1
+ * @version 2.3.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -117,7 +123,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     'use strict';
 
-    var VERSION = '2.3.1';
+    var VERSION = '2.3.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1473,9 +1479,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (q.qid === designinfo.GOODS_DATE_QID && dc.rec.info.delDateKey) {
             v.goodsHave = display(dc.rec.info.delDateKey);
         }
-        if (q.store === STORE.NOTE && q.type === 'long' && dc.state.noted[q.qid]) {
-            v.notedText = isoSlash(dc.state.noted[q.qid]) ? render.DESIGN_TEXT.NOTED.replace('{date}', isoSlash(dc.state.noted[q.qid])) :
-                render.DESIGN_TEXT.NOTED_NO_DATE;
+        if (q.store === STORE.NOTE && q.type !== 'date' && dc.state.noted[q.qid]) {
+            v.notedText = render.DESIGN_TEXT.NOTED_NO_DATE;
         }
         return v;
     }
@@ -1485,7 +1490,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (q.store === STORE.FIELD) {
             return dc.rec.values.hasOwnProperty(q.qid) ? dc.rec.values[q.qid] : '';
         }
-        if (q.store === STORE.NOTE && q.type === 'long') {
+        // 2.3.2: of the Note-only answers only the dates are kept (state v2); the rest are in the Note.
+        if (q.store === STORE.NOTE && q.type !== 'date') {
             return '';
         }
         return dc.state.answers.hasOwnProperty(q.qid) ? String(dc.state.answers[q.qid]) : '';
@@ -1574,7 +1580,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var g = designinfo.stateTextGuarded(s);
         if (g.trimmed) {
             log.audit({ title: title('DESIGNINFO_STATE_TRIMMED'), details: 'Opportunity ' + dc.opp.id + ': the state was over ' +
-                designinfo.STATE_MAX_CHARS + ' characters; the change list keeps its last 10 entries (the Notes hold the rest)' });
+                designinfo.STATE_TRIM_AT + ' characters; it keeps only its last files (older ones stay on the opportunity and in ' +
+                'the Notes)' });
         }
         return g.text;
     }
@@ -1605,7 +1612,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
      * value into the state), noted ([qid]), goods (null or { have, says }), notSaved ([text]) }.
      */
     function designChanges(dc, values) {
-        var out = { fields: {}, fieldItems: [], items: [], answers: {}, noted: [], goods: null, notSaved: [], clipped: [] };
+        var out = { fields: {}, fieldItems: [], items: [], answers: {}, noted: [], posted: {}, goods: null, notSaved: [],
+            clipped: [] };
         dc.questions.forEach(function (v) {
             var q = v.q;
             var nv = values[q.qid];
@@ -1616,10 +1624,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             if (v.readOnly || q.type === 'info' || q.type === 'files' || nv === undefined || nv === '' || nv === null) {
                 return;
             }
-            cur = q.store === STORE.FIELD ? (dc.rec.values[q.qid] || '') : q.store === STORE.NOTE && q.type === 'long' ? '' :
-                String(dc.state.answers[q.qid] === undefined ? '' : dc.state.answers[q.qid]);
+            cur = currentValue(dc, q);
             // 2.3.1: line endings normalised on both sides — NetSuite may give back \r\n for what was posted as \n.
-            if (q.store !== STORE.NOTE || q.type !== 'long') {
+            // 2.3.2: a Note-only answer other than a date is not kept, so it is always new content.
+            if (q.store !== STORE.NOTE || q.type === 'date') {
                 if (designinfo.sameText(nv, cur)) {
                     return;
                 }
@@ -1635,12 +1643,13 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 item.newText = 'customer says ' + out.goods.says;
             }
             out.items.push(item);
-            if (q.store === STORE.STATE || (q.store === STORE.NOTE && q.type !== 'long')) {
+            if (q.store === STORE.STATE || (q.store === STORE.NOTE && q.type === 'date')) {
                 out.answers[q.qid] = nv;
                 return;
             }
             if (q.store === STORE.NOTE) {
                 out.noted.push(q.qid);
+                out.posted[q.qid] = q.type === 'choice' || q.type === 'yesno' ? item.newText : nv;
                 return;
             }
             meta = dc.rec.fields[q.qid];
@@ -1669,48 +1678,36 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
     /**
      * The state after this post (a fresh object each call): the answers, the noted marks, the files, each touched
-     * section's status (from valuesNow), and the change list since the last Send (pending). On Send it is written as
-     * sent — sent and lastTaskAt now, pending empty — and pendingAll keeps the list for the Task; a failed Task puts
-     * the state back (unsend()).
-     * @returns {{state: Object, pendingAll: Object[]}}
+     * section's status (from valuesNow); on Send, sent and the Task's time (task). 2.3.2: no change list — the Notes are
+     * the audit trail, the Task a snapshot. A failed Task puts sent and task back (unsend()).
      */
     function nextState(dc, ch, touched, valuesNow, newFiles, nowIso, send) {
-        var base = dc.state;
-        var s = designinfo.parseState(designinfo.stateText(base)).state;
+        var s = JSON.parse(JSON.stringify(dc.state));
         var qs = dc.questions.map(function (v) { return v.q; });
-        var pendingAll;
         var k;
         for (k in ch.answers) {
             if (ch.answers.hasOwnProperty(k)) {
                 s.answers[k] = ch.answers[k];
             }
         }
-        ch.noted.forEach(function (qid) { s.noted[qid] = nowIso; });
+        ch.noted.forEach(function (qid) { s.noted[qid] = true; });
         s.files = s.files.concat(newFiles);
         designinfo.sectionsOf(qs).forEach(function (sec) {
             if (touched.indexOf(sec.id) >= 0) {
                 s.sections[sec.id] = { saved: nowIso, status: designinfo.sectionStatus(sec.questions, valuesNow, s) };
             }
         });
-        // 2.3.1: capped by count and size; the oldest dropped behind one marker (the Notes hold every change).
-        s.pending = designinfo.capPending(s.pending.concat(ch.items.map(function (c) {
-            return { s: c.sectionTitle, l: c.label, o: designinfo.plainValue(c.oldText), n: designinfo.plainValue(c.newText),
-                at: nowIso };
-        })), nowIso);
-        pendingAll = s.pending;
         if (send) {
             s.sent = nowIso;
             s.lastTaskAt = nowIso;
-            s.pending = [];
         }
-        return { state: s, pendingAll: pendingAll };
+        return s;
     }
 
-    /** The state as it was before a Send whose Task failed: sent and lastTaskAt back, the change list kept. */
-    function unsend(s, before, pendingAll) {
+    /** The state as it was before a Send whose Task failed: sent and the Task's time back. */
+    function unsend(s, before) {
         s.sent = before.sent;
         s.lastTaskAt = before.lastTaskAt;
-        s.pending = pendingAll;
         return s;
     }
 
@@ -1746,7 +1743,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         } catch (e2) {
             out.attachFailed = errorText(e2);
         }
-        out.entry = { qid: qid, id: id, name: name, at: now.toISOString(), size: size, attached: !out.attachFailed };
+        out.entry = { qid: qid, id: id, name: name, at: designinfo.shortIso(now), size: size, attached: !out.attachFailed };
         log.audit({ title: title('DESIGNINFO_FILE'), details: 'Opportunity ' + dc.opp.id + ', ' + qid + ': file ' + id + ' "' + name +
             '" (' + designinfo.sizeText(size) + ') in folder ' + folderId + (out.attachFailed ? ', NOT attached to the ' +
             'opportunity (' + out.attachFailed + '): it is in the folder only' : ', attached to the opportunity') });
@@ -1759,7 +1756,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var dc = designContext(ctx, params.opp, once);
         var cfg = ctx.cfg;
         var now = new Date();
-        var nowIso = now.toISOString();
+        // 2.3.2: every time in the state is to the minute (designinfo.shortIso), so stored times compare as strings.
+        var nowIso = designinfo.shortIso(now);
         var send = String(params.send || '') === '1';
         var editable;
         var stored = {};
@@ -1792,7 +1790,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (dc.html) {
             return dc.html;
         }
-        before = { sent: dc.state.sent, lastTaskAt: dc.state.lastTaskAt };
+        before = { sent: dc.state.sent, lastTaskAt: dc.state.lastTaskAt, requested: dc.state.requested };
         if (dc.mode !== 'edit') {
             log.audit({ title: title('DESIGNINFO_REFUSED'), details: 'Customer ' + ctx.customer.id + ', opportunity ' + dc.opp.id +
                 ': a post in view mode (the design is under way); nothing written' });
@@ -1853,7 +1851,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 if (!hasFiles) {
                     next = nextState(dc, ch, touched, valuesNow, [], nowIso, send);
                     try {
-                        data.writeDesignInfo(dc.opp.id, ch.fields, stateForWrite(dc, next.state));
+                        data.writeDesignInfo(dc.opp.id, ch.fields, stateForWrite(dc, next));
                         stateWritten = true;
                     } catch (eBoth) {
                         // 2.3.1: the state must never block the fields — retry them on their own (step 3 writes the state).
@@ -1899,12 +1897,12 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         // Step 3: the state (a second write when step 1 could not carry it).
         if (!stateWritten) {
             next = nextState(dc, ch, touched, valuesNow, newFiles, nowIso, send);
-            stateFailed = writeState(dc, next.state);
+            stateFailed = writeState(dc, next);
             if (stateFailed) {
                 failures.push('the page’s progress (' + stateFailed + ')');
             }
         }
-        s = next.state;
+        s = next;
         dc.state = s;
 
         // Step 4: the Note, every save.
@@ -1948,8 +1946,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
 
         // Step 5: the Task, only on Send. 2.3.1: clipped as the Note is (Task.message holds 4,000 characters).
         if (send) {
-            taskBody = task.clipBody(designTaskMessage(dc, s, next.pendingAll, before.lastTaskAt, comp, failures, noteFailed, ch,
-                cfg.DESIGNINFO_FOLDER));
+            taskBody = task.clipBody(designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, cfg.DESIGNINFO_FOLDER));
             if (taskBody.clipped) {
                 log.audit({ title: title('DESIGNINFO_TASK_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Task message was ' +
                     'clipped to ' + task.NOTE_MAX + ' characters (the Notes hold every change)' });
@@ -1972,7 +1969,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             }
             if (taskFailed && !stateFailed) {
                 // Not sent after all: the state goes back, keeping the change list for the next Send.
-                s = unsend(s, before, next.pendingAll);
+                s = unsend(s, before);
                 dc.state = s;
                 writeState(dc, s);
             }
@@ -2008,24 +2005,67 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return renderDesignInfo(ctx, dc, { confirmation: { lines: lines } });
     }
 
-    /** The DESIGN INFO Task's message (brief §5.5; amendment 1 §1): the changes and files since the last Send. */
-    function designTaskMessage(dc, s, pendingAll, since, comp, failures, noteFailed, ch, folderId) {
+    /** "dd/mm/yyyy HH:mm" (London) of a stored time, '' for none. */
+    function londonText(iso) {
+        var ms = Date.parse(iso || '');
+        return isNaN(ms) ? '' : designinfo.londonTime(ms).text;
+    }
+
+    /**
+     * 2.3.2 (amendment 3): one question's current answer for the Task's snapshot — the record's value (or its text when
+     * read-only), the state's answer, the files from the state, or this post's Note-only answer; a Note-only answer given
+     * earlier says so. '' when there is none. Plain text, clipped at 200.
+     */
+    function snapshotValue(dc, v, s, ch) {
+        var q = v.q;
+        var value;
+        if (q.type === 'info') {
+            return '';
+        }
+        if (q.type === 'files') {
+            value = s.files.filter(function (f) { return f.qid === q.qid; }).map(function (f) { return f.name; }).join(', ');
+        } else if (q.store === STORE.FIELD) {
+            value = v.readOnly ? (dc.rec.texts[q.qid] || '') :
+                q.type === 'choice' && !q.optionsFromField ? (dc.rec.values[q.qid] || '') : answerText(v, dc.rec.values[q.qid]);
+        } else if (q.store === STORE.STATE || q.type === 'date') {
+            value = answerText(v, s.answers[q.qid]);
+        } else if (ch.posted.hasOwnProperty(q.qid)) {
+            value = ch.posted[q.qid];
+        } else {
+            value = s.noted[q.qid] ? '(given earlier: in the Notes)' : '';
+        }
+        return designinfo.plainValue(value, 200);
+    }
+
+    /**
+     * The DESIGN INFO Task's message (brief §5.5; amendments 1 §1 and 3): a snapshot of every shown section, the pointer
+     * to the Notes for the changes since the last send, the files since the last Send.
+     */
+    function designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, folderId) {
+        var since = before.lastTaskAt || '';
+        var statusOf = {};
         var goods = s.answers[designinfo.GOODS_DATE_QID] && s.answers[designinfo.GOODS_DATE_QID] !== dc.rec.info.delDateKey ?
             'Customer says goods are needed by ' + designinfo.slashDate(s.answers[designinfo.GOODS_DATE_QID]) + ' (we hold ' +
             (designinfo.slashDate(dc.rec.info.delDateKey) || 'no date') + '). Check and update the opportunity date yourself; the ' +
             'dashboard did not change it.' : '';
+        comp.sections.forEach(function (x) { statusOf[x.id] = x.status; });
         return task.buildDesignInfoMessage({
             complete: comp.complete,
             missing: comp.missing,
-            sections: comp.sections,
-            serviceText: designinfo.plainValue(dc.rec.info.valuePropositionText),
-            // Plain text (2.3.1); a marker entry (older changes dropped) prints as a line of its own.
-            changes: pendingAll.map(function (p) {
-                return p.m ? { marker: true, label: p.l } :
-                    { section: p.s, label: p.l, oldText: designinfo.plainValue(p.o), newText: designinfo.plainValue(p.n) };
+            sections: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (sec) {
+                return {
+                    title: sec.title,
+                    status: statusOf[sec.id] || '',
+                    lines: dc.questions.filter(function (v) { return v.q.section === sec.id; }).map(function (v) {
+                        var value = snapshotValue(dc, v, s, ch);
+                        return value ? v.q.label + ': ' + value : '';
+                    }).filter(function (l) { return !!l; })
+                };
             }),
+            sinceText: londonText(before.sent) || londonText(before.requested),
+            serviceText: designinfo.plainValue(dc.rec.info.valuePropositionText),
             files: s.files.filter(function (f) { return !since || f.at > since; }).map(function (f) {
-                return { name: designinfo.plainValue(f.name), sizeText: designinfo.sizeText(f.size), label: f.qid,
+                return { name: designinfo.plainValue(f.name), label: f.qid,
                     attachNote: f.attached === false ? '(NOT attached: in the folder only)' : '' };
             }),
             folderText: 'File Cabinet folder ' + folderId + ', attached to this opportunity unless marked',

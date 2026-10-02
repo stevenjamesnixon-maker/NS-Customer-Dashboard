@@ -94,8 +94,13 @@ function oppWrites(w) {
     return w.submits.filter(function (o) { return o.type === 'opportunity'; });
 }
 
+/** The stored state, as the code reads it (amendment 3: stored as version 2, read through parseState). */
 function state(w) {
-    return JSON.parse(w.opps[20].custbody_cdb_designinfo_state);
+    var di = amd.load('lib/cdb_lib_designinfo', {});
+    var raw = w.opps[20].custbody_cdb_designinfo_state;
+    assert.ok(raw.length <= 3900, 'the state fits the Text Area: ' + raw.length);
+    assert.strictEqual(JSON.parse(raw).v, 2, 'stored as version 2');
+    return di.parseState(raw).state;
 }
 
 function nothingWritten(t, why) {
@@ -494,7 +499,7 @@ test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a fail
     assert.ok(html.indexOf('Sent to Pem Engineer.') > 0);
 });
 
-test('the Task, only on Send: title, assignee, what is missing, the changes since the last Send, the Mimecast line', function () {
+test('the Task, only on Send: title, assignee, what is missing, a snapshot of the answers, the Mimecast line', function () {
     var t = setup();
     post(t, { sec: 'plans', q_windows: 'First' });
     assert.strictEqual(t.w.tasks.length, 0);
@@ -507,33 +512,39 @@ test('the Task, only on Send: title, assignee, what is missing, the changes sinc
     assert.strictEqual(v.transaction, '20');
     assert.strictEqual(v.priority, 'MEDIUM');
     assert.ok(v.message.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0);
-    assert.ok(v.message.indexOf('Changed since the last Send (old \u2192 new):\nYour plans\n- Windows and external doors: \u2014 \u2192 First') > 0,
-        'the earlier save is in the change list');
+    // Amendment 3: a snapshot of every shown section's current answers (the earlier save included).
+    assert.ok(v.message.indexOf('Your plans (to do)\n- We designed your quote from the plans you sent us. Are they still the ' +
+        'current ones?: \u2014') < 0);
+    assert.ok(v.message.indexOf('- Ceiling heights: All 2.4 m\n- Windows and external doors: First\n') > 0, v.message);
     // Amendment 2 §5: the Task is plain text — never an HTML entity.
     assert.strictEqual(v.message.indexOf('&#39;'), -1);
-    assert.ok(v.message.indexOf('- Anywhere we shouldn\'t heat?: \u2014 \u2192 Garage') > 0);
+    assert.ok(v.message.indexOf('- Anywhere we shouldn\'t heat?: Garage') > 0);
+    assert.ok(v.message.indexOf('- I have files bigger than 10 MB: Yes') > 0);
+    assert.ok(v.message.indexOf('How well insulated is it? (to do)\n(nothing yet)') > 0);
+    assert.strictEqual(v.message.indexOf('Changes since the last send'), -1, 'no earlier send, no request: no pointer');
     assert.ok(v.message.indexOf('LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.') > 0);
     assert.ok(t.w.notes[1].values.note.indexOf('Sent to PE: yes') > 0);
     assert.ok(t.w.notes[1].values.note.indexOf('Large files: customer has files over 10 MB') > 0);
     var st = state(t.w);
     assert.ok(st.sent && st.lastTaskAt === st.sent);
-    assert.deepStrictEqual(st.pending, [], 'cleared once the Task is made');
+    assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(st.sent), 'to the minute');
     assert.ok(html.indexOf('<p>Sent to Pem Engineer.</p><p>Pem will read it all before your design call.</p>') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_SAVED')[1][2].indexOf('send yes, Task 555') > 0);
-    // The next Send carries only what changed since.
+    // The next Send is a snapshot again, and points to the Notes after the previous send.
     post(t, { send: '1', q_other: 'Zoning please' });
     var m2 = t.w.tasks[1].values.message;
-    assert.strictEqual(m2.indexOf('First'), -1);
-    assert.ok(m2.indexOf('Anything else: \u2014 \u2192 Zoning please') > 0);
+    assert.ok(m2.indexOf('- Windows and external doors: First') > 0, 'the whole picture');
+    assert.ok(m2.indexOf('- Anything else: Zoning please') > 0);
+    assert.ok(/Changes since the last send are in the opportunity\u2019s Notes dated after \d\d\/\d\d\/\d{4} \d\d:\d\d\./.test(m2));
 });
 
-test('a failed Task puts the state back (not sent, the change list kept) and the page says to send again', function () {
+test('a failed Task puts the state back (not sent) and the page says to send again', function () {
     var t = setup();
     t.w.taskThrows = true;
     var html = post(t, { send: '1', q_windows: 'Lots' });
     var st = state(t.w);
     assert.strictEqual(st.sent, '');
-    assert.strictEqual(st.pending.length, 1);
+    assert.strictEqual(st.lastTaskAt, '');
     assert.strictEqual(logs(t.w, 'TASK_FAILED')[0][0], 'error');
     assert.ok(html.indexOf('We couldn\u2019t pass it on just now. Please press Send again in a few minutes.') > 0);
 });
@@ -562,13 +573,14 @@ test('fact warnings reach the Task: an unknown service, an HP Design with a boil
     assert.ok(u.w.tasks[0].values.message.indexOf('Design service unknown: value proposition 99 is not in VP_MAP') > 0);
 });
 
-test('state merges: requested and earlier answers survive a save; an unparsable state is replaced by a fresh one', function () {
+test('state merges: requested and earlier answers survive a save (a version 1 state migrated); unparsable is replaced', function () {
     var t = setup();
     t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 1, requested: '2026-10-01T09:00:00Z', answers: { bigfiles: 'no' },
-        sections: {}, files: [], pending: [], noted: {} });
+        sections: {}, files: [], pending: [{ s: 'x', l: 'y', o: '', n: 'z', at: 'w' }], noted: {} });
     post(t, { sec: 'plans', q_plans_current: 'no' });
     var st = state(t.w);
-    assert.strictEqual(st.requested, '2026-10-01T09:00:00Z');
+    assert.strictEqual(st.requested, '2026-10-01T09:00Z', 'kept, to the minute');
+    assert.strictEqual(t.w.opps[20].custbody_cdb_designinfo_state.indexOf('pending'), -1, 'the change list is gone');
     assert.deepStrictEqual(st.answers, { bigfiles: 'no', plans_current: 'no' });
     var u = setup();
     u.w.opps[20].custbody_cdb_designinfo_state = 'garbage';
@@ -577,13 +589,15 @@ test('state merges: requested and earlier answers survive a save; an unparsable 
     assert.strictEqual(logs(u.w, 'DESIGNINFO_STATE_INVALID').length, 1);
 });
 
-test('a long Note-only answer is marked noted (not kept), and the page says so next time', function () {
+test('a Note-only answer (not a date) is marked noted (not kept), and the page says so next time', function () {
     var t = setup();
     post(t, { sec: 'heatpump', q_mcs_position: 'The kitchen window of number 6' });
+    post(t, { sec: 'project', q_w3w: '///a.b.c' });
     var st = state(t.w);
-    assert.ok(st.noted.mcs_position);
+    assert.ok(st.noted.mcs_position && st.noted.w3w);
     assert.strictEqual(st.answers.mcs_position, undefined);
-    assert.ok(/You sent us this on \d\d\/\d\d\/\d{4}\. Anything new\? Add it here\./.test(get(t)));
+    assert.strictEqual(st.answers.w3w, undefined, 'amendment 3: only state answers and Note-only dates are kept');
+    assert.ok(get(t).indexOf('You\u2019ve sent us this already. Anything new? Add it here.') > 0);
 });
 
 // ---------------------------------------------------------------- the card states (dashboard and digest)
@@ -809,7 +823,9 @@ test('send: POST emails emailRecipient() only, from the PE, with both records; s
     assert.deepStrictEqual(e.relatedRecords, { entityId: 42, transactionId: 20 });
     assert.strictEqual(e.subject, 'Let\u2019s start your design: tell us about your property');
     var st = JSON.parse(r.w.opps[20].custbody_cdb_designinfo_state);
-    assert.ok(/^\d{4}-\d\d-\d\dT/.test(st.requested));
+    assert.strictEqual(st.v, 2, 'migrated and stored as version 2');
+    assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(st.req));
+    st = { requested: st.req, answers: st.a };
     assert.strictEqual(st.answers.bigfiles, 'yes', 'merged, never clobbered');
     assert.deepStrictEqual(Object.keys(r.w.submits[0].values), ['custbody_cdb_designinfo_state']);
     assert.strictEqual(logs(r.w, 'DESIGNINFO_REQUESTED').length, 1);
@@ -821,13 +837,14 @@ test('send: POST emails emailRecipient() only, from the PE, with both records; s
         w.contacts[61] = { email: 'site@example.com' };
     } });
     assert.deepStrictEqual(c.w.emails[0].recipients, ['site@example.com']);
-    // Amendment 2 §7: an unparsable state is treated as empty, logged once, and replaced by { v: 1, requested }.
+    // Amendment 2 §7: an unparsable state is treated as empty, logged once, and replaced by a fresh one with requested
+    // (amendment 3: version 2, req).
     var u = request('POST', { world: function (w) { w.opps[20].custbody_cdb_designinfo_state = 'garbage'; } });
     assert.strictEqual(u.w.emails.length, 1, 'the email went');
     assert.strictEqual(logs(u.w, 'DESIGNINFO_STATE_INVALID').length, 1);
     var fresh = JSON.parse(u.w.opps[20].custbody_cdb_designinfo_state);
-    assert.strictEqual(fresh.v, 1);
-    assert.ok(/^\d{4}-\d\d-\d\dT/.test(fresh.requested));
+    assert.strictEqual(fresh.v, 2);
+    assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(fresh.req));
 });
 
 test('send: a failed email redirects with cdbdi=failed and records nothing', function () {
@@ -929,7 +946,7 @@ test('A2. a question hidden by its `when`, posted anyway, is ignored: no write, 
     ['Combi in the kitchen', 'Timber frame', 'Old floor'].forEach(function (x) { assert.strictEqual(note.indexOf(x), -1, x); });
     var st = state(t.w);
     assert.strictEqual(st.noted.heat_boiler, undefined);
-    assert.deepStrictEqual(st.pending, []);
+    assert.deepStrictEqual(st.answers, {});
 });
 
 /** Fourteen long answers in one post: fourteen changes of 300+ characters each. */
@@ -941,27 +958,24 @@ function longAnswers(tag) {
     return p;
 }
 
-test('A2. the Task message is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); pending is capped; a Send after the cap succeeds', function () {
+test('A3. the Task snapshot is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); long values at 200; the Send still succeeds', function () {
     var t = setup();
-    var p;
-    ['a', 'b', 'c', 'd'].forEach(function (tag) {
-        p = longAnswers(tag);
-        p.sec = 'all';
-        post(t, p);
-    });
-    var st = state(t.w);
-    assert.ok(st.pending.length <= 40, 'at most 40 entries: ' + st.pending.length);
-    assert.ok(JSON.stringify(st.pending).length <= 12000, 'at most 12,000 characters');
-    assert.strictEqual(st.pending[0].l, '(earlier changes are in the opportunity’s Notes)');
-    assert.strictEqual(st.pending.filter(function (x) { return x.m; }).length, 1, 'one marker');
-    post(t, { send: '1' });
-    assert.strictEqual(t.w.tasks.length, 1, 'the Send still works');
+    var p = longAnswers('a');
+    var files = {};
+    var i;
+    for (i = 1; i <= 6; i++) {
+        files['f_plans_files_' + i] = part(t, 'Plot4-ground-floor-revision-C-with-sections-and-elevations-' + i + '.pdf');
+        files['f_layouts_files_' + i] = part(t, 'Plot4-kitchen-and-bathroom-layouts-from-the-kitchen-company-' + i + '.pdf');
+    }
+    p.send = '1';
+    post(t, p, files);
+    assert.strictEqual(t.w.tasks.length, 1, 'the Send succeeds');
     var m = t.w.tasks[0].values.message;
     assert.strictEqual(m.length, 3900);
     assert.ok(/\n\(truncated\)$/.test(m));
-    assert.ok(m.indexOf('(earlier changes are in the opportunity’s Notes)') > 0, 'the marker as its own line');
+    assert.ok(m.indexOf('- Windows and external doors: a' + Array(199).join('z') + '\u2026\n') > 0, 'clipped at 200');
     assert.strictEqual(logs(t.w, 'DESIGNINFO_TASK_CLIPPED').length, 1);
-    assert.deepStrictEqual(state(t.w).pending, [], 'cleared by the Send');
+    assert.ok(t.w.opps[20].custbody_cdb_designinfo_state.length <= 3500, 'and the state still fits');
 });
 
 test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed under "Not saved to the record"', function () {
@@ -996,7 +1010,7 @@ test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never
     var note = t.w.notes[0].values.note;
     var msg = t.w.tasks[0].values.message;
     assert.ok(note.indexOf(' Anywhere we shouldn\'t heat?: — → Don\'t & "quote" <b>') > 0, note);
-    assert.ok(msg.indexOf('- Anywhere we shouldn\'t heat?: — → Don\'t & "quote" <b>') > 0, msg);
+    assert.ok(msg.indexOf('- Anywhere we shouldn\'t heat?: Don\'t & "quote" <b>') > 0, msg);
     [note, msg].forEach(function (x) { assert.ok(!/&(amp|quot|#39|lt|gt);/.test(x)); });
     // Control characters are stripped from the plain text.
     var u = setup();
@@ -1007,22 +1021,21 @@ test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never
     assert.strictEqual(html.indexOf('Don\'t & "quote" <b>'), -1);
 });
 
-test('A2. the state size guard: over 50,000 characters, pending keeps its last 10 (DESIGNINFO_STATE_TRIMMED)', function () {
+test('A3. the state size guard: over 3,500 characters the files drop to the last 5 (DESIGNINFO_STATE_TRIMMED); fields written', function () {
     var t = setup();
     var big = { v: 1, sections: {}, answers: {}, noted: {}, pending: [], files: [] };
     var i;
-    for (i = 0; i < 300; i++) {
-        big.files.push({ qid: 'plans_files', id: String(i), name: Array(200).join('f'), at: '2026-10-02T10:00:00Z' });
-    }
     for (i = 0; i < 30; i++) {
-        big.pending.push({ s: 'S', l: 'L' + i, o: '', n: 'n', at: 'x' });
+        big.files.push({ qid: 'plans_files', id: String(1000 + i), name: Array(90).join('f'), at: '2026-10-02T10:00:00Z' });
+        big.answers['extra_answer_' + i] = Array(30).join('a');
     }
     t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify(big);
     post(t, { sec: 'plans', q_windows: 'Lots' });
     assert.strictEqual(logs(t.w, 'DESIGNINFO_STATE_TRIMMED').length, 1);
     assert.strictEqual(oppWrites(t.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots', 'the fields still written');
     var st = state(t.w);
-    assert.strictEqual(st.pending.filter(function (p) { return !p.m; }).length, 10);
+    assert.strictEqual(st.files.length, 5);
+    assert.strictEqual(st.files[4].id, '1029', 'the newest kept');
 });
 
 test('A2. the fields are retried alone when the one write of the fields and the state fails', function () {
@@ -1112,4 +1125,37 @@ test('A2. every settings key a script reads is in its SCRIPT_KEYS list (dashboar
         });
     }), [], 'Send design information Suitelet');
     assert.strictEqual(x.w.emails.length, 1);
+});
+
+// ---------------------------------------------------------------- amendment 3: the state field is a Text Area
+
+test('A3. the state as a Text Area works in the extras search and the request lookup; as Long Text both fail (Production)', function () {
+    var st = JSON.stringify({ v: 2, s: { plans: { at: '2026-10-02T14:02Z', st: 'done' } }, a: {}, f: [], req: '', sent: '', task: '' });
+    // Text Area (the stub's default): the card reads the state; the request Suitelet's lookup reads it.
+    var c = cards(JSON.parse(st));
+    assert.ok(c.row.indexOf('Thanks, we have: Your plans.') > 0);
+    assert.strictEqual(logs(c.t.w, 'OPP_EXTRAS_FAILED').length, 0);
+    var r = request('POST');
+    assert.strictEqual(r.w.emails.length, 1);
+    // Long Text, as first created in Production: the lookup and the search both reject the column.
+    var lt = request('POST', { world: function (w) { w.longTextFields = ['custbody_cdb_designinfo_state']; } });
+    assert.strictEqual(lt.w.emails.length, 0);
+    assert.ok(lt.form.fields[0].defaultValue.indexOf('An nlobjSearchColumn contains an invalid column') > 0);
+    var t = setup();
+    t.w.longTextFields = ['custbody_cdb_designinfo_state'];
+    t.w.opps[20].custbody_opportunity_sub_status = '1';
+    var html = run(t, 'GET', { t: t.tok });
+    assert.strictEqual(logs(t.w, 'OPP_EXTRAS_FAILED').length, 1);
+    assert.ok(html.indexOf('We need some information about your property') > 0, 'every card degrades to needs_info');
+});
+
+test('A3. card B comes from the stored section statuses; sent with no sections (migrated or trimmed) is card C', function () {
+    var c = cards({ v: 2, s: { plans: { at: '2026-10-02T14:02Z', st: 'done' }, heating: { at: '2026-10-02T14:02Z', st: 'todo' } },
+        a: {}, f: [], req: '', sent: '', task: '' });
+    assert.ok(c.row.indexOf('Thanks, we have: Your plans. Still to do: How well insulated is it?, Heating and controls, Your heat ' +
+        'pump.') > 0, c.row);
+    assert.ok(c.digest.indexOf('Thanks, we have: Your plans. Still to do:') > 0);
+    var d = cards({ v: 2, s: {}, a: {}, f: [], req: '', sent: '2026-10-02T14:10Z', task: '2026-10-02T14:10Z' });
+    assert.ok(/Information received, [A-Z][a-z]{2} 2 Oct( 2026)?\. Pem is reviewing it/.test(d.row), d.row);
+    assert.ok(d.digest.indexOf('Pem is reviewing it') > 0);
 });

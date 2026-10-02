@@ -76,13 +76,15 @@
  * 3.4.1 (amendment 2): SCRIPT_KEYS[SEND_DESIGNINFO] adds DESIGN_SUBSTATUS, which the facts read; every list holds every
  * key its script reads, and a node test fails the suite on a key read but not listed.
  *
- * @version 3.4.1
+ * 3.4.2 (amendment 3): FIELDS.OPPORTUNITY.DESIGNINFO_STATE is a Text Area (comment only; the ID is unchanged).
+ *
+ * @version 3.4.2
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.4.1';
+    var VERSION = '3.4.2';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -184,7 +186,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             HEAT_SOURCE: 'custbody_mi_heat_source',
             MARKET: 'custbody_mis_opp_market',
             NEXT_CONTACT: 'custbody_next_contact',
-            // Long Text, hidden (Steve creates it): the page's JSON state (cdb_lib_designinfo.parseState). Written only
+            // 3.4.2 (amendment 3): TEXT AREA (4,000 characters), hidden, Store Value on (Steve creates it): the page's JSON
+            // state, version 2, compact (cdb_lib_designinfo.parseState). It is a search column (getOpportunityExtras) and a
+            // lookupFields column (designInfoRequest), which the first, Long Text, field failed in Production. Written only
             // by the dashboard and (requested) the Send design information Suitelet.
             DESIGNINFO_STATE: 'custbody_cdb_designinfo_state',
             // The Project Specification tab.

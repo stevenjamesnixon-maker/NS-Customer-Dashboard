@@ -27,15 +27,21 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
+ * 1.0.2 (amendment 3): custbody_cdb_designinfo_state is a TEXT AREA (4,000 characters): a Long Text field can be
+ * neither a search column nor a lookupFields column ("invalid column" in Production). The state is version 2, compact
+ * (s, a, n, f, req, sent, task; times to the minute); the change list (pending, capPending()) is gone — the Notes are
+ * the audit trail and the Task is a snapshot; at most 20 files, names clipped to 60; over 3,500 characters the files
+ * drop to the last 5 (CDB DESIGNINFO_STATE_TRIMMED); never over the field. Version 1 states are migrated on read.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.1
+ * @version 1.0.2
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.0.1';
+    var VERSION = '1.0.2';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -89,14 +95,17 @@ define([], function () {
     /** The "I have files bigger than 10 MB" tick: wording only, into the state, the Note and the Task. */
     var BIG_FILES_QID = 'bigfiles';
 
-    var STATE_VERSION = 1;
-
-    /** Amendment 2: the change list since the last Send — entries and JSON characters — and the state's own limit. */
-    var PENDING_MAX = 40;
-    var PENDING_MAX_CHARS = 12000;
-    var PENDING_MARKER = '(earlier changes are in the opportunity\u2019s Notes)';
-    var STATE_MAX_CHARS = 50000;
-    var STATE_TRIM_PENDING = 10;
+    /**
+     * Amendment 3: version 2, compact, for a Text Area of 4,000 characters. No change list (the Notes are the audit trail;
+     * the Task is a snapshot); at most STATE_FILES files with names of STATE_FILE_NAME characters; trimmed over
+     * STATE_TRIM_AT; never over the field.
+     */
+    var STATE_VERSION = 2;
+    var STATE_FILES = 20;
+    var STATE_FILE_NAME = 60;
+    var STATE_TRIM_AT = 3500;
+    var STATE_TRIM_FILES = 5;
+    var STATE_HARD_MAX = 3900;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -659,19 +668,41 @@ define([], function () {
     // ---------------------------------------------------------------- the state
 
     function emptyState() {
-        return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], pending: [], requested: '', sent: '',
-            lastTaskAt: '' };
+        return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '' };
+    }
+
+    /** The section status codes as stored (v2) and as used. */
+    var STATUS_CODE = { done: 'done', todo: 'todo', optional: 'opt' };
+    var STATUS_OF_CODE = { done: 'done', todo: 'todo', opt: 'optional', optional: 'optional' };
+
+    /**
+     * Pure (1.0.2): an ISO time to the minute, "2026-10-02T14:02Z" — the form every time in the state is stored in, so
+     * stored times compare as strings. '' for anything else.
+     */
+    function shortIso(value) {
+        var ms = value instanceof Date ? value.getTime() : Date.parse(String(value || ''));
+        return isNaN(ms) ? '' : new Date(ms).toISOString().slice(0, 16) + 'Z';
+    }
+
+    function str(v) {
+        return typeof v === 'string' ? v : '';
     }
 
     /**
-     * Pure (brief §5.6): custbody_cdb_designinfo_state. Missing -> empty; unparsable, not an object or another
-     * version -> empty with status 'invalid' (the caller logs CDB DESIGNINFO_STATE_INVALID once). Never throws.
+     * Pure (brief §5.6; amendment 3): custbody_cdb_designinfo_state — a TEXT AREA (4,000 characters), so it is a valid
+     * search column and lookupFields column (a Long Text field is neither). Reads version 2 (stored) and version 1
+     * (amendment 2 and before, migrated: pending dropped, keys renamed). Missing -> empty; unparsable, not an object or
+     * another version -> empty with status 'invalid' (the caller logs CDB DESIGNINFO_STATE_INVALID once). Never throws.
+     *
+     * In memory: { v, sections: { id: { saved, status } }, answers: { qid: value }, noted: { qid: true },
+     *   files: [{ qid, id, name, at, attached }], requested, sent, lastTaskAt }.
      * @param {*} raw
      * @returns {{state: Object, status: string, detail: string}} status 'empty' | 'ok' | 'invalid'
      */
     function parseState(raw) {
         var s = emptyState();
         var v;
+        var k;
         if (trim(raw) === '') {
             return { state: s, status: 'empty', detail: '' };
         }
@@ -680,17 +711,49 @@ define([], function () {
         } catch (e) {
             return { state: s, status: 'invalid', detail: 'not JSON' };
         }
-        if (!v || typeof v !== 'object' || Array.isArray(v) || v.v !== STATE_VERSION) {
-            return { state: s, status: 'invalid', detail: 'not a version ' + STATE_VERSION + ' state object' };
+        if (!v || typeof v !== 'object' || Array.isArray(v) || (v.v !== 1 && v.v !== STATE_VERSION)) {
+            return { state: s, status: 'invalid', detail: 'not a version 1 or ' + STATE_VERSION + ' state object' };
         }
-        s.sections = plainObject(v.sections);
-        s.answers = plainObject(v.answers);
-        s.noted = plainObject(v.noted);
-        s.files = Array.isArray(v.files) ? v.files.filter(function (f) { return f && typeof f === 'object'; }) : [];
-        s.pending = Array.isArray(v.pending) ? v.pending.filter(function (p) { return p && typeof p === 'object'; }) : [];
-        s.requested = typeof v.requested === 'string' ? v.requested : '';
-        s.sent = typeof v.sent === 'string' ? v.sent : '';
-        s.lastTaskAt = typeof v.lastTaskAt === 'string' ? v.lastTaskAt : '';
+        if (v.v === 1) {
+            // Migrate on read: the long keys, a noted time per qid, the files' long keys; pending is dropped.
+            for (k in plainObject(v.sections)) {
+                if (v.sections.hasOwnProperty(k) && v.sections[k] && typeof v.sections[k] === 'object') {
+                    s.sections[k] = { saved: str(v.sections[k].saved), status: STATUS_OF_CODE[v.sections[k].status] || 'todo' };
+                }
+            }
+            s.answers = plainObject(v.answers);
+            for (k in plainObject(v.noted)) {
+                if (v.noted.hasOwnProperty(k) && v.noted[k]) {
+                    s.noted[k] = true;
+                }
+            }
+            s.files = (Array.isArray(v.files) ? v.files : []).filter(function (f) { return f && typeof f === 'object'; })
+                .map(function (f) {
+                    return { qid: str(f.qid), id: String(f.id || ''), name: str(f.name), at: str(f.at), attached: f.attached !== false };
+                });
+            s.requested = str(v.requested);
+            s.sent = str(v.sent);
+            s.lastTaskAt = str(v.lastTaskAt);
+            return { state: s, status: 'ok', detail: 'migrated from version 1' };
+        }
+        for (k in plainObject(v.s)) {
+            if (v.s.hasOwnProperty(k) && v.s[k] && typeof v.s[k] === 'object') {
+                s.sections[k] = { saved: str(v.s[k].at), status: STATUS_OF_CODE[v.s[k].st] || 'todo' };
+            }
+        }
+        s.answers = plainObject(v.a);
+        (Array.isArray(v.n) ? v.n : []).forEach(function (qid) {
+            if (typeof qid === 'string' && qid) {
+                s.noted[qid] = true;
+            }
+        });
+        s.files = (Array.isArray(v.f) ? v.f : []).filter(function (f) { return f && typeof f === 'object'; })
+            .map(function (f) {
+                return { qid: str(f.q), id: String(f.id || ''), name: str(f.n), at: str(f.at), attached: f.x !== 1 };
+            });
+        s.requested = str(v.req);
+        s.sent = str(v.sent);
+        s.lastTaskAt = str(v.task);
         return { state: s, status: 'ok', detail: '' };
     }
 
@@ -698,54 +761,67 @@ define([], function () {
         return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
     }
 
-    /** Pure: the state as stored — the small keys first. */
-    function stateText(state) {
-        var s = state || emptyState();
-        return JSON.stringify({ v: STATE_VERSION, requested: s.requested || '', sent: s.sent || '',
-            lastTaskAt: s.lastTaskAt || '', sections: s.sections || {}, answers: s.answers || {}, noted: s.noted || {},
-            files: s.files || [], pending: s.pending || [] });
-    }
-
     /**
-     * Pure (1.0.1): the change list capped — at most PENDING_MAX entries and PENDING_MAX_CHARS characters of JSON. When
-     * anything is dropped (oldest first), one marker entry { m: true, l: PENDING_MARKER } leads the list: the Notes hold
-     * every change, so nothing is lost. An existing marker is kept at the front, never repeated.
-     * @param {Object[]} list
-     * @param {string} nowIso
-     * @returns {Object[]}
+     * Pure (1.0.2): the state as stored — version 2, compact: s (sections: at, st), a (answers), n (qids answered in a
+     * Note; left out when none), f (the newest STATE_FILES files, names clipped to STATE_FILE_NAME), req, sent, task.
+     * Times to the minute. opts.files caps the files (the size guard's trim).
      */
-    function capPending(list, nowIso) {
-        var hadMarker = (list || []).some(function (p) { return p && p.m; });
-        var rest = (list || []).filter(function (p) { return p && !p.m; });
-        var marker = { m: true, s: '', l: PENDING_MARKER, o: '', n: '', at: nowIso };
-        var budget = PENDING_MAX_CHARS - JSON.stringify(marker).length - 1;
-        var dropped = false;
-        while (rest.length && (rest.length > PENDING_MAX - 1 || JSON.stringify(rest).length > budget)) {
-            rest.shift();
-            dropped = true;
+    function stateText(state, opts) {
+        var st = state || emptyState();
+        var o = opts || {};
+        var sections = {};
+        var noted = [];
+        var k;
+        var out;
+        for (k in (st.sections || {})) {
+            if (st.sections.hasOwnProperty(k) && st.sections[k]) {
+                sections[k] = { at: shortIso(st.sections[k].saved), st: STATUS_CODE[st.sections[k].status] || 'todo' };
+            }
         }
-        if (!dropped && !hadMarker && rest.length <= PENDING_MAX && JSON.stringify(rest).length <= PENDING_MAX_CHARS) {
-            return (list || []).filter(function (p) { return p && !p.m; });
+        for (k in (st.noted || {})) {
+            if (st.noted.hasOwnProperty(k) && st.noted[k]) {
+                noted.push(k);
+            }
         }
-        return [marker].concat(rest);
+        out = { v: STATE_VERSION, s: sections, a: st.answers || {} };
+        if (noted.length && !o.dropNoted) {
+            out.n = noted;
+        }
+        out.f = (st.files || []).slice(-(o.files === undefined ? STATE_FILES : o.files)).map(function (f) {
+            var e = { q: f.qid, id: String(f.id), n: String(f.name || '').slice(0, STATE_FILE_NAME), at: shortIso(f.at) };
+            if (f.attached === false) {
+                e.x = 1;
+            }
+            return e;
+        });
+        out.req = shortIso(st.requested);
+        out.sent = shortIso(st.sent);
+        out.task = shortIso(st.lastTaskAt);
+        return JSON.stringify(out);
     }
 
     /**
-     * Pure (1.0.1): the state's text, guarded — over STATE_MAX_CHARS, pending keeps only its last STATE_TRIM_PENDING
-     * entries (the Notes hold the rest). The field is Long Text; this keeps the state from ever blocking a write.
+     * Pure (1.0.2): the state's text, guarded to fit the Text Area — over STATE_TRIM_AT (3,500) characters the files drop
+     * to the last STATE_TRIM_FILES (5); still over STATE_HARD_MAX (3,900), the noted list and the files go too; still over,
+     * the answers. It never exceeds the field. Older files stay on the opportunity and in the Notes.
      * @returns {{text: string, trimmed: boolean}}
      */
     function stateTextGuarded(state) {
         var text = stateText(state);
-        var s;
-        if (text.length <= STATE_MAX_CHARS) {
+        var slim;
+        if (text.length <= STATE_TRIM_AT) {
             return { text: text, trimmed: false };
         }
-        s = parseState(text).state;
-        s.pending = [{ m: true, s: '', l: PENDING_MARKER, o: '', n: '', at: '' }].concat(s.pending.filter(function (p) {
-            return !p.m;
-        }).slice(-STATE_TRIM_PENDING));
-        return { text: stateText(s), trimmed: true };
+        text = stateText(state, { files: STATE_TRIM_FILES });
+        if (text.length > STATE_HARD_MAX) {
+            text = stateText(state, { files: 0, dropNoted: true });
+        }
+        if (text.length > STATE_HARD_MAX) {
+            slim = parseState(text).state;
+            slim.answers = {};
+            text = stateText(slim, { files: 0, dropNoted: true });
+        }
+        return { text: text, trimmed: true };
     }
 
     /** Pure: a section has been saved at least once. */
@@ -990,12 +1066,12 @@ define([], function () {
         slashDate: slashDate,
         clipValue: clipValue,
         // 1.0.1
-        PENDING_MAX: PENDING_MAX,
-        PENDING_MAX_CHARS: PENDING_MAX_CHARS,
-        PENDING_MARKER: PENDING_MARKER,
-        STATE_MAX_CHARS: STATE_MAX_CHARS,
+        STATE_FILES: STATE_FILES,
+        STATE_FILE_NAME: STATE_FILE_NAME,
+        STATE_TRIM_AT: STATE_TRIM_AT,
+        STATE_HARD_MAX: STATE_HARD_MAX,
+        shortIso: shortIso,
         parseFcMapOnly: parseFcMapOnly,
-        capPending: capPending,
         stateTextGuarded: stateTextGuarded,
         plainValue: plainValue,
         sameText: sameText

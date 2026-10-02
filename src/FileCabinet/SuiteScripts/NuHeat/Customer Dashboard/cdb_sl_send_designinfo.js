@@ -21,7 +21,9 @@
  *
  * WRITES ONE FIELD: the state's `requested` (custbody_cdb_designinfo_state), MERGED into what is there. 1.0.1
  * (amendment 2): an unparsable state is treated as empty, as the dashboard does — logged once
- * (CDB DESIGNINFO_STATE_INVALID) and replaced by { v: 1, requested }. Never the sub-status or anything else.
+ * (CDB DESIGNINFO_STATE_INVALID) and replaced by a fresh state with `req`. 1.0.2 (amendment 3): the state is version 2,
+ * compact, in a Text Area (designinfo 1.0.2); a version 1 state is migrated as it is read. Never the sub-status or
+ * anything else.
  *
  * GOVERNANCE (units): a GET is about 25 — the settings search 10, the opportunity lookup 1, the customer and contact
  * lookups 2, the registry's file.load 10, the employee lookups 1–3. A POST adds the two links' customer lookups 2,
@@ -32,7 +34,7 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.0.1
+ * @version 1.0.2
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -40,7 +42,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.0.1';
+    var VERSION = '1.0.2';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 

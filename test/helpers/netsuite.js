@@ -72,6 +72,12 @@ function stubs(w) {
         Summary: { GROUP: 'GROUP' },
         createColumn: function (c) { return c; },
         lookupFields: function (o) {
+            // Amendment 3: a Long Text field is not a valid lookupFields column (w.longTextFields, as in Production).
+            (o.columns || []).forEach(function (c) {
+                if ((w.longTextFields || []).indexOf(c) >= 0) {
+                    throw new Error('An nlobjSearchColumn contains an invalid column, or is not in proper syntax: ' + c);
+                }
+            });
             var src = { customer: w.customers, employee: w.employees, opportunity: w.opps, contact: w.contacts,
                 salesorder: w.orders }[o.type];
             var r = src && src[o.id];
@@ -100,6 +106,13 @@ function stubs(w) {
             var clause;
             w.searches = w.searches || [];
             w.searches.push(def);
+            // Amendment 3: nor a search column (w.longTextFields). A Text Area is both.
+            (def.columns || []).forEach(function (c) {
+                var name = c && typeof c === 'object' ? c.name : c;
+                if ((w.longTextFields || []).indexOf(name) >= 0) {
+                    throw new Error('An nlobjSearchColumn contains an invalid column, or is not in proper syntax: ' + name);
+                }
+            });
             // As NetSuite does: the opportunity search type has no mainline filter.
             if (def.type === 'opportunity' && findClause(def.filters, 'mainline')) {
                 throw new Error('An nlobjSearchFilter contains invalid search criteria: mainline.');

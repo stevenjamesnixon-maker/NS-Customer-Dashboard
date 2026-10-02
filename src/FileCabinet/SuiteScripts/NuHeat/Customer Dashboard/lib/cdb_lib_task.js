@@ -44,13 +44,17 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.5.1
+ * 1.5.2 (amendment 3): the DESIGN INFO Task is a SNAPSHOT — every shown section with its current answers ("Label:
+ * value", clipped at 200), "(nothing yet)" for an empty one, and a pointer to the Notes for the changes since the last
+ * send — because the state no longer carries a change list.
+ *
+ * @version 1.5.2
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.5.1';
+    var VERSION = '1.5.2';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -345,33 +349,27 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
     }
 
     /**
-     * Pure (brief §5.5; amendment 1 §1): the "DESIGN INFO" Task's message.
-     * @param {Object} o - { complete, missing: [title], sections: [{title, status}], changes: [{section, label, oldText,
-     *   newText}] (since the last Send), files: [{name, sizeText, label}] (since the last Send), folderText, goodsLine
-     *   ('' or the goods date line), bigFiles, warnings: [line], notSaved: ['<qid> (why)'], failures: [line] (writes that
-     *   failed), noteFailed: boolean, serviceText } — plain text, prepared by the caller (1.5.1: not escaped). A change
-     *   with marker: true (the oldest changes dropped) prints its label as a line of its own.
+     * Pure (brief §5.5; amendment 3): the "DESIGN INFO" Task's message — a SNAPSHOT of every shown section's current
+     * answers, not a change list (the changes are in the Notes, the audit trail).
+     * @param {Object} o - { complete, missing: [title], sections: [{ title, status, lines: ['Label: value'] }] (every shown
+     *   section, in order; no lines -> "(nothing yet)"), sinceText ('' or "dd/mm/yyyy HH:mm": the previous Send, else the
+     *   request), files: [{name, label, attachNote}] (since the last Send), folderText, goodsLine, bigFiles,
+     *   warnings: [line], notSaved: [text], failures: [line], noteFailed, serviceText } — plain text, prepared by the caller
      * @returns {string} unclipped: the caller clips it with clipBody() (and logs CDB DESIGNINFO_TASK_CLIPPED)
      */
     function buildDesignInfoMessage(o) {
         var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
             'attached files, then move the sub-status to Design Required when you\u2019re ready.', ''];
-        var last = '';
         if ((o.failures || []).length) {
             lines.push('NOT SAVED (please enter by hand):');
             o.failures.forEach(function (f) { lines.push('- ' + f); });
             lines.push('');
         }
         if (o.noteFailed) {
-            lines.push('Audit note NOT created: the change list below is the only record of this save.', '');
+            lines.push('Audit note NOT created for this save: the answers below are its only record.', '');
         }
         lines.push(o.complete ? 'Complete: everything the design needs has been answered.' :
             'Still missing: ' + (o.missing || []).join(', ') + '.');
-        if ((o.sections || []).length) {
-            lines.push('Sections: ' + o.sections.map(function (s) {
-                return s.title + ' (' + (s.status === 'done' ? 'done' : s.status === 'todo' ? 'to do' : 'optional') + ')';
-            }).join(', ') + '.');
-        }
         if (o.serviceText) {
             lines.push('Design service: ' + o.serviceText + '.');
         }
@@ -379,29 +377,23 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         if (o.goodsLine) {
             lines.push(o.goodsLine, '');
         }
-        if ((o.changes || []).length) {
-            lines.push('Changed since the last Send (old \u2192 new):');
-            o.changes.forEach(function (c) {
-                if (c.marker) {
-                    lines.push(c.label);
-                    last = '';
-                    return;
-                }
-                if (c.section !== last) {
-                    lines.push(c.section);
-                    last = c.section;
-                }
-                lines.push(diChangeLine(c, '- '));
-            });
-        } else {
-            lines.push('Nothing changed since the last Send.');
+        (o.sections || []).forEach(function (sec) {
+            lines.push(sec.title + (sec.status ? ' (' + (sec.status === 'done' ? 'done' : sec.status === 'todo' ? 'to do' :
+                'optional') + ')' : ''));
+            if ((sec.lines || []).length) {
+                sec.lines.forEach(function (l) { lines.push('- ' + l); });
+            } else {
+                lines.push('(nothing yet)');
+            }
+            lines.push('');
+        });
+        if (o.sinceText) {
+            lines.push('Changes since the last send are in the opportunity\u2019s Notes dated after ' + o.sinceText + '.', '');
         }
-        lines.push('');
         if ((o.files || []).length) {
             lines.push('Files uploaded since the last Send (' + o.folderText + '):');
             o.files.forEach(function (f) {
-                lines.push('- ' + f.name + (f.sizeText ? ' (' + f.sizeText + ')' : '') + (f.label ? ', ' + f.label : '') +
-                    (f.attachNote ? ' ' + f.attachNote : ''));
+                lines.push('- ' + f.name + (f.label ? ', ' + f.label : '') + (f.attachNote ? ' ' + f.attachNote : ''));
             });
             lines.push('');
         }
