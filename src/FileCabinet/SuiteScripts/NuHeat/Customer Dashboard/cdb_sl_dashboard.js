@@ -9,6 +9,9 @@
  *   GET  ?t=<token>&a=update&opp=<id>       "Tell us where you're up to" (2.1; "Give us an update" to customers)
  *   POST  t, a=update, opp, mode, fields    update: opportunity fields, then a Task, then confirmation;
  *                                           not going ahead: objection, then Lost, then a Task (2.1)
+ *   GET  ?t=<token>&a=designinfo&opp=<id>   "Tell us about your property" (2.3)
+ *   POST  t, a=designinfo, opp, sec|send,   the answers (multipart, with files): fields, files, state, a Note;
+ *         q_<qid>, f_<qid>_<n>              on send=1 also a Task (2.3)
  *
  * THE CUSTOMER IS THE TOKEN'S. Every request verifies the token first, and the customer ID used
  * from then on comes from the verified token, never from a request parameter. The sales order ID
@@ -42,7 +45,11 @@
  *     library's write;
  *   - 2.2, with "Add a new address…": one line on the customer's address book (data.addToAddressBook(),
  *     unless the same address is already there), and custbody_cdb_delivery_address on the order's
- *     opportunity (data.writeDeliveryAddress(), only when the field exists).
+ *     opportunity (data.writeDeliveryAddress(), only when the field exists);
+ *   - 2.3, "Tell us about your property": through data.writeDesignInfo() only, the registry's Project
+ *     Specification fields (type-verified, changed, non-empty, never config.DESIGNINFO_DENY) and the state field
+ *     custbody_cdb_designinfo_state; the customer's files (File Cabinet, attached to the opportunity); one Note per
+ *     save; one Task per Send. Never custbody_opp_del_date (the goods date is Note, state and Task only).
  * It NEVER writes custbody_del_date (the confirmed date: a workflow runs from it),
  * custbody_finance_status (the Record Status), custbody_opportunity_sub_status, any other opportunity
  * field, any estimate, or any customer field but that one address book line.
@@ -70,20 +77,53 @@
  * orders show their current forecast date — the order's own custbody_defaultshipdate (order.shipDateKey,
  * already read), today or later — on the dashboard row and the delivery form (render).
  *
+ * 2.3.0 (release 2.3, "Tell us about your property"): a=designinfo. data.guardDesignInfo() (the token's customer's,
+ * Won, NEEDINFO -> edit / DESIGN -> view, FC not none; NOT guardOpportunity(), which refuses Won), the registry
+ * (setting DESIGNINFO_REGISTRY; unavailable without it, CDB DESIGNINFO_NO_REGISTRY), ONE dynamic record.load that
+ * is never saved. A POST validates everything first (errors: nothing written), then, each step in its own try and
+ * reported in the Note and the Task: 1. the changed, non-empty, type-verified fields (one data.writeDesignInfo(),
+ * with the state when no files came), 2. each file saved into DESIGNINFO_FOLDER and attached to the opportunity, 3. the state
+ * (custbody_cdb_designinfo_state) when step 1 could not carry it, 4. the Note (every save), 5. the DESIGN INFO Task
+ * (send=1 only). NEVER custbody_opp_del_date (the goods date is Note, state and Task only: amendment 1 §1), the
+ * sub-status, the Sales MI or custbody_cad_des_contact (config.DESIGNINFO_DENY). The dashboard's design rows show
+ * the four card states from the fail-safe extras search (data.getOpportunityExtras(), one search; the registry is
+ * read only when a card needs its progress).
+ *
+ * GOVERNANCE 2.3 (units): a designinfo GET is about 34 — the settings search 10, the token's and the customer's
+ * lookups 2, the guard's lookupFields 1, the registry's file.load 10, the opportunity's record.load 10 (dynamic or
+ * standard, a transaction load is 10), the recipient's employee lookup 1 (a fallback adds 1). A POST is the GET's 34
+ * plus the opportunity write 10 (two with files: fields, then the state), each file 30 (save 20 + attach 10), the Note
+ * 10 and, on Send, the Task 10: about 164 with three files and Send, 64 for a Send without files. The dashboard
+ * adds one extras search (10) when a project is in design, and the registry (10) only for a card in progress.
+ *
+ * 2.3.1 (amendment 2): the design information Note and Task are plain text (control characters stripped, clipped,
+ * never HTML-escaped; every HTML surface still escapes); the Task message is clipped at 3,900
+ * (CDB DESIGNINFO_TASK_CLIPPED) and the change list since the last Send is capped (designinfo.capPending()); an answer
+ * is compared with its line endings normalised, so an untouched textarea is never "changed"; the state is size-guarded
+ * (CDB DESIGNINFO_STATE_TRIMMED); when the one write of the fields and the state fails, the fields are retried on
+ * their own, so the state never blocks them.
+ *
+ * 2.3.2 (amendment 3): the state field is a Text Area (a Long Text field is not a valid search or lookupFields column)
+ * and the state is version 2, compact (designinfo 1.0.2): no change list; the answers kept are the yes/no state answers
+ * and the Note-only dates (other Note-only answers are only marked as given, in `n`); times to the minute. The DESIGN
+ * INFO Task is a snapshot of every shown section's current answers, with a pointer to the Notes for the changes since
+ * the last send.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.2.2
+ * @version 2.3.2
  */
 define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
-    './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', 'require'],
-    function (record, runtime, log, config, token, dates, data, render, task, requireModule) {
+    './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
+    'require'],
+    function (record, runtime, log, config, token, dates, data, render, task, designinfo, requireModule) {
 
     'use strict';
 
-    var VERSION = '2.2.2';
+    var VERSION = '2.3.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -224,6 +264,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         data.arrangeSections(groups);
         // 2.1: the library is only needed (and only required) when there is an open quote to show it on.
         canUpdate = groups.toOrder.length > 0 && !!oppLib().lib;
+        // 2.3: the design rows' card states.
+        if (groups.inDesign.length) {
+            decorateDesignRows(ctx, groups, todayKey);
+        }
         return render.dashboard({
             customerName: ctx.customer.name,
             greetingName: ctx.customer.greetingName,
@@ -239,7 +283,40 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             },
             updateUrl: canUpdate ? function (oppId) {
                 return ctx.baseUrl + '&a=update&opp=' + encodeURIComponent(oppId);
+            } : null,
+            // 2.3: only with a registry setting (an unreadable registry shows "not available" on the page itself).
+            designInfoUrl: ctx.cfg.DESIGNINFO_REGISTRY ? function (oppId) {
+                return ctx.baseUrl + '&a=designinfo&opp=' + encodeURIComponent(oppId);
             } : null
+        });
+    }
+
+    /**
+     * 2.3 (brief §6): the four card states for the dashboard's design rows — the extras search (fail-safe), the
+     * registry only when a card in progress needs its section titles, the PE/AM's first name for "Information received".
+     */
+    function decorateDesignRows(ctx, groups, todayKey) {
+        var ids = groups.inDesign.map(function (d) { return d.opp.id; });
+        var extras = data.getOpportunityExtras(ids);
+        var once = onceLogger();
+        var needRegistry = groups.inDesign.some(function (d) {
+            var st = designinfo.parseState((extras[d.opp.id] || {}).state).state;
+            return data.contains(ctx.cfg.NEEDINFO_SUBSTATUS, d.opp.subStatus) && !st.sent && designinfo.anySectionSaved(st);
+        });
+        var reg = needRegistry ? data.loadRegistry(ctx.cfg.DESIGNINFO_REGISTRY) : null;
+        if (reg && reg.status !== 'ok') {
+            once('DESIGNINFO_NO_REGISTRY', 'Dashboard: registry ' + reg.status + (reg.detail ? ' (' + reg.detail + ')' : '') +
+                '; cards in progress say "a few more details"');
+        }
+        data.decorateDesign(groups, {
+            extras: extras,
+            questions: reg && reg.status === 'ok' ? reg.questions : null,
+            cfg: ctx.cfg,
+            todayKey: todayKey,
+            firstNameOf: function (opp) { return taskAssignee(opp, ctx.cfg).firstName; },
+            onStateInvalid: function (oppId, detail) {
+                once('DESIGNINFO_STATE_INVALID', 'Opportunity ' + oppId + ': ' + detail + '; shown as nothing received');
+            }
         });
     }
 
@@ -1260,6 +1337,747 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return applyUpdate(ctx, guard, uc, check, lib);
     }
 
+    // ---------------------------------------------------------------- 2.3: tell us about your property
+
+    var STORE = designinfo.STORE;
+
+    /** Logged once per request: the lines that would otherwise repeat for every question. */
+    function onceLogger() {
+        var seen = {};
+        return function (key, details) {
+            if (!seen[key]) {
+                seen[key] = true;
+                log.audit({ title: title(key), details: details });
+            }
+        };
+    }
+
+    /** The PE or AM (brief §5.3: resolveRecipient as today), with the page's role. */
+    function designRecipient(opp, cfg) {
+        var r = taskAssignee(opp, cfg);
+        r.role = r.source === 'pe' ? 'pe' : 'am';
+        return r;
+    }
+
+    /** London's "Fri 30 Oct" for a key, '' for none. */
+    function display(key) {
+        return dates.formatDisplay(key, dates.londonTodayKey(Date.now()));
+    }
+
+    /** "dd/mm/yyyy" of an ISO time, London. */
+    function isoSlash(iso) {
+        var ms = Date.parse(iso || '');
+        return isNaN(ms) ? '' : designinfo.slashDate(designinfo.londonTime(ms).key);
+    }
+
+    /**
+     * Everything the design information page needs, for GET and POST alike: the guard, the registry, the ONE record
+     * load, the state, the facts, the questions shown. { html } when the page cannot be shown.
+     */
+    function designContext(ctx, oppId, once) {
+        var cfg = ctx.cfg;
+        var guard = data.guardDesignInfo(ctx.customer.id, oppId, cfg);
+        var reg;
+        var rec;
+        var parsed;
+        var facts;
+        var shown;
+        var dc;
+        if (!guard.ok) {
+            log.audit({ title: title('DESIGNINFO_REFUSED'), details: 'Customer ' + ctx.customer.id + ', opportunity ' + oppId +
+                ': ' + guard.reason });
+            return { html: render.designInfoMessagePage({ logoUrl: cfg.LOGO_URL, am: customerManager(ctx), backUrl: ctx.baseUrl,
+                text: guard.reason === data.GUARD_DI.FC_NONE ? render.DESIGN_TEXT.NOTHING_NEEDED : render.DESIGN_TEXT.NOT_HERE }) };
+        }
+        reg = data.loadRegistry(cfg.DESIGNINFO_REGISTRY);
+        if (reg.status !== 'ok') {
+            log.audit({ title: title('DESIGNINFO_NO_REGISTRY'), details: 'Opportunity ' + guard.opportunity.id + ': registry ' +
+                reg.status + (reg.detail ? ' (' + reg.detail + ')' : '') + '. The design information page is unavailable.' });
+            return { html: render.designInfoMessagePage({ logoUrl: cfg.LOGO_URL, am: customerManager(ctx), backUrl: ctx.baseUrl,
+                text: render.DESIGN_TEXT.NOT_AVAILABLE + '.' }) };
+        }
+        if (reg.rejected.length) {
+            once('DESIGNINFO_REGISTRY_REJECTED', clip(reg.rejected.length + ' registry row(s) ignored: ' + reg.rejected.map(function (r) {
+                return 'line ' + r.line + ' ' + r.qid + ': ' + r.reason;
+            }).join('; ')));
+        }
+        rec = data.loadDesignInfo(guard.opportunity.id, reg.questions, cfg);
+        parsed = designinfo.parseState(rec.info.stateRaw);
+        if (parsed.status === 'invalid') {
+            once('DESIGNINFO_STATE_INVALID', 'Opportunity ' + guard.opportunity.id + ': ' + parsed.detail + '; treated as empty.');
+        }
+        facts = designinfo.buildFacts({ valueProposition: rec.info.valueProposition, fc: rec.info.fc,
+            heatSource: rec.info.heatSource, market: rec.info.market, subStatus: rec.info.subStatus || guard.opportunity.subStatus,
+            manifolds: rec.info.manifolds }, cfg);
+        if (facts.mapProblems.length) {
+            once('DESIGNINFO_MAP_INVALID', facts.mapProblems.join(' | '));
+        }
+        shown = designinfo.visibleQuestions(reg.questions, facts);
+        dc = { guard: guard, opp: guard.opportunity, mode: guard.mode, reg: reg, rec: rec, state: parsed.state, facts: facts,
+            recipient: designRecipient(guard.opportunity, cfg), notSaved: [] };
+        logFieldProblems(dc, shown, once);
+        dc.questions = shown.filter(function (q) { return rec.missing.indexOf(q.qid) < 0; }).map(function (q) {
+            return questionView(dc, q);
+        });
+        return dc;
+    }
+
+    /** CDB DESIGNINFO_FIELD_MISSING / _FIELD_MISMATCH / _OPTIONS_UNAVAILABLE, once each; dc.notSaved for the Task. */
+    function logFieldProblems(dc, shown, once) {
+        var ids = shown.map(function (q) { return q.qid; });
+        var missing = dc.rec.missing.filter(function (qid) { return ids.indexOf(qid) >= 0; });
+        var mismatched = dc.rec.mismatched.filter(function (x) { return ids.indexOf(x.qid) >= 0; });
+        var noOptions = dc.rec.optionsUnavailable.filter(function (x) { return ids.indexOf(x.qid) >= 0; });
+        if (missing.length) {
+            once('DESIGNINFO_FIELD_MISSING', 'Opportunity ' + dc.opp.id + ': not on the record, so not asked: ' + missing.join(', '));
+        }
+        if (mismatched.length) {
+            once('DESIGNINFO_FIELD_MISMATCH', 'Opportunity ' + dc.opp.id + ': field type does not fit the question, shown ' +
+                'read-only: ' + mismatched.map(function (x) { return x.qid + ' (' + x.fieldId + ' is ' + x.type + ')'; }).join(', '));
+        }
+        if (noOptions.length) {
+            once('DESIGNINFO_OPTIONS_UNAVAILABLE', 'Opportunity ' + dc.opp.id + ': shown read-only: ' + noOptions.map(function (x) {
+                return x.qid + ' (' + x.why + ')';
+            }).join(', '));
+        }
+        dc.notSaved = missing.map(function (q) { return q + ' (field missing)'; })
+            .concat(mismatched.map(function (x) { return x.qid + ' (type mismatch: ' + x.fieldId + ' is ' + x.type + ')'; }))
+            .concat(noOptions.map(function (x) { return x.qid + ' (options unavailable)'; }));
+    }
+
+    /** One question as the page shows it: a copy of the registry row with unavailable, and its current value. */
+    function questionView(dc, q) {
+        var v = { q: q, value: '', readOnly: false, readOnlyText: '', options: null, uploaded: [], goodsHave: '', notedText: '' };
+        var copy = {};
+        var k;
+        var mism = dc.rec.mismatched.some(function (x) { return x.qid === q.qid; });
+        var noOpt = dc.rec.optionsUnavailable.some(function (x) { return x.qid === q.qid; });
+        for (k in q) {
+            if (q.hasOwnProperty(k)) {
+                copy[k] = q[k];
+            }
+        }
+        copy.unavailable = mism || noOpt;
+        v.q = copy;
+        v.readOnly = copy.unavailable;
+        v.readOnlyText = q.field === config.FIELDS.OPPORTUNITY.BUILD_STAGE ? render.stageLabel(dc.rec.texts[q.qid] || '') :
+            (dc.rec.texts[q.qid] || '');
+        v.value = currentValue(dc, q);
+        if (q.type === 'choice' && q.optionsFromField && !v.readOnly) {
+            v.options = (dc.rec.fields[q.qid].options || []).map(function (o) {
+                return { value: o.value, text: q.field === config.FIELDS.OPPORTUNITY.BUILD_STAGE ? render.stageLabel(o.text) : o.text };
+            });
+        } else if (q.type === 'choice') {
+            v.options = (q.options || []).map(function (label, i) { return { value: String(i), text: label }; });
+            v.value = (q.options || []).indexOf(v.value) >= 0 ? String(q.options.indexOf(v.value)) : '';
+        }
+        if (q.type === 'files') {
+            v.uploaded = dc.state.files.filter(function (f) { return f.qid === q.qid; }).map(function (f) {
+                return { name: f.name, dateText: isoSlash(f.at) };
+            });
+        }
+        if (q.qid === designinfo.GOODS_DATE_QID && dc.rec.info.delDateKey) {
+            v.goodsHave = display(dc.rec.info.delDateKey);
+        }
+        if (q.store === STORE.NOTE && q.type !== 'date' && dc.state.noted[q.qid]) {
+            v.notedText = render.DESIGN_TEXT.NOTED_NO_DATE;
+        }
+        return v;
+    }
+
+    /** A question's stored answer: the record's (field), else the state's (state; a short note answer). */
+    function currentValue(dc, q) {
+        if (q.store === STORE.FIELD) {
+            return dc.rec.values.hasOwnProperty(q.qid) ? dc.rec.values[q.qid] : '';
+        }
+        // 2.3.2: of the Note-only answers only the dates are kept (state v2); the rest are in the Note.
+        if (q.store === STORE.NOTE && q.type !== 'date') {
+            return '';
+        }
+        return dc.state.answers.hasOwnProperty(q.qid) ? String(dc.state.answers[q.qid]) : '';
+    }
+
+    /** qid -> the answer, for the progress (the record's for fields; the state's otherwise). */
+    function answerValues(dc) {
+        var values = {};
+        dc.questions.forEach(function (v) {
+            values[v.q.qid] = v.q.store === STORE.FIELD ? (dc.rec.values[v.q.qid] || '') : (dc.state.answers[v.q.qid] || '');
+        });
+        return values;
+    }
+
+    /** The questions' sections, each with its status. */
+    function designSections(dc) {
+        var values = answerValues(dc);
+        var qs = dc.questions.map(function (v) { return v.q; });
+        return designinfo.sectionsOf(qs).map(function (s) {
+            return { id: s.id, title: s.title, status: designinfo.sectionStatus(s.questions, values, dc.state),
+                questions: dc.questions.filter(function (v) { return v.q.section === s.id; }) };
+        });
+    }
+
+    function completenessOf(dc) {
+        return designinfo.completeness(dc.questions.map(function (v) { return v.q; }), answerValues(dc), dc.state);
+    }
+
+    /** "<FC text> · <heat source text>" */
+    function havingText(info) {
+        return [info.fcText, info.heatSourceText].filter(function (x) { return !!x; }).join(' · ');
+    }
+
+    function renderDesignInfo(ctx, dc, extra) {
+        var e = extra || {};
+        var todayKey = dates.londonTodayKey(Date.now());
+        if (e.values) {
+            dc.questions.forEach(function (v) {
+                if (e.values.hasOwnProperty(v.q.qid) && !v.readOnly) {
+                    v.value = v.q.type === 'choice' && !v.q.optionsFromField ?
+                        String((v.q.options || []).indexOf(e.values[v.q.qid]) >= 0 ? v.q.options.indexOf(e.values[v.q.qid]) : '') :
+                        e.values[v.q.qid];
+                }
+            });
+        }
+        return render.designInfoPage({
+            logoUrl: ctx.cfg.LOGO_URL,
+            recipient: dc.recipient,
+            opp: { id: dc.opp.id, tranId: dc.rec.info.tranId || dc.opp.tranId, title: dc.rec.info.title || dc.opp.title,
+                siteAddress: dc.rec.info.siteAddress },
+            project: { havingText: havingText(dc.rec.info), thermostatsText: dc.rec.info.thermostatsText, neoHub: dc.rec.info.neoHub,
+                serviceText: dc.rec.info.valuePropositionText,
+                callKey: dc.rec.info.nextContactKey && dc.rec.info.nextContactKey >= todayKey ? dc.rec.info.nextContactKey : '' },
+            token: ctx.token,
+            actionUrl: ctx.baseUrl,
+            backUrl: ctx.baseUrl,
+            mode: dc.mode,
+            sections: designSections(dc),
+            errors: e.errors || {},
+            notice: e.notice || '',
+            confirmation: e.confirmation || null,
+            completeness: completenessOf(dc),
+            maxFiles: ctx.cfg.DESIGNINFO_MAX_FILES,
+            accept: designinfo.ALLOWED_EXTENSIONS.map(function (x) { return '.' + x; }).join(','),
+            uploadsEnabled: !!ctx.cfg.DESIGNINFO_FOLDER,
+            drawingsUrl: ctx.cfg.DESIGNINFO_DRAWINGS_URL
+        });
+    }
+
+    /** GET ?a=designinfo&opp= */
+    function handleDesignInfoGet(ctx, oppId) {
+        var dc = designContext(ctx, oppId, onceLogger());
+        return dc.html || renderDesignInfo(ctx, dc);
+    }
+
+    /**
+     * A value as the Note and the Task show it: PLAIN TEXT (2.3.1) — control characters stripped, clipped; never
+     * HTML-escaped (both are shown to staff as text).
+     */
+    function shown(text) {
+        return designinfo.plainValue(text);
+    }
+
+    /** The state's text for a write, size-guarded (CDB DESIGNINFO_STATE_TRIMMED). */
+    function stateForWrite(dc, s) {
+        var g = designinfo.stateTextGuarded(s);
+        if (g.trimmed) {
+            log.audit({ title: title('DESIGNINFO_STATE_TRIMMED'), details: 'Opportunity ' + dc.opp.id + ': the state was over ' +
+                designinfo.STATE_TRIM_AT + ' characters; it keeps only its last files (older ones stay on the opportunity and in ' +
+                'the Notes)' });
+        }
+        return g.text;
+    }
+
+    /** The display text of an answer (old or new) for the Note. */
+    function answerText(v, value) {
+        var q = v.q;
+        var opt;
+        if (value === '' || value === null || value === undefined) {
+            return '';
+        }
+        if (q.type === 'yesno') {
+            return value === 'yes' ? 'Yes' : value === 'no' ? 'No' : String(value);
+        }
+        if (q.type === 'date') {
+            return designinfo.slashDate(value);
+        }
+        if (q.type === 'choice' && q.optionsFromField) {
+            opt = (v.options || []).filter(function (o) { return o.value === String(value); })[0];
+            return opt ? opt.text : String(value);
+        }
+        return String(value);
+    }
+
+    /**
+     * The changes a post makes, before anything is written: { fields (fieldId -> value to write), fieldItems, items
+     * ([{ qid, section, sectionTitle, label, oldText, newText }] for the Note and the Task, plain), answers (qid ->
+     * value into the state), noted ([qid]), goods (null or { have, says }), notSaved ([text]) }.
+     */
+    function designChanges(dc, values) {
+        var out = { fields: {}, fieldItems: [], items: [], answers: {}, noted: [], posted: {}, goods: null, notSaved: [],
+            clipped: [] };
+        dc.questions.forEach(function (v) {
+            var q = v.q;
+            var nv = values[q.qid];
+            var cur;
+            var write;
+            var meta;
+            var item;
+            if (v.readOnly || q.type === 'info' || q.type === 'files' || nv === undefined || nv === '' || nv === null) {
+                return;
+            }
+            cur = currentValue(dc, q);
+            // 2.3.1: line endings normalised on both sides — NetSuite may give back \r\n for what was posted as \n.
+            // 2.3.2: a Note-only answer other than a date is not kept, so it is always new content.
+            if (q.store !== STORE.NOTE || q.type === 'date') {
+                if (designinfo.sameText(nv, cur)) {
+                    return;
+                }
+            }
+            item = { qid: q.qid, section: q.section, sectionTitle: q.sectionTitle, label: q.label,
+                oldText: q.type === 'choice' && !q.optionsFromField ? cur : answerText(v, cur),
+                newText: q.type === 'choice' && !q.optionsFromField ? nv : answerText(v, nv) };
+            if (q.qid === designinfo.GOODS_DATE_QID) {
+                // Amendment 1 §1: the goods date never reaches custbody_opp_del_date.
+                out.goods = { have: designinfo.slashDate(dc.rec.info.delDateKey), says: designinfo.slashDate(nv) };
+                item.label = 'Goods needed';
+                item.oldText = out.goods.have;
+                item.newText = 'customer says ' + out.goods.says;
+            }
+            out.items.push(item);
+            if (q.store === STORE.STATE || (q.store === STORE.NOTE && q.type === 'date')) {
+                out.answers[q.qid] = nv;
+                return;
+            }
+            if (q.store === STORE.NOTE) {
+                out.noted.push(q.qid);
+                out.posted[q.qid] = q.type === 'choice' || q.type === 'yesno' ? item.newText : nv;
+                return;
+            }
+            meta = dc.rec.fields[q.qid];
+            if (q.type === 'date') {
+                write = dates.localDateForWrite(nv);
+            } else if (q.type === 'yesno') {
+                write = meta.type === 'CHECKBOX' ? nv === 'yes' : (nv === 'yes' ? 'Yes' : 'No');
+            } else {
+                write = String(nv);
+                if (!data.fitsSpecialType(meta.type, write)) {
+                    out.notSaved.push(q.qid + ' (the field takes a ' + meta.type.toLowerCase() + ' only)');
+                    item.newText += ' (NOT saved to the record: the field takes a ' + meta.type.toLowerCase() + ' only)';
+                    return;
+                }
+                if (meta.limit && write.length > meta.limit) {
+                    write = write.slice(0, meta.limit);
+                    out.clipped.push(q.qid + ' (to ' + meta.limit + ' characters)');
+                    item.newText += ' (clipped to ' + meta.limit + ' characters on the record)';
+                }
+            }
+            out.fields[q.field] = write;
+            out.fieldItems.push(item);
+        });
+        return out;
+    }
+
+    /**
+     * The state after this post (a fresh object each call): the answers, the noted marks, the files, each touched
+     * section's status (from valuesNow); on Send, sent and the Task's time (task). 2.3.2: no change list — the Notes are
+     * the audit trail, the Task a snapshot. A failed Task puts sent and task back (unsend()).
+     */
+    function nextState(dc, ch, touched, valuesNow, newFiles, nowIso, send) {
+        var s = JSON.parse(JSON.stringify(dc.state));
+        var qs = dc.questions.map(function (v) { return v.q; });
+        var k;
+        for (k in ch.answers) {
+            if (ch.answers.hasOwnProperty(k)) {
+                s.answers[k] = ch.answers[k];
+            }
+        }
+        ch.noted.forEach(function (qid) { s.noted[qid] = true; });
+        s.files = s.files.concat(newFiles);
+        designinfo.sectionsOf(qs).forEach(function (sec) {
+            if (touched.indexOf(sec.id) >= 0) {
+                s.sections[sec.id] = { saved: nowIso, status: designinfo.sectionStatus(sec.questions, valuesNow, s) };
+            }
+        });
+        if (send) {
+            s.sent = nowIso;
+            s.lastTaskAt = nowIso;
+        }
+        return s;
+    }
+
+    /** The state as it was before a Send whose Task failed: sent and the Task's time back. */
+    function unsend(s, before) {
+        s.sent = before.sent;
+        s.lastTaskAt = before.lastTaskAt;
+        return s;
+    }
+
+    /** Writes the state on its own (the second write); '' or why it failed. */
+    function writeState(dc, s) {
+        try {
+            data.writeDesignInfo(dc.opp.id, {}, stateForWrite(dc, s));
+            return '';
+        } catch (e) {
+            log.error({ title: title('DESIGNINFO_STATE_FAILED'), details: 'Opportunity ' + dc.opp.id + ': ' + errorText(e) });
+            return errorText(e);
+        }
+    }
+
+    /** Step 2: one file — saved into the folder, then attached. Returns the state's entry and what happened. */
+    function saveOneFile(dc, qid, part, folderId, now) {
+        var stamp = designinfo.londonTime(now.getTime()).stamp;
+        var name = designinfo.uploadName(dc.rec.info.tranId || dc.opp.tranId, qid, stamp, part.name);
+        var original = String(part.name || '');
+        var size = Number(part.size) || 0;
+        var out = { entry: null, failed: '', attachFailed: '', original: original, size: size };
+        var id;
+        try {
+            id = data.saveUpload(part, name, folderId);
+        } catch (e) {
+            out.failed = errorText(e);
+            log.error({ title: title('DESIGNINFO_FILE'), details: 'Opportunity ' + dc.opp.id + ', ' + qid + ', "' + original +
+                '": NOT saved (' + out.failed + ')' });
+            return out;
+        }
+        try {
+            data.attachUpload(id, dc.opp.id);
+        } catch (e2) {
+            out.attachFailed = errorText(e2);
+        }
+        out.entry = { qid: qid, id: id, name: name, at: designinfo.shortIso(now), size: size, attached: !out.attachFailed };
+        log.audit({ title: title('DESIGNINFO_FILE'), details: 'Opportunity ' + dc.opp.id + ', ' + qid + ': file ' + id + ' "' + name +
+            '" (' + designinfo.sizeText(size) + ') in folder ' + folderId + (out.attachFailed ? ', NOT attached to the ' +
+            'opportunity (' + out.attachFailed + '): it is in the folder only' : ', attached to the opportunity') });
+        return out;
+    }
+
+    /** POST a=designinfo */
+    function handleDesignInfoPost(ctx, params, files) {
+        var once = onceLogger();
+        var dc = designContext(ctx, params.opp, once);
+        var cfg = ctx.cfg;
+        var now = new Date();
+        // 2.3.2: every time in the state is to the minute (designinfo.shortIso), so stored times compare as strings.
+        var nowIso = designinfo.shortIso(now);
+        var send = String(params.send || '') === '1';
+        var editable;
+        var stored = {};
+        var options = {};
+        var check;
+        var ch;
+        var sectionIds;
+        var touched = [];
+        var sec = String(params.sec || '');
+        var valuesNow;
+        var hasFiles = false;
+        var fileResults = [];
+        var newFiles = [];
+        var filesRefused = false;
+        var failures = [];
+        var stateWritten = false;
+        var stateFailed = '';
+        var next;
+        var s;
+        var before;
+        var taskBody;
+        var noteResult;
+        var noteFailed = false;
+        var taskFailed = false;
+        var taskId = '';
+        var comp;
+        var k;
+        var lines;
+
+        if (dc.html) {
+            return dc.html;
+        }
+        before = { sent: dc.state.sent, lastTaskAt: dc.state.lastTaskAt, requested: dc.state.requested };
+        if (dc.mode !== 'edit') {
+            log.audit({ title: title('DESIGNINFO_REFUSED'), details: 'Customer ' + ctx.customer.id + ', opportunity ' + dc.opp.id +
+                ': a post in view mode (the design is under way); nothing written' });
+            return renderDesignInfo(ctx, dc, { notice: render.DESIGN_TEXT.VIEW_BANNER });
+        }
+
+        // Validate everything first: any error re-renders the page and NOTHING is written.
+        editable = dc.questions.filter(function (v) { return !v.readOnly && v.q.type !== 'info'; });
+        editable.forEach(function (v) {
+            stored[v.q.qid] = currentValue(dc, v.q);
+            if (v.q.optionsFromField) {
+                options[v.q.qid] = v.options || [];
+            }
+        });
+        check = data.validateDesignInfo(params, files, editable.map(function (v) { return v.q; }), {
+            todayKey: dates.londonTodayKey(Date.now()), maxFiles: cfg.DESIGNINFO_MAX_FILES, stored: stored, options: options });
+        if (!check.ok) {
+            log.audit({ title: title('DESIGNINFO_REJECTED'), details: clip('Customer ' + ctx.customer.id + ', opportunity ' +
+                dc.opp.id + ': ' + JSON.stringify(check.errors)) });
+            return renderDesignInfo(ctx, dc, { values: check.values, errors: check.errors });
+        }
+
+        ch = designChanges(dc, check.values);
+        for (k in check.files) {
+            if (check.files.hasOwnProperty(k) && check.files[k].length) {
+                hasFiles = true;
+            }
+        }
+        if (hasFiles && !cfg.DESIGNINFO_FOLDER) {
+            filesRefused = true;
+            hasFiles = false;
+            log.audit({ title: title('DESIGNINFO_NO_FOLDER'), details: 'Opportunity ' + dc.opp.id + ': setting DESIGNINFO_FOLDER ' +
+                'is empty, so the files posted were refused; the answers were saved' });
+        }
+
+        // The sections this post saves: the one pressed, every one with a change or a file; Send saves them all.
+        sectionIds = designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (x) { return x.id; });
+        sectionIds.forEach(function (id) {
+            var hit = send || id === sec || ch.items.some(function (c) { return c.section === id; }) ||
+                (hasFiles && dc.questions.some(function (v) {
+                    return v.q.section === id && (check.files[v.q.qid] || []).length;
+                }));
+            if (hit) {
+                touched.push(id);
+            }
+        });
+
+        // The record's values as they will be once the fields are written.
+        valuesNow = answerValues(dc);
+        ch.fieldItems.forEach(function (c) {
+            valuesNow[c.qid] = check.values[c.qid];
+        });
+        Object.keys(ch.answers).forEach(function (qid) { valuesNow[qid] = ch.answers[qid]; });
+
+        // Step 1: the fields — with the state in the same write when there are no files (one write).
+        if (Object.keys(ch.fields).length) {
+            try {
+                if (!hasFiles) {
+                    next = nextState(dc, ch, touched, valuesNow, [], nowIso, send);
+                    try {
+                        data.writeDesignInfo(dc.opp.id, ch.fields, stateForWrite(dc, next));
+                        stateWritten = true;
+                    } catch (eBoth) {
+                        // 2.3.1: the state must never block the fields — retry them on their own (step 3 writes the state).
+                        log.audit({ title: title('DESIGNINFO_WRITE_RETRY'), details: 'Opportunity ' + dc.opp.id + ': the fields ' +
+                            'with the state failed (' + errorText(eBoth) + '); the fields are retried alone' });
+                        data.writeDesignInfo(dc.opp.id, ch.fields);
+                    }
+                } else {
+                    data.writeDesignInfo(dc.opp.id, ch.fields);
+                }
+                ch.fieldItems.forEach(function (c) {
+                    dc.rec.values[c.qid] = check.values[c.qid];
+                });
+            } catch (e) {
+                failures.push('the answers for the Project Specification tab (' + errorText(e) + '): ' + ch.fieldItems.map(function (c) {
+                    return c.label;
+                }).join(', '));
+                log.error({ title: title('DESIGNINFO_WRITE_FAILED'), details: 'Opportunity ' + dc.opp.id + ': NOT written (' +
+                    errorText(e) + '). Attempted: ' + Object.keys(ch.fields).join(', ') + '. The Note and the Task say so.' });
+                valuesNow = answerValues(dc);
+                Object.keys(ch.answers).forEach(function (qid) { valuesNow[qid] = ch.answers[qid]; });
+            }
+        }
+
+        // Step 2: the files.
+        if (hasFiles) {
+            dc.questions.forEach(function (v) {
+                (check.files[v.q.qid] || []).forEach(function (part) {
+                    var r = saveOneFile(dc, v.q.qid, part, cfg.DESIGNINFO_FOLDER, now);
+                    r.qid = v.q.qid;
+                    r.section = v.q.section;
+                    r.label = v.q.label;
+                    fileResults.push(r);
+                    if (r.entry) {
+                        newFiles.push(r.entry);
+                    } else {
+                        failures.push('file "' + designinfo.plainValue(r.original) + '" (' + r.failed + ')');
+                    }
+                });
+            });
+        }
+
+        // Step 3: the state (a second write when step 1 could not carry it).
+        if (!stateWritten) {
+            next = nextState(dc, ch, touched, valuesNow, newFiles, nowIso, send);
+            stateFailed = writeState(dc, next);
+            if (stateFailed) {
+                failures.push('the page’s progress (' + stateFailed + ')');
+            }
+        }
+        s = next;
+        dc.state = s;
+
+        // Step 4: the Note, every save.
+        noteResult = task.buildDesignInfoNote({
+            sectionsSaved: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).filter(function (x) {
+                return touched.indexOf(x.id) >= 0;
+            }).map(function (x) { return x.title; }),
+            sent: send,
+            blocks: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (x) {
+                return {
+                    title: x.title,
+                    changes: ch.items.filter(function (c) { return c.section === x.id; }).map(function (c) {
+                        return { label: c.label, oldText: shown(c.oldText), newText: shown(c.newText) };
+                    }),
+                    files: fileResults.filter(function (r) { return r.section === x.id && r.entry; }).map(function (r) {
+                        return { name: designinfo.plainValue(r.entry.name), sizeText: designinfo.sizeText(r.size) };
+                    })
+                };
+            }),
+            notSaved: dc.notSaved.concat(ch.notSaved),
+            extra: failures.map(function (f) { return 'NOT saved: ' + f; }).concat(ch.clipped.length ? ['Clipped: ' +
+                ch.clipped.join(', ')] : []).concat(fileResults.filter(function (r) { return r.attachFailed; }).map(function (r) {
+                return 'File ' + r.entry.id + ' NOT attached to the opportunity (' + r.attachFailed + '): it is in the folder only.';
+            })),
+            bigFiles: s.answers[designinfo.BIG_FILES_QID] === 'yes'
+        });
+        if (noteResult.clipped) {
+            log.audit({ title: title('DESIGNINFO_NOTE_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Note was clipped to ' +
+                task.NOTE_MAX + ' characters' });
+        }
+        try {
+            task.createNote({ title: task.buildDesignInfoNoteTitle(designinfo.londonTime(now.getTime()).text), note: noteResult.body,
+                opportunityId: dc.opp.id, authorId: dc.recipient.id, noteTypeId: cfg.NOTE_TYPE });
+        } catch (e3) {
+            noteFailed = true;
+            log.error({ title: title('DESIGNINFO_NOTE_FAILED'), details: 'Opportunity ' + dc.opp.id + ': the audit Note was NOT ' +
+                'created (' + errorText(e3) + '). The save went ahead.' });
+        }
+
+        comp = completenessOf(dc);
+
+        // Step 5: the Task, only on Send. 2.3.1: clipped as the Note is (Task.message holds 4,000 characters).
+        if (send) {
+            taskBody = task.clipBody(designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, cfg.DESIGNINFO_FOLDER));
+            if (taskBody.clipped) {
+                log.audit({ title: title('DESIGNINFO_TASK_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Task message was ' +
+                    'clipped to ' + task.NOTE_MAX + ' characters (the Notes hold every change)' });
+            }
+            try {
+                taskId = task.createTask({
+                    title: task.buildDesignInfoTitle(dc.rec.info.title || dc.opp.title, dc.rec.info.tranId || dc.opp.tranId),
+                    assigneeId: dc.recipient.id,
+                    customerId: ctx.customer.id,
+                    opportunityId: dc.opp.id,
+                    message: taskBody.body,
+                    todayKey: dates.londonTodayKey(Date.now()),
+                    priority: task.PRIORITY.MEDIUM
+                }).id;
+            } catch (e4) {
+                taskFailed = true;
+                log.error({ title: title('TASK_FAILED'), details: 'Opportunity ' + dc.opp.id + ': the DESIGN INFO Task was not ' +
+                    'created (' + errorText(e4) + '). Assignee ' + dc.recipient.id + ' (' + dc.recipient.source + '). The state ' +
+                    'is put back so the next Send carries the changes.' });
+            }
+            if (taskFailed && !stateFailed) {
+                // Not sent after all: the state goes back, keeping the change list for the next Send.
+                s = unsend(s, before);
+                dc.state = s;
+                writeState(dc, s);
+            }
+        }
+
+        log.audit({ title: title('DESIGNINFO_SAVED'), details: clip('Opportunity ' + dc.opp.id + ' (' + (dc.rec.info.tranId || '') +
+            '), customer ' + ctx.customer.id + ': sections ' + (touched.join(', ') || '(none)') + '; fields ' +
+            (Object.keys(ch.fields).join(', ') || '(none)') + (failures.length ? ' (NOT all written)' : '') + '; files ' +
+            newFiles.length + (filesRefused ? ' (refused: no folder)' : '') + '; send ' + (send ? (taskFailed ? 'FAILED' :
+            'yes, Task ' + taskId) : 'no') + '; note ' + (noteFailed ? 'FAILED' : 'created') + ' (v' + VERSION + ')') });
+
+        lines = send && !taskFailed ? [render.DESIGN_TEXT.SENT.replace('{name}', dc.recipient.name || 'your Project Engineer'),
+            dc.recipient.firstName ? render.DESIGN_TEXT.SENT_NEXT.replace('{first}', dc.recipient.firstName) :
+                render.DESIGN_TEXT.SENT_NEXT_NO_NAME] :
+            [render.DESIGN_TEXT.SAVED + ' ' + (comp.complete ? render.DESIGN_TEXT.ALL_HERE :
+                render.DESIGN_TEXT.CARD_TODO.replace('{list}', comp.missing.join(', ')))];
+        if (send && taskFailed) {
+            lines.push('We couldn’t pass it on just now. Please press Send again in a few minutes.');
+        }
+        if (filesRefused) {
+            lines.push(render.DESIGN_TEXT.UPLOADS_OFF);
+        }
+        fileResults.filter(function (r) { return !r.entry; }).forEach(function (r) {
+            lines.push('We couldn’t save “' + r.original + '”. Please try again, or email it to ' +
+                (dc.recipient.name || 'us') + '.');
+        });
+        if (failures.length && !fileResults.some(function (r) { return !r.entry; })) {
+            lines.push('Some answers couldn’t be saved to your project just now, but ' + (dc.recipient.name || 'we') +
+                ' has them.');
+        }
+        // The page again, from what is now stored (the uploads listed, the noted marks, the answers).
+        dc.questions = dc.questions.map(function (v) { return questionView(dc, v.q); });
+        return renderDesignInfo(ctx, dc, { confirmation: { lines: lines } });
+    }
+
+    /** "dd/mm/yyyy HH:mm" (London) of a stored time, '' for none. */
+    function londonText(iso) {
+        var ms = Date.parse(iso || '');
+        return isNaN(ms) ? '' : designinfo.londonTime(ms).text;
+    }
+
+    /**
+     * 2.3.2 (amendment 3): one question's current answer for the Task's snapshot — the record's value (or its text when
+     * read-only), the state's answer, the files from the state, or this post's Note-only answer; a Note-only answer given
+     * earlier says so. '' when there is none. Plain text, clipped at 200.
+     */
+    function snapshotValue(dc, v, s, ch) {
+        var q = v.q;
+        var value;
+        if (q.type === 'info') {
+            return '';
+        }
+        if (q.type === 'files') {
+            value = s.files.filter(function (f) { return f.qid === q.qid; }).map(function (f) { return f.name; }).join(', ');
+        } else if (q.store === STORE.FIELD) {
+            value = v.readOnly ? (dc.rec.texts[q.qid] || '') :
+                q.type === 'choice' && !q.optionsFromField ? (dc.rec.values[q.qid] || '') : answerText(v, dc.rec.values[q.qid]);
+        } else if (q.store === STORE.STATE || q.type === 'date') {
+            value = answerText(v, s.answers[q.qid]);
+        } else if (ch.posted.hasOwnProperty(q.qid)) {
+            value = ch.posted[q.qid];
+        } else {
+            value = s.noted[q.qid] ? '(given earlier: in the Notes)' : '';
+        }
+        return designinfo.plainValue(value, 200);
+    }
+
+    /**
+     * The DESIGN INFO Task's message (brief §5.5; amendments 1 §1 and 3): a snapshot of every shown section, the pointer
+     * to the Notes for the changes since the last send, the files since the last Send.
+     */
+    function designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, folderId) {
+        var since = before.lastTaskAt || '';
+        var statusOf = {};
+        var goods = s.answers[designinfo.GOODS_DATE_QID] && s.answers[designinfo.GOODS_DATE_QID] !== dc.rec.info.delDateKey ?
+            'Customer says goods are needed by ' + designinfo.slashDate(s.answers[designinfo.GOODS_DATE_QID]) + ' (we hold ' +
+            (designinfo.slashDate(dc.rec.info.delDateKey) || 'no date') + '). Check and update the opportunity date yourself; the ' +
+            'dashboard did not change it.' : '';
+        comp.sections.forEach(function (x) { statusOf[x.id] = x.status; });
+        return task.buildDesignInfoMessage({
+            complete: comp.complete,
+            missing: comp.missing,
+            sections: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (sec) {
+                return {
+                    title: sec.title,
+                    status: statusOf[sec.id] || '',
+                    lines: dc.questions.filter(function (v) { return v.q.section === sec.id; }).map(function (v) {
+                        var value = snapshotValue(dc, v, s, ch);
+                        return value ? v.q.label + ': ' + value : '';
+                    }).filter(function (l) { return !!l; })
+                };
+            }),
+            sinceText: londonText(before.sent) || londonText(before.requested),
+            serviceText: designinfo.plainValue(dc.rec.info.valuePropositionText),
+            files: s.files.filter(function (f) { return !since || f.at > since; }).map(function (f) {
+                return { name: designinfo.plainValue(f.name), label: f.qid,
+                    attachNote: f.attached === false ? '(NOT attached: in the folder only)' : '' };
+            }),
+            folderText: 'File Cabinet folder ' + folderId + ', attached to this opportunity unless marked',
+            goodsLine: goods,
+            bigFiles: s.answers[designinfo.BIG_FILES_QID] === 'yes',
+            warnings: dc.facts.warnings,
+            notSaved: dc.notSaved.concat(ch.notSaved),
+            failures: failures,
+            noteFailed: noteFailed
+        });
+    }
+
     /**
      * @param {Object} context - Suitelet context
      */
@@ -1310,6 +2128,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 html = handleUpdatePost(ctx, params);
             } else if (action === 'update') {
                 html = handleUpdateGet(ctx, params.opp);
+            } else if (action === 'designinfo' && request.method === 'POST') {
+                html = handleDesignInfoPost(ctx, params, request.files || {});
+            } else if (action === 'designinfo') {
+                html = handleDesignInfoGet(ctx, params.opp);
             } else {
                 html = renderDashboard(ctx);
             }

@@ -482,6 +482,16 @@ test('address: an address-book booking is byte-identical to 2.1.2 (page, writes,
     expected.logs.splice(11, 0, ['audit', 'CDB PARAMETER_DEFAULT', 'setting TIME_DEFAULT is empty: treated as none'],
         ['audit', 'CDB PARAMETER_DEFAULT', 'setting UNLOAD_SURCHARGE is empty: treated as none']);
     assert.strictEqual(expected.logs[10][2], 'setting UPD_OBJECTION_TYPES is empty: treated as none', 'after the 3.1 keys');
+    // 3.4.0 (release 2.3): the same for the dashboard's nine design information keys, after those two.
+    expected.logs[0][2] += ', DESIGNINFO_REGISTRY=none, DESIGNINFO_FOLDER=none, DESIGNINFO_MAX_FILES=default, FC_MAP=none, ' +
+        'HEAT_MAP=none, VP_MAP=none, NEWBUILD_MARKET_IDS=none, NOTE_TYPE=none, DESIGNINFO_DRAWINGS_URL=none';
+    expected.logs.splice.apply(expected.logs, [13, 0].concat(['DESIGNINFO_REGISTRY is empty: treated as none',
+        'DESIGNINFO_FOLDER is empty: treated as none', 'DESIGNINFO_MAX_FILES is empty: using the default 6',
+        'FC_MAP is empty: treated as none', 'HEAT_MAP is empty: treated as none', 'VP_MAP is empty: treated as none',
+        'NEWBUILD_MARKET_IDS is empty: treated as none', 'NOTE_TYPE is empty: treated as none',
+        'DESIGNINFO_DRAWINGS_URL is empty: treated as none'].map(function (t) {
+        return ['audit', 'CDB PARAMETER_DEFAULT', 'setting ' + t];
+    })));
     assert.deepStrictEqual(capture(), expected);
 });
 
