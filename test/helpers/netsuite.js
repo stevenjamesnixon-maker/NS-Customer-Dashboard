@@ -386,7 +386,7 @@ function stubs(w) {
         'N/log': {
             audit: function (o) { w.logs.push(['audit', o.title, o.details]); },
             error: function (o) { w.logs.push(['error', o.title, o.details]); },
-            debug: function () {}
+            debug: function (o) { w.logs.push(['debug', o.title, o.details]); }
         },
         'N/email': { send: function (o) {
             if (w.emailThrow) { throw new Error('SSS_AUTHOR_MUST_BE_EMPLOYEE'); }
@@ -405,7 +405,7 @@ function stubs(w) {
             }
             return 'https://acct.extforms.netsuite.com/sl?t=' + o.params.t + extra;
         } },
-        'N/redirect': { toRecord: function (o) { w.redirects.push(o); } },
+        'N/redirect': { toRecord: function (o) { w.redirects.push(o); }, redirect: function (o) { w.redirects.push(o); } },
         // 2.3: the File Cabinet by path (w.files[path] = text; missing throws as NetSuite does).
         'N/file': {
             load: function (o) {

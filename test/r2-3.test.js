@@ -58,21 +58,47 @@ function setup(opts) {
 
 function run(t, method, params, files) {
     var out = { html: '' };
+    var before = t.w.redirects.length;
+    t.redirect = '';
     t.sl.onRequest({
         request: { method: method, parameters: params, files: files || {} },
         response: { setHeader: function () {}, write: function (o) { out.html += o.output; } }
     });
+    if (t.w.redirects.length > before) {
+        t.redirect = t.w.redirects[t.w.redirects.length - 1].url;
+        assert.strictEqual(out.html, '', 'a redirect writes no page');
+    }
     return out.html;
+}
+
+/** 2.4.0: the query parameters of a URL. */
+function query(u) {
+    var p = {};
+    String(u).split('?')[1].split('&').forEach(function (kv) {
+        var i = kv.indexOf('=');
+        p[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+    });
+    return p;
+}
+
+/** 2.4.0: a GET of the URL the last POST redirected to, as the browser does after the 302. */
+function follow(t) {
+    var u = t.redirect;
+    assert.ok(u, 'the POST redirected');
+    return run(t, 'GET', query(u));
 }
 
 function get(t, opp) {
     return run(t, 'GET', { t: t.tok, a: 'designinfo', opp: opp || '20' });
 }
 
+/** 2.4.0: a POST; a save redirects, so the page returned is the GET it redirects to (t.redirect keeps the URL). */
 function post(t, extra, files) {
     var p = { t: t.tok, a: 'designinfo', opp: '20' };
+    var html;
     Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
-    return run(t, 'POST', p, files);
+    html = run(t, 'POST', p, files);
+    return t.redirect ? (function (u) { var h = follow(t); t.redirect = u; return h; })(t.redirect) : html;
 }
 
 /** An uploaded part, as request.files gives one: saving it records it in w.savedFiles. */
@@ -112,51 +138,49 @@ function nothingWritten(t, why) {
 
 // ---------------------------------------------------------------- the page
 
-test('GET: the page — header, project card, numbered sections with chips, Why, inputs per type, one multipart form', function () {
+/** 2.4.0: GET one step of the stepper. */
+function getStep(t, step) {
+    return run(t, 'GET', { t: t.tok, a: 'designinfo', opp: '20', step: step });
+}
+
+test('GET (2.4.0): a step per screen — the step bar, the intro card, one multipart form, Back and Save and continue', function () {
     var t = setup();
     var html = get(t);
-    assert.ok(html.indexOf('<title>Tell us about your property | Nu-Heat</title>') > 0);
+    assert.ok(html.indexOf('<title>Your plans \u00b7 Tell us about your property | Nu-Heat</title>') > 0, 'the step in the title');
     assert.ok(html.indexOf('Design questions? Call Pem Engineer on <a href="tel:0101">0101</a>') > 0, 'the PE, a PE case');
-    assert.ok(html.indexOf('<form id="diform" method="post" enctype="multipart/form-data"') > 0);
+    assert.ok(html.indexOf('<form id="diform" class="fcol" method="post" enctype="multipart/form-data"') > 0);
     assert.strictEqual((html.match(/<form /g) || []).length, 1, 'one form');
     assert.ok(html.indexOf('<input type="hidden" name="a" value="designinfo">') > 0);
     assert.ok(html.indexOf('<input type="hidden" name="opp" value="20">') > 0);
-    // "Your project, as we have it".
-    assert.ok(html.indexOf('Your project, as we have it<span class="chip chip-checked">Checked</span>') > 0);
-    assert.ok(html.indexOf('<dt>You\u2019re having</dt><dd>In floor, solid + joisted \u00b7 Nu-Heat heat pump</dd>') > 0);
-    assert.ok(html.indexOf('<dt>Thermostats</dt><dd>Neo thermostats with a Neo hub</dd>') > 0);
-    assert.ok(html.indexOf('<dt>Design service</dt><dd>HP Design</dd>') > 0);
-    assert.ok(html.indexOf('<dt>Site address</dt><dd>Plot 4, Village</dd>') > 0);
-    // Sections: HP Design, solid + joisted, Nu-Heat heat pump, existing house.
-    assert.ok(html.indexOf('<span class="num">1</span>Your plans<span class="chip chip-todo">Needed to start</span>') > 0);
-    assert.ok(html.indexOf('<span class="num">2</span>How well insulated is it?') > 0);
-    assert.ok(html.indexOf('<span class="num">3</span>Heating and controls') > 0);
-    assert.ok(html.indexOf('<span class="num">4</span>Your heat pump') > 0);
-    assert.ok(html.indexOf('<span class="num">5</span>Anything else for your Project Engineer?<span class="chip chip-optional">' +
-        'Optional</span>') > 0);
-    assert.strictEqual(html.indexOf('q_heat_boiler'), -1, 'no boiler question for a Nu-Heat heat pump');
-    assert.strictEqual(html.indexOf('q_walls_new'), -1, 'not a new build');
-    assert.ok(html.indexOf('name="q_walls_ex"') > 0);
+    // No step: the first step still to do (Your project has nothing required).
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="plans">') > 0);
+    // The step bar: HP Design, solid + joisted, Nu-Heat heat pump, existing house; then Review.
+    assert.deepStrictEqual((html.match(/name="goto" value="[a-z]+"/g) || []).map(function (x) { return x.split('"')[3]; }),
+        ['project', 'plans', 'insulation', 'heating', 'heatpump', 'other', 'review']);
+    assert.ok(html.indexOf('aria-label="Step 2 of 7: Your plans" aria-current="step"') > 0);
+    assert.ok(html.indexOf('<p class="eyebrow">Step 2 of 7 · about 2 minutes</p><h1 id="h-step">Your plans</h1>') > 0);
+    assert.ok(html.indexOf('We designed your quote from the plans you sent us.') > 0, 'the step intro');
+    // Only this step's questions.
+    assert.ok(html.indexOf('name="q_plans_current"') > 0);
+    assert.strictEqual(html.indexOf('name="q_walls_ex"'), -1, 'another step');
+    assert.strictEqual(html.indexOf('name="q_build_stage"'), -1, 'another step');
     // Per type.
     assert.ok(html.indexOf('<details class="why"><summary>? Why</summary><p>Plans change between quote and build.') > 0);
     assert.ok(/<input class="sr" type="radio" name="q_plans_current" value="yes"/.test(html), 'yesno');
-    assert.ok(html.indexOf('<textarea class="inp" id="di-ceilings" name="q_ceilings" maxlength="4000">All 2.4 m</textarea>') > 0,
-        'pre-filled from the opportunity');
-    assert.ok(html.indexOf('name="q_design_contact" value="" maxlength="300"') > 0);
-    assert.ok(html.indexOf('<input class="inp" type="date" id="di-goods_date" name="q_goods_date" value=""') > 0);
-    assert.strictEqual((html.match(/name="f_plans_files_\d"/g) || []).length, 6, 'DESIGNINFO_MAX_FILES (default 6)');
-    assert.ok(html.indexOf('accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.gif,.zip,.doc,.docx,.xls,.xlsx,.tif,.tiff"') > 0);
-    assert.ok(html.indexOf('value="0"><span><span class="ot">Upload the SAP calculation</span>') > 0, 'a literal choice');
-    // Save per section, Send, Save and finish later.
-    assert.ok(html.indexOf('<button type="submit" class="out" name="sec" value="plans">Save this section</button>') > 0);
-    assert.ok(html.indexOf('<button type="submit" class="cta" name="send" value="1">Send to my Project Engineer</button>') > 0);
-    assert.ok(html.indexOf('<button type="submit" class="out" name="sec" value="all">Save and finish later</button>') > 0);
-    assert.ok(html.indexOf('Still to do before your design can start: Your plans, How well insulated is it?, Heating and ' +
-        'controls, Your heat pump.') > 0);
-    // The aside.
-    assert.ok(html.indexOf('<span class="cap">Goes to</span><span class="amn">Pem Engineer</span>') > 0);
-    assert.ok(html.indexOf('What each design service needs') > 0);
-    assert.strictEqual(html.indexOf('Understanding your drawings'), -1, 'no DESIGNINFO_DRAWINGS_URL: no card');
+    assert.ok(html.indexOf('<textarea class="inp" id="di-ceilings" name="q_ceilings" maxlength="4000" placeholder="e.g. sections ' +
+        'on the plans.') > 0, 'pre-filled from the opportunity, with its placeholder');
+    assert.ok(html.indexOf('>All 2.4 m</textarea>') > 0);
+    assert.ok(html.indexOf('accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.gif,.zip,.doc,.docx,.xls,.xlsx,.tif,.tiff,image/*"') > 0);
+    // The navigation row and the reassurance line.
+    assert.ok(html.indexOf('<button type="submit" class="out" name="nav" value="back">← Back: Your project</button>') > 0);
+    assert.ok(html.indexOf('<button type="submit" class="cta" name="nav" value="next">Save and continue →</button>') > 0);
+    assert.ok(html.indexOf('form="diform" name="nav" value="exit">Save and exit</button>') > 0, 'in the header');
+    assert.ok(html.indexOf('Stuck on anything? It’s fine to skip it. Pem will go through it on your design call. Call 0101 ' +
+        'if you’d rather talk now.') > 0);
+    // The right column is gone.
+    assert.strictEqual(html.indexOf('What each design service needs'), -1);
+    assert.strictEqual(html.indexOf('<aside'), -1);
+    assert.strictEqual(html.indexOf('Understanding your drawings'), -1);
     // The size warning script, and no third-party script.
     assert.ok(html.indexOf('10485760') > 0);
     assert.strictEqual((html.match(/<script src/g) || []).length, 0);
@@ -166,9 +190,25 @@ test('GET: the page — header, project card, numbered sections with chips, Why,
     nothingWritten(t, 'a GET');
 });
 
+test('GET (2.4.0): step 1 — the project facts card; no Back, "Your projects" instead', function () {
+    var t = setup();
+    var html = getStep(t, 'project');
+    assert.ok(html.indexOf('<p class="eyebrow">Step 1 of 7 · about 1 minute</p>') > 0);
+    assert.ok(html.indexOf('<h2 id="h-facts">Your project, as we have it</h2>') > 0);
+    assert.ok(html.indexOf('<dt>You’re having</dt><dd>In floor, solid + joisted · Nu-Heat heat pump</dd>') > 0);
+    assert.ok(html.indexOf('<dt>Thermostats</dt><dd>Neo thermostats with a Neo hub</dd>') > 0);
+    assert.ok(html.indexOf('<dt>Design service</dt><dd>HP Design</dd>') > 0);
+    assert.ok(html.indexOf('<dt>Site address</dt><dd>Plot 4, Village</dd>') > 0);
+    assert.ok(html.indexOf('name="q_design_contact" value="" maxlength="300"') > 0);
+    assert.ok(html.indexOf('<input class="inp" type="date" id="di-goods_date" name="q_goods_date" value=""') > 0);
+    assert.strictEqual(html.indexOf('name="nav" value="back"'), -1, 'nothing before step 1');
+    assert.ok(html.indexOf('← Your projects</a>') > 0);
+    assert.strictEqual(getStep(setup(), 'plans').indexOf('h-facts'), -1, 'the facts card is on step 1 only');
+});
+
 test('GET: the goods date — the opportunity\'s date read-only beside it; the build stage from UPD_BUILD_STAGES, stripped', function () {
     var t = setup();
-    var html = get(t);
+    var html = getStep(t, 'project');
     assert.ok(/We currently have: [A-Z][a-z]{2} 14 Nov( 2026)?<\/p><p class="hint" style="margin:0">Has this changed\? Tell us the new date/
         .test(html), 'amendment 1 §1');
     var stage = html.slice(html.indexOf('name="q_build_stage"') - 200, html.indexOf('id="q-goods_date"'));
@@ -220,19 +260,26 @@ test('registry: no setting, a missing file or a broken file — "not available r
     });
 });
 
-test('view mode (a DESIGN sub-status): every input disabled, no Save or Send, the banner; a POST writes nothing', function () {
+test('view mode (a DESIGN sub-status): Review is the page — no inputs, no Edit, no Send, the banner; a POST writes nothing', function () {
     var t = setup();
     t.w.opps[20].custbody_opportunity_sub_status = '4';
     var html = get(t);
-    assert.ok(html.indexOf('Your design is being prepared. Need to change something? Send a note to <a href="mailto:pe@x">Pem ' +
-        'Engineer</a> or call Pem Engineer on <a href="tel:0101">0101</a>.') > 0);
-    assert.strictEqual(html.indexOf('Save this section'), -1);
+    assert.ok(html.indexOf('<h1>Review and send</h1>') > 0, '2.4.0: Review is the page');
+    assert.ok(html.indexOf('Need to change something? Send a note to <a href="mailto:pe@x">Pem Engineer</a> or call Pem Engineer ' +
+        'on <a href="tel:0101">0101</a>.') > 0);
     assert.strictEqual(html.indexOf('name="send"'), -1);
-    var inputs = html.match(/<(input|textarea) [^>]*name="(q_|f_)[^>]*>/g);
-    assert.ok(inputs.length > 20);
-    inputs.forEach(function (i) { assert.ok(/ disabled/.test(i), i); });
+    assert.strictEqual(html.indexOf('<form '), -1, 'no form');
+    assert.strictEqual((html.match(/<(input|textarea) [^>]*name="(q_|f_)/g) || []).length, 0, 'no inputs');
+    assert.strictEqual(html.indexOf('>Edit<'), -1);
     assert.strictEqual(html.indexOf('a=update'), -1, 'no "Give us an update" link: not valid for Won');
-    post(t, { q_ceilings: 'New', sec: 'plans' });
+    // 2.4.0: a step URL in view mode redirects to Review.
+    assert.strictEqual(getStep(t, 'plans'), '');
+    assert.ok(/&a=designinfo&opp=20&step=review$/.test(t.redirect), t.redirect);
+    assert.ok(getStep(t, 'review').indexOf('<h1>Review and send</h1>') > 0, 'no loop');
+    assert.strictEqual(t.redirect, '');
+    var after = post(t, { q_ceilings: 'New', step: 'plans', nav: 'next' });
+    assert.strictEqual(t.redirect, '', 'no redirect: Review again');
+    assert.ok(after.indexOf('Your design is being prepared.') > 0);
     nothingWritten(t, 'view mode');
 });
 
@@ -240,7 +287,7 @@ test('view mode (a DESIGN sub-status): every input disabled, no Save or Send, th
 
 test('save: only changed non-empty fields, ONE submitFields with the state; blank never clears; a Note, no Task', function () {
     var t = setup();
-    var html = post(t, { sec: 'plans', q_ceilings: 'All 2.4 m', q_windows: 'Bifolds 2.1 m', q_unheated: '', q_plans_current: 'yes',
+    var html = post(t, { step: 'plans', q_ceilings: 'All 2.4 m', q_windows: 'Bifolds 2.1 m', q_unheated: '', q_plans_current: 'yes',
         q_design_contact: '' });
     var w = oppWrites(t.w);
     assert.strictEqual(w.length, 1, 'one write');
@@ -260,12 +307,15 @@ test('save: only changed non-empty fields, ONE submitFields with the state; blan
     assert.strictEqual(n.author, '77', 'the PE');
     assert.strictEqual(n.notetype, undefined, 'NOTE_TYPE empty');
     assert.ok(n.note.indexOf('Sections saved: Your plans\nSent to PE: no\n\nYour plans\n') === 0);
-    assert.ok(n.note.indexOf(' We designed your quote from the plans you sent us. Are they still the current ones?: \u2014 \u2192 Yes') > 0);
+    assert.ok(n.note.indexOf(' Are the plans we hold still the current ones?: \u2014 \u2192 Yes') > 0);
     assert.ok(n.note.indexOf(' Windows and external doors: \u2014 \u2192 Bifolds 2.1 m') > 0);
     assert.strictEqual(n.note.indexOf('Ceiling heights'), -1, 'unchanged questions are not listed');
     assert.strictEqual(t.w.tasks.length, 0, 'no Task without Send');
-    assert.ok(html.indexOf('<div class="donep" role="status"><p>Saved. Still to do: How well insulated') > 0);
-    assert.ok(html.indexOf('<span class="num">1</span>Your plans<span class="chip chip-done">Done</span>') > 0);
+    // 2.4.0: no nav is "stay" — a redirect to the same step, which says Saved and ticks the step in the bar.
+    assert.ok(/&step=plans&saved=1$/.test(t.redirect), t.redirect);
+    assert.ok(html.indexOf('<div class="donep" role="status"><p>Saved.</p></div>') > 0);
+    assert.ok(html.indexOf('aria-label="Step 2 of 7: Your plans, done" aria-current="step"><span class="scirc" ' +
+        'aria-hidden="true">\u2713</span>') > 0);
     assert.ok(/CDB DESIGNINFO_SAVED/.test(JSON.stringify(t.w.logs)));
     assert.ok(logs(t.w, 'DESIGNINFO_SAVED')[0][2].indexOf('sections plans; fields custbody_elevations_window_sizes_2026; files 0; ' +
         'send no') > 0);
@@ -273,7 +323,7 @@ test('save: only changed non-empty fields, ONE submitFields with the state; blan
 
 test('save: posting nothing new writes the state only, and the Note still records the save', function () {
     var t = setup();
-    post(t, { sec: 'plans', q_ceilings: 'All 2.4 m' });
+    post(t, { step: 'plans', q_ceilings: 'All 2.4 m' });
     assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
     assert.strictEqual(t.w.notes.length, 1);
     assert.ok(t.w.notes[0].values.note.indexOf('Sections saved: Your plans') === 0);
@@ -281,12 +331,12 @@ test('save: posting nothing new writes the state only, and the Note still record
 
 test('choice @field writes the option ID; one outside UPD_BUILD_STAGES or not offered is rejected, nothing written', function () {
     var t = setup();
-    post(t, { sec: 'project', q_build_stage: '4' });
+    post(t, { step: 'project', q_build_stage: '4' });
     assert.strictEqual(oppWrites(t.w)[0].values.custbody_build_stage, '4');
     assert.ok(t.w.notes[0].values.note.indexOf(' Build stage: Foundations \u2192 Roof on') > 0);
     ['6', '9'].forEach(function (id) {
         var u = setup();
-        var html = post(u, { sec: 'project', q_build_stage: id });
+        var html = post(u, { step: 'project', q_build_stage: id });
         assert.ok(html.indexOf('Please choose one of the options shown.') > 0, id);
         assert.ok(html.indexOf('Nothing has been saved yet.') > 0);
         nothingWritten(u, 'stage ' + id);
@@ -298,7 +348,7 @@ test('choice @field: getSelectOptions() failing or UPD_BUILD_STAGES empty shows 
     [function (t) { t.w.selectOptionsThrow = true; }, null].forEach(function (f, i) {
         var t = i ? setup({ settings: { UPD_BUILD_STAGES: null } }) : setup();
         if (f) { f(t); }
-        var html = get(t);
+        var html = getStep(t, 'project');
         assert.ok(html.indexOf('<p class="ro">Foundations <span class="muted">(we\u2019ll cover this on your call)</span></p>') > 0);
         assert.strictEqual(html.indexOf('name="q_build_stage"'), -1);
         assert.strictEqual(logs(t.w, 'DESIGNINFO_OPTIONS_UNAVAILABLE').length, 1);
@@ -310,7 +360,7 @@ test('the goods date (amendment 1 §1): never custbody_opp_del_date — the stat
     var key = d.addDays(d.londonTodayKey(Date.now()), 30);
     var slash = key.slice(8, 10) + '/' + key.slice(5, 7) + '/' + key.slice(0, 4);
     var t = setup();
-    post(t, { sec: 'project', q_goods_date: key, send: '1' });
+    post(t, { step: 'project', q_goods_date: key, send: '1' });
     oppWrites(t.w).forEach(function (o) {
         assert.strictEqual(o.values.hasOwnProperty('custbody_opp_del_date'), false);
     });
@@ -321,7 +371,7 @@ test('the goods date (amendment 1 §1): never custbody_opp_del_date — the stat
         'and update the opportunity date yourself; the dashboard did not change it.') > 0);
     // A bad date: the update page's rule and message.
     var u = setup();
-    assert.ok(post(u, { sec: 'project', q_goods_date: '2020-01-01' }).indexOf('Please choose a date from today onwards, within ' +
+    assert.ok(post(u, { step: 'project', q_goods_date: '2020-01-01' }).indexOf('Please choose a date from today onwards, within ' +
         'five years.') > 0);
     nothingWritten(u, 'a past date');
 });
@@ -332,20 +382,20 @@ test('a date question on a DATE field writes a Date; on a non-DATE field it is r
     var key = d.addDays(d.londonTodayKey(Date.now()), 10);
     var t = setup({ registry: reg });
     t.w.oppFieldTypes.custbody15 = 'date';
-    post(t, { sec: 'project', q_start: key });
+    post(t, { step: 'project', q_start: key });
     assert.ok(oppWrites(t.w)[0].values.custbody15 instanceof Date);
     var u = setup({ registry: reg });
-    assert.ok(get(u).indexOf('(we\u2019ll cover this on your call)') > 0);
+    assert.ok(getStep(u, 'project').indexOf('(we\u2019ll cover this on your call)') > 0);
     assert.strictEqual(logs(u.w, 'DESIGNINFO_FIELD_MISMATCH').length, 1);
 });
 
 test('yesno: a checkbox field gets a boolean, a text field "Yes"', function () {
     var t = setup();
-    post(t, { sec: 'heating', q_through_walls: 'yes' });
+    post(t, { step: 'heating', q_through_walls: 'yes' });
     assert.strictEqual(oppWrites(t.w)[0].values.custbody28, true);
     var u = setup();
     u.w.oppFieldTypes.custbody28 = 'text';
-    post(u, { sec: 'heating', q_through_walls: 'yes' });
+    post(u, { step: 'heating', q_through_walls: 'yes' });
     assert.strictEqual(oppWrites(u.w)[0].values.custbody28, 'Yes');
 });
 
@@ -365,10 +415,10 @@ test('a mismatched field: shown read-only, never written even when posted, liste
     var t = setup();
     t.w.oppFieldTypes.custbody15 = 'select';
     t.w.opps[20].custbody15_text = '1930s';
-    var html = get(t);
+    var html = getStep(t, 'insulation');
     assert.ok(html.indexOf('<p class="ro">1930s <span class="muted">(we\u2019ll cover this on your call)</span></p>') > 0);
     assert.strictEqual(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH').length, 1);
-    post(t, { sec: 'insulation', q_year: '1990', send: '1' });
+    post(t, { step: 'insulation', q_year: '1990', send: '1' });
     oppWrites(t.w).forEach(function (o) { assert.strictEqual(o.values.hasOwnProperty('custbody15'), false); });
     assert.ok(t.w.notes[0].values.note.indexOf('Not saved to the record: year (type mismatch: custbody15 is SELECT)') > 0);
     assert.ok(t.w.tasks[0].values.message.indexOf('year (type mismatch: custbody15 is SELECT)') > 0);
@@ -377,7 +427,7 @@ test('a mismatched field: shown read-only, never written even when posted, liste
 test('a PHONE field that cannot take the text: not written, kept in the Note, listed as not saved', function () {
     var t = setup();
     t.w.oppFieldTypes.custbody_des_cont_phone = 'phone';
-    post(t, { sec: 'project', q_design_contact: 'Dave, site manager, 07700 900123' });
+    post(t, { step: 'project', q_design_contact: 'Dave, site manager, 07700 900123' });
     assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
     assert.ok(t.w.notes[0].values.note.indexOf('Dave, site manager, 07700 900123 (NOT saved to the record: the field takes a ' +
         'phone only)') > 0);
@@ -386,29 +436,41 @@ test('a PHONE field that cannot take the text: not written, kept in the Note, li
 test('maxLength: clipped to the field\'s own when getField() exposes one, and said so', function () {
     var t = setup();
     t.w.fieldMaxLength = { custbody_elevations_window_sizes_2026: 10 };
-    post(t, { sec: 'plans', q_windows: 'Bifolds 2.1 m tall' });
+    post(t, { step: 'plans', q_windows: 'Bifolds 2.1 m tall' });
     assert.strictEqual(oppWrites(t.w)[0].values.custbody_elevations_window_sizes_2026, 'Bifolds 2.');
     assert.ok(t.w.notes[0].values.note.indexOf('(clipped to 10 characters on the record)') > 0);
 });
 
-test('validation: lengths, a yes/no, a literal choice index — any error re-renders with the answers, nothing written', function () {
+test('validation: lengths, a yes/no, a literal choice index — any error re-renders the step with the answers, nothing written', function () {
     var t = setup();
-    var html = post(t, { sec: 'plans', q_windows: Array(4002).join('x'), q_design_contact: Array(302).join('y'),
-        q_plans_current: 'maybe', q_ins_choice: '9', q_unheated: '<b>kept</b>' });
+    var html = post(t, { step: 'plans', nav: 'next', q_windows: Array(4002).join('x'), q_plans_current: 'maybe',
+        q_unheated: '<b>kept</b>' });
     nothingWritten(t, 'errors');
+    assert.strictEqual(t.redirect, '', '2.4.0: no redirect');
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="plans">') > 0, 'the same step');
     assert.ok(html.indexOf('Please keep this under 4000 characters.') > 0);
-    assert.ok(html.indexOf('Please keep this under 300 characters.') > 0);
     assert.ok(html.indexOf('Please choose Yes or No.') > 0);
-    assert.ok(html.indexOf('Please choose one of the options shown.') > 0);
+    assert.ok(html.indexOf('Nothing has been saved yet.') > 0);
     assert.ok(html.indexOf('>&lt;b&gt;kept&lt;/b&gt;</textarea>') > 0, 'the answer kept, escaped');
     assert.strictEqual(html.indexOf('<b>kept</b>'), -1);
+    var u = setup();
+    html = post(u, { step: 'project', nav: 'next', q_design_contact: Array(302).join('y') });
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="project">') > 0);
+    assert.ok(html.indexOf('Please keep this under 300 characters.') > 0);
+    nothingWritten(u, 'project errors');
+    // 2.4.0: an error only on another step (a crafted post) shows that step, so it is never hidden.
+    var v = setup();
+    html = post(v, { step: 'plans', nav: 'next', q_ins_choice: '9' });
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="insulation">') > 0);
+    assert.ok(html.indexOf('Please choose one of the options shown.') > 0);
+    nothingWritten(v, 'insulation error');
 });
 
 // ---------------------------------------------------------------- files
 
 test('files: saved into the folder, private, named, attached; the state records each; DESIGNINFO_FILE per file', function () {
     var t = setup();
-    var html = post(t, { sec: 'plans' }, { f_plans_files_1: part(t, 'Ground floor.pdf', 1258291), f_plans_files_2: part(t, 'b.dwg'),
+    var html = post(t, { step: 'plans' }, { f_plans_files_1: part(t, 'Ground floor.pdf', 1258291), f_plans_files_2: part(t, 'b.dwg'),
         f_plans_files_3: { name: '', size: 0 } });
     assert.strictEqual(t.w.savedFiles.length, 2, 'an empty part is not a file');
     assert.ok(/^QR20_plans_files_\d{8}-\d{4}_Ground_floor\.pdf$/.test(t.w.savedFiles[0].name));
@@ -421,12 +483,17 @@ test('files: saved into the folder, private, named, attached; the state records 
     assert.deepStrictEqual([st.files[0].qid, st.files[0].id, st.files[0].attached], ['plans_files', '901', true]);
     assert.strictEqual(oppWrites(t.w).length, 1, 'no field change: the state alone, after the files');
     assert.ok(t.w.notes[0].values.note.indexOf(' Files: QR20_plans_files_') > 0 && t.w.notes[0].values.note.indexOf('(1.2 MB)') > 0);
-    assert.ok(html.indexOf('Already sent:') > 0 && html.indexOf('Ground_floor.pdf') > 0, 'listed under the question');
+    // 2.4.0: the file control lists each upload as a row: a type badge, the name, the date. No Remove.
+    assert.ok(/<div class="frow"><span class="ftype">PDF<\/span><span class="fname" title="QR20_plans_files_\d{8}-\d{4}_Ground_floor\.pdf">/
+        .test(html), 'listed under the question');
+    assert.ok(/<span class="fwhen">uploaded \d\d\/\d\d\/\d{4}<\/span>/.test(html), 'uploaded date');
+    assert.ok(html.indexOf('<span class="ftype">DWG</span>') > 0);
+    assert.strictEqual(/>Remove</.test(html), false, 'no Remove');
 });
 
 test('files with field changes: the fields first, then the files, then the state (two writes)', function () {
     var t = setup();
-    post(t, { sec: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(t, 'a.pdf') });
+    post(t, { step: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(t, 'a.pdf') });
     var w = oppWrites(t.w);
     assert.strictEqual(w.length, 2);
     assert.deepStrictEqual(Object.keys(w[0].values), ['custbody_elevations_window_sizes_2026']);
@@ -446,7 +513,7 @@ test('files: the count, the size and the extension are checked before anything i
         var t = setup();
         var files = {};
         Object.keys(c[0]).forEach(function (k) { files[k] = part(t, c[0][k], c[2]); });
-        var html = post(t, { sec: 'plans', q_windows: 'Lots' }, files);
+        var html = post(t, { step: 'plans', q_windows: 'Lots' }, files);
         assert.ok(html.indexOf(c[1]) > 0, c[1]);
         nothingWritten(t, c[1]);
     });
@@ -455,7 +522,7 @@ test('files: the count, the size and the extension are checked before anything i
 test('files: a failed attach keeps the file and says so; a failed save says so; no folder refuses the files only', function () {
     var t = setup();
     t.w.attachThrows = true;
-    post(t, { sec: 'plans', send: '1' }, { f_plans_files_1: part(t, 'a.pdf') });
+    post(t, { step: 'plans', send: '1' }, { f_plans_files_1: part(t, 'a.pdf') });
     assert.strictEqual(t.w.savedFiles.length, 1, 'the file stays in the folder');
     assert.strictEqual(state(t.w).files[0].attached, false);
     assert.ok(logs(t.w, 'DESIGNINFO_FILE')[0][2].indexOf('NOT attached to the opportunity') > 0);
@@ -464,16 +531,19 @@ test('files: a failed attach keeps the file and says so; a failed save says so; 
 
     var u = setup();
     u.w.fileSaveThrows = true;
-    var html = post(u, { sec: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(u, 'a.pdf') });
-    assert.ok(html.indexOf('We couldn\u2019t save \u201ca.pdf\u201d. Please try again, or email it to Pem Engineer.') > 0);
+    var html = post(u, { step: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(u, 'a.pdf') });
+    // 2.4.0: after the redirect, a whitelisted warning (&w=files) — nothing the customer typed travels in the URL.
+    assert.ok(/&step=plans&saved=1&w=files$/.test(u.redirect), u.redirect);
+    assert.ok(html.indexOf('We couldn\u2019t save one of your files. Please try again, or email it to Pem Engineer.') > 0);
     assert.strictEqual(oppWrites(u.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots', 'the answers still save');
 
     var v = setup({ settings: { DESIGNINFO_FOLDER: null } });
     assert.ok(get(v).indexOf('We can\u2019t take files here at the moment.') > 0);
-    html = post(v, { sec: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(v, 'a.pdf') });
+    html = post(v, { step: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(v, 'a.pdf') });
     assert.strictEqual(v.w.savedFiles.length, 0);
     assert.strictEqual(logs(v.w, 'DESIGNINFO_NO_FOLDER').length, 1);
     assert.strictEqual(oppWrites(v.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots');
+    assert.ok(/&w=uploads$/.test(v.redirect), v.redirect);
     assert.ok(html.indexOf('We can\u2019t take files here at the moment.') > 0);
 });
 
@@ -482,7 +552,7 @@ test('files: a failed attach keeps the file and says so; a failed save says so; 
 test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a failed Note never stops the save', function () {
     var t = setup();
     var long = Array(3000).join('z');
-    post(t, { sec: 'all', q_windows: long, q_unheated: long, q_ceilings: long, q_walls_ex: long, q_windows_ex: long,
+    post(t, { step: 'plans', q_windows: long, q_unheated: long, q_ceilings: long, q_walls_ex: long, q_windows_ex: long,
         q_roof_ex: long, q_floors_ex: long, q_manifolds: long, q_screed: long, q_joists: long, q_coverings: long, q_hp_location: long,
         q_hp_buffer: long, q_other: long });
     assert.strictEqual(t.w.notes[0].values.note.length, 3900);
@@ -492,7 +562,7 @@ test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a fail
 
     var u = setup();
     u.w.noteThrows = true;
-    var html = post(u, { sec: 'plans', q_windows: 'Lots', send: '1' });
+    var html = post(u, { step: 'plans', q_windows: 'Lots', send: '1' });
     assert.strictEqual(oppWrites(u.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots');
     assert.strictEqual(logs(u.w, 'DESIGNINFO_NOTE_FAILED')[0][0], 'error');
     assert.ok(u.w.tasks[0].values.message.indexOf('Audit note NOT created') > 0);
@@ -501,7 +571,7 @@ test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a fail
 
 test('the Task, only on Send: title, assignee, what is missing, a snapshot of the answers, the Mimecast line', function () {
     var t = setup();
-    post(t, { sec: 'plans', q_windows: 'First' });
+    post(t, { step: 'plans', q_windows: 'First' });
     assert.strictEqual(t.w.tasks.length, 0);
     var html = post(t, { send: '1', q_bigfiles: 'yes', q_unheated: 'Garage' });
     assert.strictEqual(t.w.tasks.length, 1);
@@ -513,8 +583,7 @@ test('the Task, only on Send: title, assignee, what is missing, a snapshot of th
     assert.strictEqual(v.priority, 'MEDIUM');
     assert.ok(v.message.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0);
     // Amendment 3: a snapshot of every shown section's current answers (the earlier save included).
-    assert.ok(v.message.indexOf('Your plans (to do)\n- We designed your quote from the plans you sent us. Are they still the ' +
-        'current ones?: \u2014') < 0);
+    assert.ok(v.message.indexOf('Your plans (to do)\n- Are the plans we hold still the current ones?: \u2014') < 0);
     assert.ok(v.message.indexOf('- Ceiling heights: All 2.4 m\n- Windows and external doors: First\n') > 0, v.message);
     // Amendment 2 §5: the Task is plain text — never an HTML entity.
     assert.strictEqual(v.message.indexOf('&#39;'), -1);
@@ -568,7 +637,8 @@ test('fact warnings reach the Task: an unknown service, an HP Design with a boil
         'pump.') > 0);
     var u = setup();
     u.w.opps[20].custbody_value_proposition = '99';
-    assert.ok(get(u).indexOf('<span class="num">2</span>How well insulated is it?') > 0, 'unknown: the UFH Design + set');
+    assert.ok(get(u).indexOf('name="goto" value="insulation" aria-label="Step 3 of 7: How well insulated is it?"') > 0,
+        'unknown: the UFH Design + set');
     post(u, { send: '1' });
     assert.ok(u.w.tasks[0].values.message.indexOf('Design service unknown: value proposition 99 is not in VP_MAP') > 0);
 });
@@ -577,27 +647,27 @@ test('state merges: requested and earlier answers survive a save (a version 1 st
     var t = setup();
     t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 1, requested: '2026-10-01T09:00:00Z', answers: { bigfiles: 'no' },
         sections: {}, files: [], pending: [{ s: 'x', l: 'y', o: '', n: 'z', at: 'w' }], noted: {} });
-    post(t, { sec: 'plans', q_plans_current: 'no' });
+    post(t, { step: 'plans', q_plans_current: 'no' });
     var st = state(t.w);
     assert.strictEqual(st.requested, '2026-10-01T09:00Z', 'kept, to the minute');
     assert.strictEqual(t.w.opps[20].custbody_cdb_designinfo_state.indexOf('pending'), -1, 'the change list is gone');
     assert.deepStrictEqual(st.answers, { bigfiles: 'no', plans_current: 'no' });
     var u = setup();
     u.w.opps[20].custbody_cdb_designinfo_state = 'garbage';
-    post(u, { sec: 'plans', q_plans_current: 'yes' });
+    post(u, { step: 'plans', q_plans_current: 'yes' });
     assert.strictEqual(state(u.w).answers.plans_current, 'yes');
     assert.strictEqual(logs(u.w, 'DESIGNINFO_STATE_INVALID').length, 1);
 });
 
 test('a Note-only answer (not a date) is marked noted (not kept), and the page says so next time', function () {
     var t = setup();
-    post(t, { sec: 'heatpump', q_mcs_position: 'The kitchen window of number 6' });
-    post(t, { sec: 'project', q_w3w: '///a.b.c' });
+    post(t, { step: 'heatpump', q_nb_which: 'The kitchen window of number 6' });
+    post(t, { step: 'project', q_w3w: '///a.b.c' });
     var st = state(t.w);
-    assert.ok(st.noted.mcs_position && st.noted.w3w);
-    assert.strictEqual(st.answers.mcs_position, undefined);
+    assert.ok(st.noted.nb_which && st.noted.w3w);
+    assert.strictEqual(st.answers.nb_which, undefined);
     assert.strictEqual(st.answers.w3w, undefined, 'amendment 3: only state answers and Note-only dates are kept');
-    assert.ok(get(t).indexOf('You\u2019ve sent us this already. Anything new? Add it here.') > 0);
+    assert.ok(getStep(t, 'project').indexOf('You\u2019ve sent us this already. Anything new? Add it here.') > 0);
 });
 
 // ---------------------------------------------------------------- the card states (dashboard and digest)
@@ -922,25 +992,26 @@ test('A2. yesno on a CHECKBOX: unticked reads back as "no"; "no" over a ticked b
         'heating,Heating and controls,general,through_walls,yesno,Through walls?,,,custbody28,Y,,'].join('\n') + '\n';
     var t = setup({ registry: reg });
     t.w.opps[20].custbody28 = false;
-    var html = get(t);
+    var html = getStep(t, 'heating');
     assert.ok(/name="q_through_walls" value="no" checked/.test(html), 'a stored false is "no"');
-    assert.ok(html.indexOf('Heating and controls<span class="chip chip-done">Done</span>') > 0, 'answered');
+    assert.ok(html.indexOf('aria-label="Step 2 of 3: Heating and controls, done"') > 0, 'answered');
+    assert.ok(getStep(t, 'review').indexOf('Heating and controls<span class="chip chip-done">Done</span>') > 0, 'answered');
     var u = setup({ registry: reg });
     u.w.opps[20].custbody28 = true;
-    post(u, { sec: 'heating', q_through_walls: 'no' });
+    post(u, { step: 'heating', q_through_walls: 'no' });
     assert.strictEqual(oppWrites(u.w)[0].values.custbody28, false, 'unticks the box');
     assert.strictEqual(state(u.w).sections.heating.status, 'done');
     assert.ok(u.w.notes[0].values.note.indexOf(' Through walls?: Yes → No') > 0);
     var v = setup({ registry: reg });
     v.w.opps[20].custbody28 = false;
-    post(v, { sec: 'heating', q_through_walls: 'no' });
+    post(v, { step: 'heating', q_through_walls: 'no' });
     assert.deepStrictEqual(Object.keys(oppWrites(v.w)[0].values), ['custbody_cdb_designinfo_state'], '"no" over "no": no change');
     assert.strictEqual(v.w.notes[0].values.note.indexOf('Through walls'), -1);
 });
 
 test('A2. a question hidden by its `when`, posted anyway, is ignored: no write, no Note line', function () {
     var t = setup();
-    post(t, { sec: 'heating', q_heat_boiler: 'Combi in the kitchen', q_walls_new: 'Timber frame', q_overfloor: 'Old floor' });
+    post(t, { step: 'heating', q_heat_boiler: 'Combi in the kitchen', q_walls_new: 'Timber frame', q_overfloor: 'Old floor' });
     assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
     var note = t.w.notes[0].values.note;
     ['Combi in the kitchen', 'Timber frame', 'Old floor'].forEach(function (x) { assert.strictEqual(note.indexOf(x), -1, x); });
@@ -985,7 +1056,7 @@ test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed
     assert.strictEqual(html.indexOf('name="q_windows"'), -1);
     assert.ok(html.indexOf('(we’ll cover this on your call)') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH')[0][2].indexOf('windows (custbody_elevations_window_sizes_2026 is RICHTEXT)') > 0);
-    post(t, { sec: 'plans', q_windows: '<img src=x onerror=alert(1)>' });
+    post(t, { step: 'plans', q_windows: '<img src=x onerror=alert(1)>' });
     oppWrites(t.w).forEach(function (o) {
         assert.strictEqual(o.values.hasOwnProperty('custbody_elevations_window_sizes_2026'), false);
     });
@@ -996,8 +1067,8 @@ test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed
 test('A2. line endings: a stored "a\\r\\nb" and a posted "a\\nb" is not a change', function () {
     var t = setup();
     t.w.opps[20].custbody_sections_ceiling_heights_2026 = 'a\r\nb';
-    post(t, { sec: 'plans', q_ceilings: 'a\nb' });
-    post(t, { sec: 'plans', q_ceilings: 'a\r\nb' });
+    post(t, { step: 'plans', q_ceilings: 'a\nb' });
+    post(t, { step: 'plans', q_ceilings: 'a\r\nb' });
     oppWrites(t.w).forEach(function (o) {
         assert.strictEqual(o.values.hasOwnProperty('custbody_sections_ceiling_heights_2026'), false);
     });
@@ -1014,9 +1085,12 @@ test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never
     [note, msg].forEach(function (x) { assert.ok(!/&(amp|quot|#39|lt|gt);/.test(x)); });
     // Control characters are stripped from the plain text.
     var u = setup();
-    post(u, { sec: 'plans', q_unheated: 'Garage\u0007 only' });
+    post(u, { step: 'plans', q_unheated: 'Garage\u0007 only' });
     assert.ok(u.w.notes[0].values.note.indexOf('Garage only') > 0);
-    // Every HTML surface still escapes: the page re-renders with the answer escaped.
+    // Every HTML surface still escapes: Review after the Send, and the step.
+    assert.ok(html.indexOf('<dd>Don&#39;t &amp; &quot;quote&quot; &lt;b&gt;</dd>') > 0);
+    assert.strictEqual(html.indexOf('Don\'t & "quote" <b>'), -1);
+    html = getStep(t, 'plans');
     assert.ok(html.indexOf('>Don&#39;t &amp; &quot;quote&quot; &lt;b&gt;</textarea>') > 0);
     assert.strictEqual(html.indexOf('Don\'t & "quote" <b>'), -1);
 });
@@ -1030,7 +1104,7 @@ test('A3. the state size guard: over 3,500 characters the files drop to the last
         big.answers['extra_answer_' + i] = Array(30).join('a');
     }
     t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify(big);
-    post(t, { sec: 'plans', q_windows: 'Lots' });
+    post(t, { step: 'plans', q_windows: 'Lots' });
     assert.strictEqual(logs(t.w, 'DESIGNINFO_STATE_TRIMMED').length, 1);
     assert.strictEqual(oppWrites(t.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots', 'the fields still written');
     var st = state(t.w);
@@ -1042,7 +1116,7 @@ test('A2. the fields are retried alone when the one write of the fields and the 
     var t = setup();
     t.w.submitThrows = function (o) { return o.values.hasOwnProperty('custbody_cdb_designinfo_state') &&
         Object.keys(o.values).length > 1; };
-    post(t, { sec: 'plans', q_windows: 'Lots' });
+    post(t, { step: 'plans', q_windows: 'Lots' });
     var w = oppWrites(t.w);
     assert.deepStrictEqual(w.map(function (o) { return Object.keys(o.values).sort().join(','); }),
         ['custbody_elevations_window_sizes_2026', 'custbody_cdb_designinfo_state']);
@@ -1158,4 +1232,196 @@ test('A3. card B comes from the stored section statuses; sent with no sections (
     var d = cards({ v: 2, s: {}, a: {}, f: [], req: '', sent: '2026-10-02T14:10Z', task: '2026-10-02T14:10Z' });
     assert.ok(/Information received, [A-Z][a-z]{2} 2 Oct( 2026)?\. Pem is reviewing it/.test(d.row), d.row);
     assert.ok(d.digest.indexOf('Pem is reviewing it') > 0);
+});
+
+// ---------------------------------------------------------------- 2.4.0: the stepper (release 2.3b)
+
+/** The step a URL names. */
+function stepOf(u) {
+    return query(u).step;
+}
+
+/** A POST that should redirect: returns the URL (the GET is not followed). */
+function postNav(t, extra, files) {
+    var p = { t: t.tok, a: 'designinfo', opp: '20' };
+    Object.keys(extra || {}).forEach(function (k) { p[k] = extra[k]; });
+    assert.strictEqual(run(t, 'POST', p, files), '', 'no page: a redirect');
+    assert.ok(t.redirect, 'redirected');
+    return t.redirect;
+}
+
+test('2.4.0 routing: no step goes to the first step still to do, else Review; a valid step is shown', function () {
+    var t = setup();
+    assert.ok(get(t).indexOf('<input type="hidden" name="step" value="plans">') > 0, 'the first todo');
+    assert.ok(getStep(t, 'heatpump').indexOf('<input type="hidden" name="step" value="heatpump">') > 0);
+    assert.ok(getStep(t, 'review').indexOf('<h1>Review and send</h1>') > 0);
+    // Nothing still to do: Review.
+    var reg = [HEADER, 'project,Your project,main,w3w,text,what3words,,,note,N,,',
+        'plans,Your plans,main,bigfiles,yesno,Big?,,,state,N,,'].join('\n') + '\n';
+    var u = setup({ registry: reg });
+    assert.ok(get(u).indexOf('<h1>Review and send</h1>') > 0, 'no todo step: Review');
+    nothingWritten(t, 'GETs');
+});
+
+test('2.4.0 routing: a hidden or unknown &step= shows the first step and logs DESIGNINFO_STEP_UNKNOWN (debug)', function () {
+    ['heatpump', 'zzz', '<b>'].forEach(function (step) {
+        var t = setup();
+        t.w.opps[20].custbody_mi_heat_source = '4'; // a boiler: no heat pump step
+        var html = getStep(t, step);
+        assert.ok(html.indexOf('<input type="hidden" name="step" value="project">') > 0, step);
+        assert.strictEqual(html.indexOf('<b>'), -1, 'never echoed');
+        var l = logs(t.w, 'DESIGNINFO_STEP_UNKNOWN');
+        assert.strictEqual(l.length, 1, step);
+        assert.strictEqual(l[0][0], 'debug');
+    });
+});
+
+test('2.4.0 POST: nav=next, back, exit, stay, goto and the last step\'s next — saved first, then redirected', function () {
+    var t = setup();
+    var u;
+    u = postNav(t, { step: 'plans', nav: 'next', q_plans_current: 'yes' });
+    assert.strictEqual(stepOf(u), 'insulation');
+    assert.ok(/&saved=1$/.test(u));
+    assert.strictEqual(state(t.w).answers.plans_current, 'yes', 'saved before the redirect');
+    assert.strictEqual(t.w.notes.length, 1, 'a Note per save');
+    u = postNav(t, { step: 'insulation', nav: 'back', q_year: '1990' });
+    assert.strictEqual(stepOf(u), 'plans', 'back: the previous step');
+    assert.strictEqual(oppWrites(t.w).slice(-1)[0].values.custbody15, '1990', 'back saves first');
+    assert.strictEqual(stepOf(postNav(t, { step: 'project', nav: 'back' })), 'project', 'back on step 1: stays');
+    assert.strictEqual(stepOf(postNav(t, { step: 'heating', nav: 'stay' })), 'heating');
+    assert.strictEqual(stepOf(postNav(t, { step: 'heating' })), 'heating', 'no nav: stay');
+    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'heatpump' })), 'heatpump', 'the step bar');
+    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'review' })), 'review');
+    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'nonsense' })), 'plans', 'an unknown goto: stay');
+    assert.strictEqual(stepOf(postNav(t, { step: 'other', nav: 'next' })), 'review', 'the last step\'s next: Review');
+    u = postNav(t, { step: 'plans', nav: 'exit', q_windows: 'Bifolds' });
+    assert.strictEqual(u, 'https://acct.extforms.netsuite.com/sl?t=' + t.tok, 'exit: the dashboard');
+    assert.strictEqual(t.w.opps[20].custbody_elevations_window_sizes_2026, 'Bifolds', 'exit saves first');
+    assert.strictEqual(t.w.tasks.length, 0, 'no Task without Send');
+    assert.strictEqual(t.w.notes.length, 10);
+});
+
+test('2.4.0 Review: values, files by name, Yes/No, clipped at 200, "Given", chips, "Not answered yet" in todo steps only', function () {
+    var t = setup({ settings: { DESIGNINFO_DRAWINGS_URL: 'https://example.com/drawings' } });
+    post(t, { step: 'heatpump', nav: 'next', q_nb_which: 'Kitchen window' });
+    post(t, { step: 'plans', nav: 'next', q_plans_current: 'no', q_unheated: Array(260).join('z') },
+        { f_plans_files_1: part(t, 'Rev C.pdf') });
+    var html = getStep(t, 'review');
+    assert.ok(/<dt>New or extra files \(optional\)<\/dt><dd>QR20_plans_files_\d{8}-\d{4}_Rev_C\.pdf<\/dd>/.test(html), 'by name');
+    assert.ok(html.indexOf('<dt>Are the plans we hold still the current ones?</dt><dd>No</dd>') > 0);
+    assert.ok(html.indexOf('<dd>' + Array(200).join('z') + '…</dd>') > 0, 'clipped at 200');
+    assert.ok(html.indexOf('<dt>Which window or door is it?</dt><dd>Given</dd>') > 0, 'a Note-only answer sent');
+    assert.ok(html.indexOf('Your plans<span class="chip chip-done">Done</span>') > 0);
+    assert.ok(html.indexOf('How well insulated is it?<span class="chip chip-todo">Still to do</span>') > 0);
+    assert.ok(html.indexOf('Your project<span class="chip chip-checked">Checked</span>') > 0);
+    // "Not answered yet" only in the steps still to do.
+    var plans = html.slice(html.indexOf('id="rv-plans"'), html.indexOf('id="rv-insulation"'));
+    var ins = html.slice(html.indexOf('id="rv-insulation"'), html.indexOf('id="rv-heating"'));
+    assert.strictEqual(plans.indexOf('Not answered yet'), -1, 'a done step lists only its answers');
+    assert.strictEqual(plans.indexOf('Windows and external doors'), -1);
+    assert.ok(ins.indexOf('<dt>Age of the property, or year built</dt><dd class="muted" style="font-weight:400">Not answered ' +
+        'yet</dd>') > 0);
+    assert.ok(html.indexOf('<p class="muted" style="margin:0">Nothing added.</p>') > 0, 'the optional step, empty');
+    // The edit links, the banner, the footer.
+    assert.ok(html.indexOf('<a href="https://acct.extforms.netsuite.com/sl?t=' + t.tok + '&amp;a=designinfo&amp;opp=20&amp;' +
+        'step=plans">Edit<span class="sr" style="position:absolute"> Your plans</span></a>') > 0);
+    assert.ok(html.indexOf('<div class="amber" role="status"><p><strong>Nearly there. 3 steps still need you: How well insulated ' +
+        'is it?, Heating and controls, Your heat pump.</strong></p>') > 0);
+    assert.ok(html.indexOf('<span class="cap">Goes to</span><span class="amn">Pem Engineer</span>') > 0);
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="review"><div class="submitrow"><button type="submit" ' +
+        'class="cta" name="send" value="1">Send to Pem</button><span class="meta">Sends what you’ve done so far</span>') > 0);
+    assert.ok(html.indexOf('<a href="https://example.com/drawings" target="_blank" rel="noopener">') > 0, 'the drawings link');
+    assert.strictEqual(getStep(t, 'plans').indexOf('example.com/drawings'), -1, 'on Review only');
+});
+
+test('2.4.0 Send from Review: today\'s Send — the Task, then Review with the confirmation (no redirect)', function () {
+    var t = setup();
+    var html = post(t, { step: 'review', send: '1' });
+    assert.strictEqual(t.redirect, '', 'Send renders, it does not redirect');
+    assert.strictEqual(t.w.tasks.length, 1);
+    assert.strictEqual(t.w.notes.length, 1);
+    assert.ok(t.w.notes[0].values.note.indexOf('Sent to PE: yes') > 0);
+    assert.ok(html.indexOf('<div class="donep" role="status"><p>Sent to Pem Engineer.</p><p>Pem will read it all before your ' +
+        'design call.</p></div>') > 0);
+    assert.ok(html.indexOf('<h1>Review and send</h1>') > 0);
+    assert.ok(state(t.w).sent, 'sent');
+});
+
+test('2.4.0 the file control: one input, "+ Add another file" up to the cap, a photo input; f_<qid>_2 and the photo save', function () {
+    var t = setup();
+    var html = getStep(t, 'plans');
+    var block = html.slice(html.indexOf('id="q-plans_files"'), html.indexOf('id="q-bigfiles"'));
+    assert.strictEqual((block.match(/<input class="fin" type="file"[^>]*name="f_plans_files_\d"[^>]*>/g) || []).filter(function (i) {
+        return !/ hidden>$/.test(i);
+    }).length, 1, 'one input shown');
+    assert.strictEqual((block.match(/name="f_plans_files_[1-5]"/g) || []).length, 5, 'the rest hidden (revealed by script)');
+    assert.ok(block.indexOf('<button type="submit" class="out addf" name="more" value="plans_files" data-qid="plans_files">+ Add ' +
+        'another file</button>') > 0);
+    assert.ok(block.indexOf('<input class="sr" type="file" id="di-plans_files-photo" name="f_plans_files_6" accept="image/*" ' +
+        'capture="environment">') > 0, 'Take a photo: the last slot');
+    assert.ok(block.indexOf('>Take a photo</label>') > 0);
+    // Without JavaScript: "+ Add another file" saves, then shows one more input.
+    var u = postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '1' });
+    assert.ok(/&step=plans&more_plans_files=2&saved=1$/.test(u), u);
+    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '4' })));
+    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '5' })), 'capped');
+    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '99' })), 'capped');
+    assert.ok(!/more_/.test(postNav(t, { step: 'plans', more: 'heat_boiler' })), 'not a files question on this step: ignored');
+    html = run(t, 'GET', query(t.redirect.replace(/&step=plans/, '&step=plans&more_plans_files=3')));
+    block = html.slice(html.indexOf('id="q-plans_files"'), html.indexOf('id="q-bigfiles"'));
+    assert.strictEqual((block.match(/name="f_plans_files_\d"[^>]*>/g) || []).filter(function (i) {
+        return !/ hidden>$/.test(i) && !/capture/.test(i);
+    }).length, 3);
+    html = run(t, 'GET', { t: t.tok, a: 'designinfo', opp: '20', step: 'plans', more_plans_files: '5' });
+    block = html.slice(html.indexOf('id="q-plans_files"'), html.indexOf('id="q-bigfiles"'));
+    assert.strictEqual(block.indexOf('+ Add another file'), -1, 'at the cap: no button');
+    // A file in the second input, and one from the camera, save.
+    var v = setup();
+    postNav(v, { step: 'plans', nav: 'next' }, { f_plans_files_2: part(v, 'b.pdf'), f_plans_files_6: part(v, 'IMG_0001.jpg') });
+    assert.deepStrictEqual(v.w.savedFiles.map(function (f) { return f.name.replace(/^.*_\d{8}-\d{4}_/, ''); }),
+        ['b.pdf', 'IMG_0001.jpg']);
+    assert.strictEqual(state(v.w).files.length, 2);
+});
+
+test('2.4.0 phone: the stepper CSS at max-width 600px — titles hidden, full-width buttons, the photo input shown', function () {
+    var html = getStep(setup(), 'plans');
+    var css = html.slice(html.indexOf('@media (max-width:600px){'));
+    css = css.slice(0, css.indexOf('}}') + 2);
+    ['.sbar li{min-width:0}', '.sbar li .stitle{display:none}', '.scurt{display:block', '.navrow{flex-direction:column', '.fphoto{display:flex}']
+        .forEach(function (rule) { assert.ok(css.indexOf(rule) > 0, rule); });
+    assert.ok(html.indexOf('.fphoto{display:none}') > 0, 'no photo input on a desktop');
+    assert.ok(html.indexOf('<meta name="viewport" content="width=device-width, initial-scale=1">') > 0);
+});
+
+test('2.4.0 Enter in a text box continues: the form\'s first submit button is a hidden nav=next', function () {
+    var html = getStep(setup(), 'plans');
+    var first = html.match(/<button type="submit"[^>]*form="diform"[^>]*>|<button type="submit"[^>]*>/)[0];
+    assert.ok(/name="nav" value="next"/.test(first), first);
+});
+
+test('2.4.0 old qids in the state are ignored, logged once per request (DESIGNINFO_STATE_QID_UNKNOWN)', function () {
+    var t = setup();
+    t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 2, s: {}, a: { mcs_reflect: '1', plans_current: 'yes' },
+        n: ['mcs_position'], f: [] });
+    var html = getStep(t, 'plans');
+    assert.ok(/name="q_plans_current" value="yes" checked/.test(html), 'a known answer still reads');
+    var l = logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN');
+    assert.strictEqual(l.length, 1);
+    assert.ok(l[0][2].indexOf('mcs_reflect') > 0 && l[0][2].indexOf('mcs_position') > 0, l[0][2]);
+    postNav(t, { step: 'plans', nav: 'next' });
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN').length, 2, 'once for the GET, once for the POST');
+    assert.strictEqual(t.w.notes[0].values.note.indexOf('mcs_'), -1, 'never in the Note');
+});
+
+test('2.4.0 the Note and the Task: "Sections saved" names the step; the snapshot follows step order; "Still missing" the titles', function () {
+    var t = setup();
+    postNav(t, { step: 'heating', nav: 'next', q_manifolds: 'Utility' });
+    assert.ok(t.w.notes[0].values.note.indexOf('Sections saved: Heating and controls\n') === 0);
+    post(t, { step: 'review', send: '1' });
+    var msg = t.w.tasks[0].values.message;
+    var order = ['Your project (', 'Your plans (', 'How well insulated is it? (', 'Heating and controls (', 'Your heat pump (',
+        'Anything else for your Project Engineer? ('].map(function (x) { return msg.indexOf('\n' + x); });
+    order.forEach(function (i) { assert.ok(i > 0); });
+    assert.deepStrictEqual(order.slice().sort(function (a, b) { return a - b; }), order, 'step order');
+    assert.ok(msg.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0, msg);
 });

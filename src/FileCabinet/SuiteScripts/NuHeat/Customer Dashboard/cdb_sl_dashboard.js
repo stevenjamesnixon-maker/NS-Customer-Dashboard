@@ -109,21 +109,32 @@
  * INFO Task is a snapshot of every shown section's current answers, with a pointer to the Notes for the changes since
  * the last send.
  *
+ * 2.4.0 (release 2.3b, the stepper): a=designinfo shows ONE step (a visible registry section) at a time, then Review.
+ *   GET  &step=<section>|review      that step; none -> the first step still to do, else Review; unknown or hidden -> the
+ *                                    first step (log.debug). View mode: always Review. &more_<qid>=n shows n file inputs;
+ *                                    &saved=1 and &w=files|uploads|partial are the whitelisted notices after a save.
+ *   POST step=<section>, nav=next|back|exit|stay, or goto=<section|review> (the step bar), or more=<qid> (+ Add another
+ *        file: nav=stay with one more input): the step is saved as a section save always was (validate, write, files,
+ *        state, Note), then a redirect to the step it names (Back saves first). A validation error re-renders the step.
+ *        step=review with send=1 is the Send (Task), then Review with the confirmation.
+ * The redirect is redirect.redirect() (a 302, which the browser follows with a GET: the effect of the brief's 303).
+ * Nothing in what is written changes.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.3.2
+ * @version 2.4.0
  */
-define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib_token',
+define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
     'require'],
-    function (record, runtime, log, config, token, dates, data, render, task, designinfo, requireModule) {
+    function (record, runtime, log, redirect, config, token, dates, data, render, task, designinfo, requireModule) {
 
     'use strict';
 
-    var VERSION = '2.3.2';
+    var VERSION = '2.4.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1406,6 +1417,11 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (parsed.status === 'invalid') {
             once('DESIGNINFO_STATE_INVALID', 'Opportunity ' + guard.opportunity.id + ': ' + parsed.detail + '; treated as empty.');
         }
+        // 2.4.0: answers stored under qids the registry no longer has (the v2 registry) are ignored, logged once.
+        if (designinfo.unknownStateQids(parsed.state, reg.questions).length) {
+            once('DESIGNINFO_STATE_QID_UNKNOWN', 'Opportunity ' + guard.opportunity.id + ': ignored, not in the registry: ' +
+                designinfo.unknownStateQids(parsed.state, reg.questions).join(', '));
+        }
         facts = designinfo.buildFacts({ valueProposition: rec.info.valueProposition, fc: rec.info.fc,
             heatSource: rec.info.heatSource, market: rec.info.market, subStatus: rec.info.subStatus || guard.opportunity.subStatus,
             manifolds: rec.info.manifolds }, cfg);
@@ -1511,7 +1527,8 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var values = answerValues(dc);
         var qs = dc.questions.map(function (v) { return v.q; });
         return designinfo.sectionsOf(qs).map(function (s) {
-            return { id: s.id, title: s.title, status: designinfo.sectionStatus(s.questions, values, dc.state),
+            return { id: s.id, title: s.title, intro: s.intro, minutes: s.minutes,
+                status: designinfo.sectionStatus(s.questions, values, dc.state),
                 questions: dc.questions.filter(function (v) { return v.q.section === s.id; }) };
         });
     }
@@ -1525,9 +1542,46 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return [info.fcText, info.heatSourceText].filter(function (x) { return !!x; }).join(' · ');
     }
 
+    /** 2.4.0: the URL of a step ('review' for the review). */
+    function stepUrl(ctx, dc, stepId, extra) {
+        return ctx.baseUrl + '&a=designinfo&opp=' + encodeURIComponent(dc.opp.id) + '&step=' + encodeURIComponent(stepId) +
+            (extra || '');
+    }
+
+    /** 2.4.0: the steps — the visible sections in registry order, each with its status and its URL. */
+    function designSteps(ctx, dc) {
+        return designSections(dc).map(function (sec) {
+            sec.href = stepUrl(ctx, dc, sec.id);
+            return sec;
+        });
+    }
+
+    /** 2.4.0: the first step still to do, else 'review'. */
+    function firstTodo(steps) {
+        var todo = steps.filter(function (x) { return x.status === 'todo'; })[0];
+        return todo ? todo.id : 'review';
+    }
+
+    /** 2.4.0: one question's value on Review — as the Task's snapshot reads it; "Given" for a Note-only answer sent. */
+    function reviewValue(dc, v) {
+        if (v.q.store === STORE.NOTE && v.q.type !== 'date' && v.q.type !== 'files') {
+            return dc.state.noted[v.q.qid] ? render.STEP_TEXT.GIVEN : '';
+        }
+        return snapshotValue(dc, v, dc.state, { posted: {} });
+    }
+
+    /**
+     * The design information page: one step (extra.step a visible section) or Review (anything else). extra: { step,
+     * values (posted, after a validation error), errors, notice, confirmation, more (qid -> file inputs) }.
+     */
     function renderDesignInfo(ctx, dc, extra) {
         var e = extra || {};
         var todayKey = dates.londonTodayKey(Date.now());
+        var steps;
+        var callKey = dc.rec.info.nextContactKey && dc.rec.info.nextContactKey >= todayKey ? dc.rec.info.nextContactKey : '';
+        var index = -1;
+        var cur;
+        var m;
         if (e.values) {
             dc.questions.forEach(function (v) {
                 if (e.values.hasOwnProperty(v.q.qid) && !v.readOnly) {
@@ -1537,34 +1591,119 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
                 }
             });
         }
-        return render.designInfoPage({
+        steps = designSteps(ctx, dc);
+        m = {
             logoUrl: ctx.cfg.LOGO_URL,
             recipient: dc.recipient,
             opp: { id: dc.opp.id, tranId: dc.rec.info.tranId || dc.opp.tranId, title: dc.rec.info.title || dc.opp.title,
                 siteAddress: dc.rec.info.siteAddress },
             project: { havingText: havingText(dc.rec.info), thermostatsText: dc.rec.info.thermostatsText, neoHub: dc.rec.info.neoHub,
-                serviceText: dc.rec.info.valuePropositionText,
-                callKey: dc.rec.info.nextContactKey && dc.rec.info.nextContactKey >= todayKey ? dc.rec.info.nextContactKey : '' },
+                serviceText: dc.rec.info.valuePropositionText, callKey: callKey },
             token: ctx.token,
             actionUrl: ctx.baseUrl,
             backUrl: ctx.baseUrl,
             mode: dc.mode,
-            sections: designSections(dc),
             errors: e.errors || {},
             notice: e.notice || '',
             confirmation: e.confirmation || null,
-            completeness: completenessOf(dc),
             maxFiles: ctx.cfg.DESIGNINFO_MAX_FILES,
-            accept: designinfo.ALLOWED_EXTENSIONS.map(function (x) { return '.' + x; }).join(','),
+            accept: designinfo.ALLOWED_EXTENSIONS.map(function (x) { return '.' + x; }).join(',') + ',image/*',
             uploadsEnabled: !!ctx.cfg.DESIGNINFO_FOLDER,
-            drawingsUrl: ctx.cfg.DESIGNINFO_DRAWINGS_URL
+            drawingsUrl: ctx.cfg.DESIGNINFO_DRAWINGS_URL,
+            steps: steps,
+            firstId: steps.length ? steps[0].id : '',
+            reviewHref: stepUrl(ctx, dc, 'review'),
+            callKey: callKey,
+            more: e.more || {}
+        };
+        steps.forEach(function (x, i) {
+            if (x.id === e.step) {
+                index = i;
+            }
         });
+        if (dc.mode !== 'edit' || index < 0) {
+            m.currentId = 'review';
+            m.todo = steps.filter(function (x) { return x.status === 'todo'; });
+            m.review = steps.map(function (x) {
+                // In question order; an unanswered row has value '' (Review shows "Not answered yet" in a todo step only).
+                var rows = [];
+                x.questions.forEach(function (v) {
+                    if (v.q.type !== 'info') {
+                        rows.push({ label: v.q.label, value: reviewValue(dc, v) });
+                    }
+                });
+                return { id: x.id, title: x.title, status: x.status, href: x.href, rows: rows };
+            });
+            return render.designInfoReview(m);
+        }
+        cur = steps[index];
+        m.currentId = cur.id;
+        m.step = { id: cur.id, title: cur.title, intro: cur.intro, minutes: cur.minutes, n: index + 1, questions: cur.questions,
+            prev: index > 0 ? { id: steps[index - 1].id, title: steps[index - 1].title } : null, last: index === steps.length - 1 };
+        return render.designInfoStep(m);
     }
 
-    /** GET ?a=designinfo&opp= */
-    function handleDesignInfoGet(ctx, oppId) {
-        var dc = designContext(ctx, oppId, onceLogger());
-        return dc.html || renderDesignInfo(ctx, dc);
+    /** 2.4.0: the step a validation failure shows: the posted one when it has an error, else the first with one. */
+    function errorStep(dc, sec, errors) {
+        var withError = dc.questions.filter(function (v) { return errors.hasOwnProperty(v.q.qid); }).map(function (v) {
+            return v.q.section;
+        });
+        return withError.length && withError.indexOf(sec) < 0 ? withError[0] : sec;
+    }
+
+    /** 2.4.0: the file inputs to show per files question (&more_<qid>=n, or the posted more_<qid>). */
+    function moreOf(params, dc) {
+        var more = {};
+        dc.questions.forEach(function (v) {
+            var n = parseInt((params || {})['more_' + v.q.qid], 10);
+            if (v.q.type === 'files' && n > 0) {
+                more[v.q.qid] = n;
+            }
+        });
+        return more;
+    }
+
+    /** 2.4.0: the whitelisted notice after a redirect (&saved=1, &w=files|uploads|partial). Nothing from the URL is shown. */
+    function noticeOf(params, dc) {
+        var w = String((params || {}).w || '');
+        var name = dc.recipient.name || 'us';
+        var lines = String((params || {}).saved || '') === '1' ? [render.STEP_TEXT.SAVED] : [];
+        if (w === 'files') {
+            lines.push(render.STEP_TEXT.W_FILES.replace('{name}', name));
+        } else if (w === 'uploads') {
+            lines.push(render.DESIGN_TEXT.UPLOADS_OFF);
+        } else if (w === 'partial') {
+            lines.push(render.STEP_TEXT.W_PARTIAL.replace('{name}', name));
+        }
+        return lines.length ? { lines: lines } : null;
+    }
+
+    /** GET ?a=designinfo&opp=[&step=] (2.4.0: the stepper's routing). */
+    function handleDesignInfoGet(ctx, params) {
+        var dc = designContext(ctx, params.opp, onceLogger());
+        var steps;
+        var step = String(params.step || '');
+        var ids;
+        if (dc.html) {
+            return dc.html;
+        }
+        // View mode: Review is the page; a step's URL goes to it.
+        if (dc.mode !== 'edit') {
+            if (step && step !== 'review') {
+                return { redirect: stepUrl(ctx, dc, 'review') };
+            }
+            return renderDesignInfo(ctx, dc, { step: 'review' });
+        }
+        steps = designSteps(ctx, dc);
+        ids = steps.map(function (x) { return x.id; });
+        if (!step) {
+            step = firstTodo(steps);
+        } else if (step !== 'review' && ids.indexOf(step) < 0) {
+            log.debug({ title: title('DESIGNINFO_STEP_UNKNOWN'), details: 'Opportunity ' + dc.opp.id + ': step "' + step +
+                '" is unknown or hidden; the first step is shown' });
+            step = ids[0] || 'review';
+        }
+        return renderDesignInfo(ctx, dc, { step: step, more: moreOf(params, dc), confirmation: noticeOf(params, dc) });
     }
 
     /**
@@ -1750,6 +1889,42 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         return out;
     }
 
+    /**
+     * 2.4.0: where a save (not a Send) goes: nav=exit -> the dashboard; goto=<step|review> -> there; more=<qid> -> the
+     * same step with one more file input; nav=back -> the previous step; nav=next -> the next step, or Review after the
+     * last; nav=stay (or nothing) -> the same step. Then &saved=1, and &w= for a warning.
+     */
+    function afterSave(ctx, dc, params, sec, warn) {
+        var steps = designSteps(ctx, dc);
+        var ids = steps.map(function (x) { return x.id; });
+        var nav = String(params.nav || '');
+        var go = String(params.goto || '');
+        var more = String(params.more || '');
+        var i = ids.indexOf(sec);
+        var target = i >= 0 ? sec : (ids[0] || 'review');
+        var extra = '';
+        var q;
+        var n;
+        if (nav === 'exit') {
+            return ctx.baseUrl;
+        }
+        if (go && (go === 'review' || ids.indexOf(go) >= 0)) {
+            target = go;
+        } else if (more) {
+            q = dc.questions.filter(function (v) { return v.q.qid === more && v.q.type === 'files' && v.q.section === sec; })[0];
+            if (q) {
+                n = parseInt(params['more_' + more], 10);
+                n = Math.min((n > 0 ? n : 1) + 1, Math.max(1, ctx.cfg.DESIGNINFO_MAX_FILES - 1));
+                extra = '&more_' + encodeURIComponent(more) + '=' + n;
+            }
+        } else if (nav === 'back') {
+            target = i > 0 ? ids[i - 1] : target;
+        } else if (nav === 'next') {
+            target = i >= 0 && i < ids.length - 1 ? ids[i + 1] : 'review';
+        }
+        return stepUrl(ctx, dc, target, extra + '&saved=1' + (warn ? '&w=' + warn : ''));
+    }
+
     /** POST a=designinfo */
     function handleDesignInfoPost(ctx, params, files) {
         var once = onceLogger();
@@ -1766,7 +1941,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         var ch;
         var sectionIds;
         var touched = [];
-        var sec = String(params.sec || '');
+        var sec = String(params.step || '');
         var valuesNow;
         var hasFiles = false;
         var fileResults = [];
@@ -1794,7 +1969,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (dc.mode !== 'edit') {
             log.audit({ title: title('DESIGNINFO_REFUSED'), details: 'Customer ' + ctx.customer.id + ', opportunity ' + dc.opp.id +
                 ': a post in view mode (the design is under way); nothing written' });
-            return renderDesignInfo(ctx, dc, { notice: render.DESIGN_TEXT.VIEW_BANNER });
+            return renderDesignInfo(ctx, dc, { step: 'review', notice: render.DESIGN_TEXT.VIEW_BANNER });
         }
 
         // Validate everything first: any error re-renders the page and NOTHING is written.
@@ -1810,7 +1985,9 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         if (!check.ok) {
             log.audit({ title: title('DESIGNINFO_REJECTED'), details: clip('Customer ' + ctx.customer.id + ', opportunity ' +
                 dc.opp.id + ': ' + JSON.stringify(check.errors)) });
-            return renderDesignInfo(ctx, dc, { values: check.values, errors: check.errors });
+            // 2.4.0: the posted step again, with its errors; if every error is on another step (a crafted post), that step.
+            return renderDesignInfo(ctx, dc, { step: errorStep(dc, sec, check.errors), values: check.values, errors: check.errors,
+                more: moreOf(params, dc) });
         }
 
         ch = designChanges(dc, check.values);
@@ -1981,6 +2158,10 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             newFiles.length + (filesRefused ? ' (refused: no folder)' : '') + '; send ' + (send ? (taskFailed ? 'FAILED' :
             'yes, Task ' + taskId) : 'no') + '; note ' + (noteFailed ? 'FAILED' : 'created') + ' (v' + VERSION + ')') });
 
+        if (!send) {
+            return { redirect: afterSave(ctx, dc, params, sec, fileResults.some(function (r) { return !r.entry; }) ? 'files' :
+                filesRefused ? 'uploads' : failures.length ? 'partial' : '') };
+        }
         lines = send && !taskFailed ? [render.DESIGN_TEXT.SENT.replace('{name}', dc.recipient.name || 'your Project Engineer'),
             dc.recipient.firstName ? render.DESIGN_TEXT.SENT_NEXT.replace('{first}', dc.recipient.firstName) :
                 render.DESIGN_TEXT.SENT_NEXT_NO_NAME] :
@@ -2002,7 +2183,7 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
         }
         // The page again, from what is now stored (the uploads listed, the noted marks, the answers).
         dc.questions = dc.questions.map(function (v) { return questionView(dc, v.q); });
-        return renderDesignInfo(ctx, dc, { confirmation: { lines: lines } });
+        return renderDesignInfo(ctx, dc, { step: 'review', confirmation: { lines: lines } });
     }
 
     /** "dd/mm/yyyy HH:mm" (London) of a stored time, '' for none. */
@@ -2131,9 +2312,14 @@ define(['N/record', 'N/runtime', 'N/log', './lib/cdb_lib_config', './lib/cdb_lib
             } else if (action === 'designinfo' && request.method === 'POST') {
                 html = handleDesignInfoPost(ctx, params, request.files || {});
             } else if (action === 'designinfo') {
-                html = handleDesignInfoGet(ctx, params.opp);
+                html = handleDesignInfoGet(ctx, params);
             } else {
                 html = renderDashboard(ctx);
+            }
+            if (html && html.redirect) {
+                // 2.4.0: after a stepper save, and a step URL in view mode (a 302: N/redirect has no 303).
+                redirect.redirect({ url: html.redirect });
+                return;
             }
             send(context.response, html);
         } catch (e) {
