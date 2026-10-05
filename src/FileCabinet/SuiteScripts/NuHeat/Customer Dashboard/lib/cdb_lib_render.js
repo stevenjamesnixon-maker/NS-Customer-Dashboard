@@ -70,17 +70,20 @@
  * Add another file" (a submit; with script, the next hidden input), "Take a photo" on a phone. The registry's
  * placeholder goes in the box. Phone layout: max-width 600px, CSS only. page() takes headerExtra (empty elsewhere).
  *
+ * 2.4.1 (2.3b amendment 1): Review's header link reads "Back to your projects" (STEP_TEXT.EXIT_REVIEW): Review has
+ * nothing to save. The step pages keep Save and exit.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.4.0
+ * @version 2.4.1
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.4.0';
+    var VERSION = '2.4.1';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -2736,6 +2739,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NEXT: 'Save and continue →',
         NEXT_LAST: 'Review and send →',
         SAVE_EXIT: 'Save and exit',
+        EXIT_REVIEW: 'Back to your projects',
         STUCK: 'Stuck on anything? It’s fine to skip it.',
         STUCK_CALL: '{first} will go through it on your design call on {date}.',
         STUCK_NO_DATE: '{first} will go through it on your design call.',
@@ -3077,7 +3081,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
         return page({ title: t.REVIEW_TITLE + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design',
             width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss(),
-            headerExtra: view ? '' : '<a class="out" href="' + esc(m.backUrl) + '">' + esc(STEP_TEXT.SAVE_EXIT) + '</a>' });
+            headerExtra: view ? '' : '<a class="out" href="' + esc(m.backUrl) + '">' + esc(STEP_TEXT.EXIT_REVIEW) + '</a>' });
     }
 
     /**

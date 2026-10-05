@@ -184,7 +184,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.4.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
+| Dashboard Suitelet | 2.4.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
 | Digest Map/Reduce | 2.1.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
 | Send design information Suitelet (2.3) | 1.0.2 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page, then the *Tell us about your property* email | New |
@@ -198,7 +198,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
 | Data library | 2.3.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
 | Design information library (2.3) | 1.1.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header), the facts, `when`, visibility, progress, the state JSON, upload names | New |
-| Render library | 2.4.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Render library | 2.4.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
 | Task library | 1.5.2 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
 | Question registry (2.3) | 2 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
@@ -746,11 +746,12 @@ not settings.
 `NEWBUILD_MARKET_IDS` → new build. Unknowns are explicit values, and each is a warning in the Task, as is an HP Design
 without a Nu-Heat heat pump (or the reverse).
 
-**The page — a stepper (release 2.3b; dashboard 2.4.0, render 2.4.0).** One step per screen: the **visible sections in
+**The page — a stepper (release 2.3b; dashboard 2.4.1, render 2.4.1).** One step per screen: the **visible sections in
 registry order**, then **Review**. Every step is a full page that works without JavaScript.
 
 - **Header:** *Design questions? Call [PE or AM] on [phone]* (§5.3: the PE for a PE value proposition with a PE, else
-  the rep, else `FALLBACK_EMPLOYEE`) and **Save and exit** (on Review, a link to the dashboard).
+  the rep, else `FALLBACK_EMPLOYEE`) and **Save and exit** (a submit that saves). Review has nothing to save, so its
+  header link reads **Back to your projects** (2.4.1).
 - **Step bar:** a numbered stop per step, then Review; a tick for a done step; the current stop filled. On a step page the
   stops are submit buttons (`form="diform" name="goto" value="<step>"`), so jumping saves first; on Review they are
   links. On a phone only the circles show, with the current step's title above.
@@ -788,6 +789,12 @@ adds one of: `nav=next | back | exit | stay`, `goto=<step id | review>`, `more=<
 | `goto=<id>` | that step or Review (an unknown value: the same step) |
 | `more=<qid>` | the same step with `&more_<qid>=` one more, at most `DESIGNINFO_MAX_FILES − 1` |
 | `send=1` | no redirect: today's Send (the Task), then Review with the confirmation |
+
+**A navigation with nothing changed writes nothing (2.4.1).** When a post (not a Send) has no change — no field, no
+Note-only answer, no state answer — and no file, nothing is written: no fields, no state, no Note. A
+`CDB DESIGNINFO_NO_CHANGE` debug line is logged and the redirect is as in the table, without `&saved=1`, so *Saved.* does
+not show. A tick box whose stored value is empty posts *No* on a step's first visit, which counts as a change: the first
+visit to such a step writes once. A Send always writes the state (`sent`), the Note and the Task.
 
 A **validation error** re-renders the step with the errors and the answers and **writes nothing**, with no redirect;
 if every error is on another step (only a crafted post can do that), that step is shown. `redirect.redirect()` answers
@@ -1790,6 +1797,9 @@ Every title starts `CDB `.
 | `CDB DESIGNINFO_NO_BUTTON` (2.3) | debug | Why the opportunity shows no *Request design information* button | — |
 | `CDB DESIGNINFO_TASK_CLIPPED` (2.3.1) | audit | The DESIGN INFO Task's snapshot was clipped at 3,900 | — (the Notes hold every change; the record holds every answer) |
 | `CDB DESIGNINFO_STATE_TRIMMED` (2.3.1; 2.3.2) | audit | The state was over 3,500 characters; it kept only its last 5 files (older ones stay on the opportunity and in the Notes) | — |
+| `CDB DESIGNINFO_STATE_QID_UNKNOWN` (2.4.0) | audit | The state holds answers under qids the registry no longer has (the v2 registry removed some); they are ignored, once per request | — |
+| `CDB DESIGNINFO_STEP_UNKNOWN` (2.4.0) | debug | A `&step=` that is unknown or hidden for this project; the first step is shown | — |
+| `CDB DESIGNINFO_NO_CHANGE` (2.4.1) | debug | A navigation post with no change and no file: nothing written | — |
 | `CDB DESIGNINFO_WRITE_RETRY` (2.3.1) | audit | The one write of the fields and the state failed; the fields were retried alone | Read the details |
 
 ---
@@ -1967,17 +1977,34 @@ In order. Nothing changes for customers at any step.
    old link shows the invalid page.
 7. **Then Online-quote part B** can be deployed.
 
-### 8.9b Release 2.3b: the stepper (after 8.9)
+### 8.9b Release 2.3b: the stepper (after 8.9; with amendment 1)
 
-1. Upload `content/design-info-registry.csv` (registry v2, 16 columns) over the old one in `SuiteScripts/NuHeat/
-   Customer Dashboard Content/`. The 2.3 code reads a v2 file too (it ignores unknown columns), so the order is not
-   critical, but upload the code straight after: answers saved under removed qids (`fc_unknown`, `overfloor`,
-   `acoustic`, `mcs_*`, `rad_area`, `hp_files`) are ignored and logged once per request
-   (`CDB DESIGNINFO_STATE_QID_UNKNOWN`); they remain in the Notes.
-2. Upload, overwriting: `lib/cdb_lib_designinfo.js` (1.1.0), `lib/cdb_lib_render.js` (2.4.0), then `cdb_sl_dashboard.js`
-   (2.4.0). Nothing else changes (config, data, task, the User Event, the request Suitelet, the digest).
+1. Upload `content/design-info-registry.csv` (v2, 16 columns) over the existing file in `SuiteScripts/NuHeat/Customer
+   Dashboard Content/`. The 2.3 code still runs on a v2 file (unknown columns are ignored), so the order is not
+   critical, but upload the code straight after.
+2. Upload, overwriting, in this order: `lib/cdb_lib_designinfo.js` 1.1.0 → `lib/cdb_lib_render.js` 2.4.1 →
+   `cdb_sl_dashboard.js` 2.4.1. Config, data, task, the User Event, the send Suitelet and the digest are unchanged.
 3. No new settings, fields or deployments.
-4. Test on a phone (the step bar, Take a photo, Save and continue) and on a desktop without JavaScript.
+4. Expect one `CDB DESIGNINFO_STATE_QID_UNKNOWN` line per request (an **audit** line, through the once-per-request
+   logger) on opportunities that saved answers under the removed 2.3 qids (`fc_unknown`, `overfloor`, `acoustic`,
+   `mcs_*`, `rad_area`, `hp_files`). Those answers stay in the Notes; they are simply not shown.
+
+**Tests in Production** (the 2.3 test opportunity):
+
+1. Open the request link: it lands on the first step still to do (or Review if everything is done).
+2. Press Save and continue on an untouched step: the next step shows, no new Note on the opportunity.
+3. Change one answer, press Save and continue: *Saved.* shows, one Note, the field updated.
+4. Press a later stop in the step bar after typing: the typed answer is saved first.
+5. Press Save and exit mid-step: back on the dashboard; reopen and the answer is there.
+6. Plans step: + Add another file reveals a second input (with JavaScript) or reloads with two (without). The photo
+   button appears only on a phone.
+7. Review: every step listed with its chip; Edit opens that step; Send to [first name] creates the Task; the page returns
+   to Review with the confirmation.
+8. A phone (390 px): no horizontal scroll on a step, step 1 and Review; the step titles collapse to circles with the
+   current title above.
+9. UFH Design opportunity (VP 1): only Your project, Your plans, Heating and controls, Anything else, Review. HP Design
+   with a Nu-Heat heat pump: six steps plus Review.
+10. Set the opportunity to a DESIGN sub-status and open a step URL: it redirects to Review, read-only, with no Send.
 
 ### 8.9 Release 2.3: Tell us about your property (after part A)
 
@@ -2060,10 +2087,11 @@ step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`t
 rules, the deny-list, the facts, `when`, visibility, progress and the state; the page, the guard, view mode, each
 write rule, files, the Note, the Task, the card states on the dashboard and in the digest, the request button and the
 request Suitelet and its email.
-2.3b (`test/stepper-registry.test.js`, the *2.4.0* tests at the end of `test/r2-3.test.js`): both registry headers, the
+2.3b (`test/stepper-registry.test.js`, the *2.4.0* and *2.4.1* tests at the end of `test/r2-3.test.js`): both registry headers, the
 step columns, the committed v2 file (0 rejected, 45 qids), `unknownStateQids`, the visible-section table; routing,
 `&step=` valid, hidden and unknown, every POST navigation and its redirect, the validation re-render, Review's values
-and flags, Send, view mode, the file control and its cap, the phone CSS, Enter, old qids and the Note and Task titles.
+and flags, Send, view mode, the file control and its cap, the phone CSS, Enter, old qids and the Note and Task titles;
+2.4.1: a navigation with nothing changed writes nothing (next, back, exit, goto, more), Send still writes, Review's header.
 Part A (`test/link.test.js`): `linkMatches` (right, wrong customer, wrong version, empty and malformed, extra
 parameters, no crypto); the customer User Event (a match writes nothing, an empty link written once with only
 `custentity_cdb_link`, a version bump, a copied customer, inactive, xedit's one lookup, delete/view ignored,

@@ -120,12 +120,15 @@
  * The redirect is redirect.redirect() (a 302, which the browser follows with a GET: the effect of the brief's 303).
  * Nothing in what is written changes.
  *
+ * 2.4.1 (2.3b amendment 1): a navigation post (not a Send) with no change and no file writes nothing — no fields, no
+ * state, no Note — logs CDB DESIGNINFO_NO_CHANGE (debug) and redirects without &saved=1.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.4.0
+ * @version 2.4.1
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -134,7 +137,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.4.0';
+    var VERSION = '2.4.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1892,9 +1895,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
     /**
      * 2.4.0: where a save (not a Send) goes: nav=exit -> the dashboard; goto=<step|review> -> there; more=<qid> -> the
      * same step with one more file input; nav=back -> the previous step; nav=next -> the next step, or Review after the
-     * last; nav=stay (or nothing) -> the same step. Then &saved=1, and &w= for a warning.
+     * last; nav=stay (or nothing) -> the same step. Then &saved=1 (unless saved is false: 2.4.1, nothing was written),
+     * and &w= for a warning.
      */
-    function afterSave(ctx, dc, params, sec, warn) {
+    function afterSave(ctx, dc, params, sec, warn, saved) {
         var steps = designSteps(ctx, dc);
         var ids = steps.map(function (x) { return x.id; });
         var nav = String(params.nav || '');
@@ -1922,7 +1926,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         } else if (nav === 'next') {
             target = i >= 0 && i < ids.length - 1 ? ids[i + 1] : 'review';
         }
-        return stepUrl(ctx, dc, target, extra + '&saved=1' + (warn ? '&w=' + warn : ''));
+        return stepUrl(ctx, dc, target, extra + (saved === false ? '' : '&saved=1') + (warn ? '&w=' + warn : ''));
     }
 
     /** POST a=designinfo */
@@ -2001,6 +2005,14 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             hasFiles = false;
             log.audit({ title: title('DESIGNINFO_NO_FOLDER'), details: 'Opportunity ' + dc.opp.id + ': setting DESIGNINFO_FOLDER ' +
                 'is empty, so the files posted were refused; the answers were saved' });
+        }
+
+        // 2.4.1 (amendment 1): a navigation with nothing changed, no file and no Send writes nothing — no fields, no
+        // state, no Note — and redirects without &saved=1.
+        if (!ch.items.length && !hasFiles && !filesRefused && !send) {
+            log.debug({ title: title('DESIGNINFO_NO_CHANGE'), details: 'Opportunity ' + dc.opp.id + ': step ' + sec +
+                ', nothing changed; nothing written' });
+            return { redirect: afterSave(ctx, dc, params, sec, '', false) };
         }
 
         // The sections this post saves: the one pressed, every one with a change or a file; Send saves them all.

@@ -321,12 +321,12 @@ test('save: only changed non-empty fields, ONE submitFields with the state; blan
         'send no') > 0);
 });
 
-test('save: posting nothing new writes the state only, and the Note still records the save', function () {
+test('save (2.4.1): posting nothing new writes nothing — no state, no Note — and does not say Saved', function () {
     var t = setup();
     post(t, { step: 'plans', q_ceilings: 'All 2.4 m' });
-    assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
-    assert.strictEqual(t.w.notes.length, 1);
-    assert.ok(t.w.notes[0].values.note.indexOf('Sections saved: Your plans') === 0);
+    nothingWritten(t, 'nothing new');
+    assert.ok(/&step=plans$/.test(t.redirect), t.redirect);
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_NO_CHANGE').length, 1);
 });
 
 test('choice @field writes the option ID; one outside UPD_BUILD_STAGES or not offered is rejected, nothing written', function () {
@@ -1005,16 +1005,21 @@ test('A2. yesno on a CHECKBOX: unticked reads back as "no"; "no" over a ticked b
     var v = setup({ registry: reg });
     v.w.opps[20].custbody28 = false;
     post(v, { step: 'heating', q_through_walls: 'no' });
-    assert.deepStrictEqual(Object.keys(oppWrites(v.w)[0].values), ['custbody_cdb_designinfo_state'], '"no" over "no": no change');
-    assert.strictEqual(v.w.notes[0].values.note.indexOf('Through walls'), -1);
+    nothingWritten(v, '"no" over "no": no change (2.4.1: nothing written)');
 });
 
 test('A2. a question hidden by its `when`, posted anyway, is ignored: no write, no Note line', function () {
     var t = setup();
     post(t, { step: 'heating', q_heat_boiler: 'Combi in the kitchen', q_walls_new: 'Timber frame', q_overfloor: 'Old floor' });
-    assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state']);
+    // 2.4.1: hidden answers are not changes, so nothing at all is written.
+    nothingWritten(t, 'hidden answers only');
+    assert.strictEqual(t.w.opps[20].custbody_cdb_designinfo_state, '');
+    // With a real change beside them, the hidden ones are still left out.
+    post(t, { step: 'heating', q_manifolds: 'Utility', q_heat_boiler: 'Combi in the kitchen', q_walls_new: 'Timber frame' });
+    assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values).sort(), ['custbody_cdb_designinfo_state',
+        'custbody_manifold_locations_2026']);
     var note = t.w.notes[0].values.note;
-    ['Combi in the kitchen', 'Timber frame', 'Old floor'].forEach(function (x) { assert.strictEqual(note.indexOf(x), -1, x); });
+    ['Combi in the kitchen', 'Timber frame'].forEach(function (x) { assert.strictEqual(note.indexOf(x), -1, x); });
     var st = state(t.w);
     assert.strictEqual(st.noted.heat_boiler, undefined);
     assert.deepStrictEqual(st.answers, {});
@@ -1056,7 +1061,7 @@ test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed
     assert.strictEqual(html.indexOf('name="q_windows"'), -1);
     assert.ok(html.indexOf('(we’ll cover this on your call)') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH')[0][2].indexOf('windows (custbody_elevations_window_sizes_2026 is RICHTEXT)') > 0);
-    post(t, { step: 'plans', q_windows: '<img src=x onerror=alert(1)>' });
+    post(t, { step: 'plans', q_windows: '<img src=x onerror=alert(1)>', q_unheated: 'Garage' });
     oppWrites(t.w).forEach(function (o) {
         assert.strictEqual(o.values.hasOwnProperty('custbody_elevations_window_sizes_2026'), false);
     });
@@ -1283,22 +1288,76 @@ test('2.4.0 POST: nav=next, back, exit, stay, goto and the last step\'s next —
     assert.strictEqual(stepOf(u), 'insulation');
     assert.ok(/&saved=1$/.test(u));
     assert.strictEqual(state(t.w).answers.plans_current, 'yes', 'saved before the redirect');
-    assert.strictEqual(t.w.notes.length, 1, 'a Note per save');
+    assert.strictEqual(oppWrites(t.w).length, 1, 'one write');
+    assert.strictEqual(t.w.notes.length, 1, 'one Note');
     u = postNav(t, { step: 'insulation', nav: 'back', q_year: '1990' });
     assert.strictEqual(stepOf(u), 'plans', 'back: the previous step');
+    assert.ok(/&saved=1$/.test(u));
     assert.strictEqual(oppWrites(t.w).slice(-1)[0].values.custbody15, '1990', 'back saves first');
-    assert.strictEqual(stepOf(postNav(t, { step: 'project', nav: 'back' })), 'project', 'back on step 1: stays');
-    assert.strictEqual(stepOf(postNav(t, { step: 'heating', nav: 'stay' })), 'heating');
-    assert.strictEqual(stepOf(postNav(t, { step: 'heating' })), 'heating', 'no nav: stay');
-    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'heatpump' })), 'heatpump', 'the step bar');
-    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'review' })), 'review');
-    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'nonsense' })), 'plans', 'an unknown goto: stay');
-    assert.strictEqual(stepOf(postNav(t, { step: 'other', nav: 'next' })), 'review', 'the last step\'s next: Review');
+    u = postNav(t, { step: 'plans', goto: 'heatpump', q_unheated: 'Garage' });
+    assert.strictEqual(stepOf(u), 'heatpump', 'the step bar saves first');
+    assert.strictEqual(t.w.opps[20].custbody_unheated_areas, 'Garage');
     u = postNav(t, { step: 'plans', nav: 'exit', q_windows: 'Bifolds' });
     assert.strictEqual(u, 'https://acct.extforms.netsuite.com/sl?t=' + t.tok, 'exit: the dashboard');
     assert.strictEqual(t.w.opps[20].custbody_elevations_window_sizes_2026, 'Bifolds', 'exit saves first');
+    assert.strictEqual(t.w.notes.length, 4);
     assert.strictEqual(t.w.tasks.length, 0, 'no Task without Send');
-    assert.strictEqual(t.w.notes.length, 10);
+    // Where each one goes (nothing changed on these: 2.4.1 writes nothing for them).
+    assert.strictEqual(stepOf(postNav(t, { step: 'project', nav: 'back' })), 'project', 'back on step 1: stays');
+    assert.strictEqual(stepOf(postNav(t, { step: 'heating', nav: 'stay' })), 'heating');
+    assert.strictEqual(stepOf(postNav(t, { step: 'heating' })), 'heating', 'no nav: stay');
+    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'review' })), 'review');
+    assert.strictEqual(stepOf(postNav(t, { step: 'plans', goto: 'nonsense' })), 'plans', 'an unknown goto: stay');
+    assert.strictEqual(stepOf(postNav(t, { step: 'other', nav: 'next' })), 'review', 'the last step\'s next: Review');
+    assert.strictEqual(t.w.notes.length, 4, 'no Note for those');
+});
+
+test('2.4.1 a navigation with nothing changed writes nothing: next, back, exit, goto, more — no saved=1, one debug line', function () {
+    [
+        [{ nav: 'next' }, /&step=insulation$/],
+        [{ nav: 'back' }, /&step=project$/],
+        [{ nav: 'exit' }, /\?t=[^&]+$/],
+        [{ goto: 'review' }, /&step=review$/],
+        [{ more: 'plans_files', more_plans_files: '1' }, /&step=plans&more_plans_files=2$/]
+    ].forEach(function (c) {
+        var t = setup();
+        var p = { step: 'plans', q_ceilings: 'All 2.4 m', q_windows: '', q_plans_current: '' };
+        Object.keys(c[0]).forEach(function (k) { p[k] = c[0][k]; });
+        var u = postNav(t, p);
+        var why = JSON.stringify(c[0]);
+        assert.ok(c[1].test(u), why + ' ' + u);
+        assert.strictEqual(u.indexOf('saved=1'), -1, why + ': nothing was saved');
+        nothingWritten(t, why);
+        assert.strictEqual(t.w.opps[20].custbody_cdb_designinfo_state, '', why + ': no state write');
+        var l = logs(t.w, 'DESIGNINFO_NO_CHANGE');
+        assert.strictEqual(l.length, 1, why);
+        assert.strictEqual(l[0][0], 'debug');
+        assert.strictEqual(l[0][2], 'Opportunity 20: step plans, nothing changed; nothing written');
+        assert.strictEqual(follow(t).indexOf('<div class="donep"'), -1, why + ': no Saved.');
+    });
+});
+
+test('2.4.1 Send with nothing changed since the last save still writes the state, the Note and the Task', function () {
+    var t = setup();
+    postNav(t, { step: 'plans', nav: 'next', q_plans_current: 'yes' });
+    var writes = oppWrites(t.w).length;
+    post(t, { step: 'review', send: '1' });
+    assert.strictEqual(oppWrites(t.w).length, writes + 1, 'the state (sent)');
+    assert.ok(state(t.w).sent, 'sent');
+    assert.strictEqual(t.w.notes.length, 2);
+    assert.strictEqual(t.w.tasks.length, 1);
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_NO_CHANGE').length, 0);
+});
+
+test('2.4.1 the header: Review says Back to your projects; a step page keeps Save and exit', function () {
+    var review = getStep(setup(), 'review');
+    var head = review.slice(review.indexOf('<header'), review.indexOf('</header>'));
+    assert.ok(head.indexOf('>Back to your projects</a>') > 0, head);
+    assert.strictEqual(review.indexOf('Save and exit'), -1);
+    var step = getStep(setup(), 'plans');
+    head = step.slice(step.indexOf('<header'), step.indexOf('</header>'));
+    assert.ok(head.indexOf('name="nav" value="exit">Save and exit</button>') > 0);
+    assert.strictEqual(head.indexOf('Back to your projects'), -1);
 });
 
 test('2.4.0 Review: values, files by name, Yes/No, clipped at 200, "Given", chips, "Not answered yet" in todo steps only', function () {
@@ -1362,10 +1421,10 @@ test('2.4.0 the file control: one input, "+ Add another file" up to the cap, a p
     assert.ok(block.indexOf('>Take a photo</label>') > 0);
     // Without JavaScript: "+ Add another file" saves, then shows one more input.
     var u = postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '1' });
-    assert.ok(/&step=plans&more_plans_files=2&saved=1$/.test(u), u);
-    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '4' })));
-    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '5' })), 'capped');
-    assert.ok(/&more_plans_files=5&/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '99' })), 'capped');
+    assert.ok(/&step=plans&more_plans_files=2$/.test(u), u); // 2.4.1: nothing changed, no saved=1
+    assert.ok(/&more_plans_files=5$/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '4' })));
+    assert.ok(/&more_plans_files=5$/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '5' })), 'capped');
+    assert.ok(/&more_plans_files=5$/.test(postNav(t, { step: 'plans', more: 'plans_files', more_plans_files: '99' })), 'capped');
     assert.ok(!/more_/.test(postNav(t, { step: 'plans', more: 'heat_boiler' })), 'not a files question on this step: ignored');
     html = run(t, 'GET', query(t.redirect.replace(/&step=plans/, '&step=plans&more_plans_files=3')));
     block = html.slice(html.indexOf('id="q-plans_files"'), html.indexOf('id="q-bigfiles"'));
@@ -1408,7 +1467,7 @@ test('2.4.0 old qids in the state are ignored, logged once per request (DESIGNIN
     var l = logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN');
     assert.strictEqual(l.length, 1);
     assert.ok(l[0][2].indexOf('mcs_reflect') > 0 && l[0][2].indexOf('mcs_position') > 0, l[0][2]);
-    postNav(t, { step: 'plans', nav: 'next' });
+    postNav(t, { step: 'plans', nav: 'next', q_unheated: 'Garage' });
     assert.strictEqual(logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN').length, 2, 'once for the GET, once for the POST');
     assert.strictEqual(t.w.notes[0].values.note.indexOf('mcs_'), -1, 'never in the Note');
 });
