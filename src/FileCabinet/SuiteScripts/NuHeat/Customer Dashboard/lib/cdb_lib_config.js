@@ -60,13 +60,31 @@
  * the record-only key LINK_BACKFILL_SCOPE (OPEN | ALL, LINK_SCOPES; empty or invalid: OPEN), read by the
  * backfill only, with the "open" keys its OPEN search needs.
  *
- * @version 3.3.0
+ * 3.4.0 (release 2.3, "Tell us about your property", 2 Oct 2026): the design information page and its request.
+ *   - SCRIPTS: the opportunity User Event (the "Request design information" button) and the internal Send design
+ *     information Suitelet; both read the settings record only (no PARAMETER_COLUMNS entry).
+ *   - FIELDS.OPPORTUNITY: the Sales MI fields the facts read, custbody_next_contact (the design call date), the
+ *     state field custbody_cdb_designinfo_state and the Project Specification fields the registry may write. The
+ *     registry's allow-list is EVERY value of FIELDS.OPPORTUNITY (designInfoAllowList()), less DESIGNINFO_DENY.
+ *   - DESIGNINFO_DENY: never written from the page, whatever the registry says — custbody_opp_del_date (after Won
+ *     the sync copies it onto the sales orders' ship dates; amendment 1 §1), the sub-status, the Sales MI
+ *     fields, custbody_cad_des_contact, and the fields the dashboard or staff own.
+ *   - ten record-only keys (DESIGNINFO_*, FC_MAP, HEAT_MAP, VP_MAP, NEWBUILD_MARKET_IDS, NOTE_TYPE,
+ *     DESIGN_EMAIL_ADDRESS) and SCRIPT_KEYS for each script that reads them; DESIGNINFO_EMAIL's defaults; the
+ *     opportunity banner whitelist.
+ *
+ * 3.4.1 (amendment 2): SCRIPT_KEYS[SEND_DESIGNINFO] adds DESIGN_SUBSTATUS, which the facts read; every list holds every
+ * key its script reads, and a node test fails the suite on a key read but not listed.
+ *
+ * 3.4.2 (amendment 3): FIELDS.OPPORTUNITY.DESIGNINFO_STATE is a Text Area (comment only; the ID is unchanged).
+ *
+ * @version 3.4.2
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.3.0';
+    var VERSION = '3.4.2';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -86,7 +104,13 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         CUSTOMER_UE: 'customscript_cdb_ue_customer',
         CUSTOMER_UE_DEPLOYMENT: 'customdeploy_cdb_ue_customer',
         LINK_BACKFILL: 'customscript_cdb_mr_link_backfill',
-        LINK_BACKFILL_DEPLOYMENT: 'customdeploy_cdb_mr_link_backfill'
+        LINK_BACKFILL_DEPLOYMENT: 'customdeploy_cdb_mr_link_backfill',
+        // 3.4.0 (release 2.3): the opportunity's "Request design information" button and the internal Suitelet
+        // behind it. Both read the settings record only.
+        OPP_UE: 'customscript_cdb_ue_opportunity',
+        OPP_UE_DEPLOYMENT: 'customdeploy_cdb_ue_opportunity',
+        SEND_DESIGNINFO: 'customscript_cdb_sl_send_designinfo',
+        SEND_DESIGNINFO_DEPLOYMENT: 'customdeploy_cdb_sl_send_designinfo'
     };
 
     /**
@@ -151,7 +175,61 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             TITLE: 'title',
             // 3.2: the customer-added delivery address (Text Area; Steve creates it). OPTIONAL: written
             // only when getField() finds it on the loaded opportunity; missing, the booking still works.
-            DELIVERY_ADDRESS: 'custbody_cdb_delivery_address'
+            DELIVERY_ADDRESS: 'custbody_cdb_delivery_address',
+
+            // 3.4.0 (release 2.3). NONE of these may be added to getOpportunities()' search columns: they are read
+            // by record.load inside the design information flow, by guardDesignInfo()'s lookupFields, the opportunity
+            // User Event's own record, the Send design information Suitelet's lookup, and the fail-safe extras
+            // search getOpportunityExtras() (the first five only). Types are discovered at run time.
+            // The facts' sources (Sales MI) and the design call date. Read only; in DESIGNINFO_DENY.
+            FC: 'custbody_mi_opp_fc',
+            HEAT_SOURCE: 'custbody_mi_heat_source',
+            MARKET: 'custbody_mis_opp_market',
+            NEXT_CONTACT: 'custbody_next_contact',
+            // 3.4.2 (amendment 3): TEXT AREA (4,000 characters), hidden, Store Value on (Steve creates it): the page's JSON
+            // state, version 2, compact (cdb_lib_designinfo.parseState). It is a search column (getOpportunityExtras) and a
+            // lookupFields column (designInfoRequest), which the first, Long Text, field failed in Production. Written only
+            // by the dashboard and (requested) the Send design information Suitelet.
+            DESIGNINFO_STATE: 'custbody_cdb_designinfo_state',
+            // The Project Specification tab.
+            DES_CONT_PHONE: 'custbody_des_cont_phone',
+            // The design contact as a Contact record. NOT written in 2.3 (Contact creation is deferred): kept here so
+            // the deny-list can name it.
+            CAD_DES_CONTACT: 'custbody_cad_des_contact',
+            HEAT_SOURCE_TYPE: 'custbody_heat_source_type_26',
+            MANIFOLD_LOCATIONS: 'custbody_manifold_locations_2026',
+            THERMOSTATS: 'custbody16',
+            NEO_HUB: 'custbody_on_hub_tick',
+            JOISTS: 'custbody24',
+            PIPES_THROUGH_WALLS: 'custbody28',
+            SPEC_20: 'custbody20',
+            NEW_WALLS: 'custbody_new_walls_2026',
+            NEW_WINDOWS: 'custbody_new_windows_2026',
+            NEW_ROOFS: 'custbody_new_roofs_2026',
+            NEW_FLOORS: 'custbody_new_floors_2026',
+            EXISTING_WALLS: 'custbody_existing_walls_2026',
+            EXISTING_WINDOWS: 'custbody_existing_windows_2026',
+            EXISTING_ROOFS: 'custbody_existing_roofs_2026',
+            EXISTING_FLOORS: 'custbody_existing_floors_2026',
+            FLOOR_COVERINGS: 'custbody17',
+            UNHEATED_AREAS: 'custbody_unheated_areas',
+            CEILING_HEIGHTS: 'custbody_sections_ceiling_heights_2026',
+            WINDOW_SIZES: 'custbody_elevations_window_sizes_2026',
+            PROPERTY_AGE: 'custbody15',
+            // DELIBERATE, do not "fix": labelled "EPC/SAP" on the Project Specification tab. A relabelled old field,
+            // so the ID says cylinder location; it is the EPC/SAP field.
+            EPC_SAP: 'custbody_pq_cylinder_location',
+            LEGACY_NOTES_CW: 'custbody_legacy_notes_cw',
+            HP_LOCATION: 'custbody25',
+            CYLINDER_LOCATION: 'custbody_cylinder_location_2026',
+            BUFFER_TANK_LOCATION: 'custbody_buffer_tank_location_2026',
+            DOMESTIC_HOT_WATER: 'custbody_domestic_hot_water_2026',
+            MCS_DISTANCE: 'custbody29',
+            MCS_REFLECT: 'custbody37',
+            MCS_VISIBILITY: 'custbody36',
+            MCS_BARRIER: 'custbody35',
+            GROUND_LOOP: 'custbody19',
+            RAD_AREA: 'custbody23'
         },
         SALES_ORDER: {
             OPPORTUNITY: 'opportunity',
@@ -220,6 +298,28 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
      * These codes are FILTER values. A search result's status column does not return them, so
      * never compare a column value against this list; filter with it.
      */
+    /**
+     * 3.4.0 (amendment 1 §7): the opportunity fields NO registry row may write, even though they are in
+     * FIELDS.OPPORTUNITY (the allow-list). parseRegistry() rejects such a row. custbody_opp_del_date first: after
+     * Won the sync copies it onto the sales orders' ship dates, so the goods date is Note and Task only.
+     */
+    var DESIGNINFO_DENY = [FIELDS.OPPORTUNITY.DEL_DATE, FIELDS.OPPORTUNITY.SUB_STATUS, FIELDS.OPPORTUNITY.STATUS,
+        FIELDS.OPPORTUNITY.FC, FIELDS.OPPORTUNITY.HEAT_SOURCE, FIELDS.OPPORTUNITY.MARKET, FIELDS.OPPORTUNITY.CAD_DES_CONTACT,
+        FIELDS.OPPORTUNITY.VALUE_PROPOSITION, FIELDS.OPPORTUNITY.PE, FIELDS.OPPORTUNITY.NEXT_CONTACT,
+        FIELDS.OPPORTUNITY.DESIGNINFO_STATE, FIELDS.OPPORTUNITY.DELIVERY_ADDRESS];
+
+    /** 3.4.0: the registry's allow-list — every opportunity field ID above. */
+    function designInfoAllowList() {
+        var list = [];
+        var key;
+        for (key in FIELDS.OPPORTUNITY) {
+            if (FIELDS.OPPORTUNITY.hasOwnProperty(key)) {
+                list.push(FIELDS.OPPORTUNITY[key]);
+            }
+        }
+        return list;
+    }
+
     var SHIPPABLE_STATUSES = ['SalesOrd:A', 'SalesOrd:B', 'SalesOrd:D', 'SalesOrd:E'];
 
     /**
@@ -363,6 +463,77 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         FOOTER: 'You’re receiving this because you have an order with Nu-Heat.',
         // 2.0.2: the hidden preview text.
         PREHEADER: 'Your order is ready: choose your delivery date.'
+    };
+
+    /**
+     * 3.4.0 (release 2.3): the "Tell us about your property" request email's wording (brief §7.3). Setting
+     * DESIGNINFO_EMAIL (JSON, the same keys) overrides any of them: parseDesignInfoEmail(). Plain text: render
+     * escapes every value. {name} the customer's greeting name; {sender} the sender's first name; {pe} the PE's
+     * name (PE_NONE when the opportunity has none).
+     */
+    var DESIGNINFO_EMAIL = {
+        SUBJECT: 'Let\u2019s start your design: tell us about your property',
+        PREHEADER: 'Your plans and a few details are all we need to begin.',
+        EYEBROW: 'Let\u2019s start your design',
+        HEADING: 'Tell us about your property, {name}',
+        HEADING_NO_NAME: 'Tell us about your property',
+        SUB: 'Your plans and a few details are all we need to begin. About 10 minutes.',
+        HELLO: 'Hello {name}.',
+        HELLO_NO_NAME: 'Hello.',
+        // The sender is the PE.
+        PERSONAL_PE: 'I\u2019m {sender}, your Project Engineer for this system, and I\u2019ll be designing it with you. ' +
+            'Before we speak, please tell me as much as you can about the property. I\u2019ll read it all before our call, ' +
+            'so the call is short and nothing gets missed.',
+        // The sender is the account manager (no PE case, or no PE yet).
+        PERSONAL_AM: 'I\u2019m {sender}, your account manager. {pe} will design your system with you. Before you speak, ' +
+            'please tell us as much as you can about the property. We\u2019ll read it all before your design call, so the ' +
+            'call is short and nothing gets missed.',
+        PE_NONE: 'Our design team',
+        FACTS_LABEL: 'YOUR PROJECT',
+        FACT_REFERENCE: 'Reference',
+        FACT_HAVING: 'You\u2019re having',
+        FACT_CALL: 'Design call',
+        FACT_GOODS: 'Goods needed',
+        BUTTON: 'TELL US ABOUT YOUR PROPERTY',
+        DASHBOARD_LINK: 'Or view all your projects',
+        ASK_HEADING: 'What we\u2019ll ask',
+        STEP1_TITLE: 'Your plans',
+        STEP1_TEXT: 'Are the plans we quoted from still the current ones? Upload any newer revision, and sections or ' +
+            'elevations if you have them.',
+        // Left out for UFH Design (service ufh).
+        STEP2_TITLE: 'How well insulated it is',
+        STEP2_TEXT: 'Your SAP calculation or EPC if you have one; otherwise a rough description is fine.',
+        STEP3_TITLE: 'Where things go',
+        STEP3_TEXT: 'Where you\u2019d like the manifolds, and how your floors are built.',
+        // Only for a Nu-Heat heat pump (heat nuheat_hp).
+        STEP3_HP: 'And where the heat pump, cylinder and buffer tank will go.',
+        NOTE: 'We only ask about what\u2019s on your quote, and you can stop and come back. Anything you can\u2019t ' +
+            'answer, we\u2019ll cover on the call.',
+        NEXT_HEADING: 'What happens next',
+        // [title, text]
+        TIPS: [
+            ['Your design call', 'We go through your answers together and settle anything still open.'],
+            ['Drawings in 5\u20137 days', 'Your installation drawings follow within 5\u20137 working days of the call.'],
+            ['Then delivery', 'Once you\u2019re happy with the design, we arrange your delivery.']
+        ],
+        QUESTIONS: 'Questions?',
+        CARD_PE: 'YOUR PROJECT ENGINEER',
+        CARD_AM: 'YOUR ACCOUNT MANAGER',
+        PERSONAL: 'This link is personal to you. Please don\u2019t forward this email.',
+        FOOTER: 'You\u2019re receiving this because you have a project in design with Nu-Heat.'
+    };
+
+    /**
+     * 3.4.0: the opportunity banner after "Request design information" (cdbdi in the URL). A fixed whitelist, as
+     * SEND_LINK_BANNERS: an unknown code shows nothing; nothing from the URL is shown. A refusal does not come back
+     * here: the Suitelet shows its own page with the reason.
+     */
+    var DESIGNINFO_BANNERS = {
+        sent: { type: 'CONFIRMATION', title: 'Design information requested',
+            message: 'The customer has been emailed a link to tell us about their property. The email is on the ' +
+                'Communication tab.' },
+        failed: { type: 'ERROR', title: 'Design information NOT requested',
+            message: 'The email could not be sent. Details are in the script log (CDB DESIGNINFO_REQUEST_FAILED).' }
     };
 
     /**
@@ -595,7 +766,38 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // 3.3.0 ("Request an update" part A): RECORD ONLY, the link backfill only. Which customers
         // cdb_mr_link_backfill.js checks: OPEN, the active customers with an open opportunity or an open
         // sales order (the digest's definition); ALL, every active customer. Empty or invalid: OPEN.
-        LINK_BACKFILL_SCOPE: { kind: 'scope', empty: 'default', defaultValue: 'OPEN', ids: {} }
+        LINK_BACKFILL_SCOPE: { kind: 'scope', empty: 'default', defaultValue: 'OPEN', ids: {} },
+
+        // 3.4.0 (release 2.3, "Tell us about your property"). RECORD ONLY (ids: {}); each script that reads one
+        // lists it in SCRIPT_KEYS.
+        // The registry's File Cabinet path, e.g. SuiteScripts/NuHeat/Customer Dashboard Content/design-info-registry.csv.
+        // Empty: the design information action is unavailable (CDB DESIGNINFO_NO_REGISTRY).
+        DESIGNINFO_REGISTRY: { kind: 'text', empty: 'none', ids: {} },
+        // The upload folder's internal ID (Customer Dashboard Uploads: private, not Available Without Login). Empty:
+        // uploads are refused with a visible message; text answers still save.
+        DESIGNINFO_FOLDER: { kind: 'id', empty: 'none', ids: {} },
+        // Files per question per post. Empty: 6.
+        DESIGNINFO_MAX_FILES: { kind: 'int', empty: 'default', defaultValue: 6, ids: {} },
+        // JSON {"<fc pair id>": "solid|joisted"}: floor tokens solid, joisted, overfloor, acoustic joined by |, or one
+        // of none, hp, unknown. Unlisted: unknown. Empty: every FC is unknown on the page; the request button and
+        // the Send design information Suitelet REFUSE (they cannot tell OneZone/Electric/Parts apart).
+        FC_MAP: { kind: 'text', empty: 'none', ids: {} },
+        // JSON {"<heat source id>": "boiler|nuheat_hp|user_hp|other"}. Unlisted or empty: other.
+        HEAT_MAP: { kind: 'text', empty: 'none', ids: {} },
+        // JSON {"<value proposition id>": "ufh|ufh_plus|hp"}. Unlisted or empty: unknown — the page shows the UFH
+        // Design + set and the Task says so.
+        VP_MAP: { kind: 'text', empty: 'none', ids: {} },
+        // custbody_mis_opp_market values that mean new build. Empty: every project is treated as existing (retro).
+        NEWBUILD_MARKET_IDS: { kind: 'idlist', empty: 'none', ids: {} },
+        // The Note type for the audit Note. Empty: the Note is created without one.
+        NOTE_TYPE: { kind: 'id', empty: 'none', ids: {} },
+        // The design team's address, printed on the request email's card when the sender is the PE. Empty: the
+        // sender's own email.
+        DESIGN_EMAIL_ADDRESS: { kind: 'text', empty: 'none', ids: {} },
+        // JSON overrides of DESIGNINFO_EMAIL's wording (same keys). Empty or invalid: the built-in wording.
+        DESIGNINFO_EMAIL: { kind: 'text', empty: 'none', ids: {} },
+        // The "Understanding your drawings" page (https). Empty: the card is left out.
+        DESIGNINFO_DRAWINGS_URL: { kind: 'https', empty: 'none', ids: {} }
     };
 
     /**
@@ -623,6 +825,18 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     // searches (cdb_lib_data customersWithOpenOpportunity / customersWithOpenOrder) read.
     SCRIPT_KEYS[SCRIPTS.LINK_BACKFILL] = ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS', 'DELIVERY_SUBSTATUS',
         'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE'];
+    // 3.4.0 (release 2.3; amendment 1 §3: each list holds every key the script reads). The dashboard Suitelet and the
+    // digest add theirs to the lists above, record only.
+    SCRIPT_KEYS[SCRIPTS.SUITELET] = SCRIPT_KEYS[SCRIPTS.SUITELET].concat(['DESIGNINFO_REGISTRY', 'DESIGNINFO_FOLDER',
+        'DESIGNINFO_MAX_FILES', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'NOTE_TYPE', 'DESIGNINFO_DRAWINGS_URL']);
+    // The digest's card states: the registry (once per run), the facts' maps, and PE_VALUEPROPS for the PE's first
+    // name on "Information received" (record only on the digest: it has no custscript_cdbmr_ twin).
+    SCRIPT_KEYS[SCRIPTS.DIGEST] = SCRIPT_KEYS[SCRIPTS.DIGEST].concat(['DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP',
+        'NEWBUILD_MARKET_IDS', 'PE_VALUEPROPS']);
+    SCRIPT_KEYS[SCRIPTS.OPP_UE] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'FC_MAP'];
+    SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
+        'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'DESIGN_EMAIL_ADDRESS',
+        'DESIGNINFO_EMAIL'];
 
     /**
      * 3.0: the transition fallback. Which PARAMETERS ids column each existing script's parameters
@@ -1018,6 +1232,43 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     }
 
     /**
+     * Pure (3.4.0): DESIGNINFO_EMAIL's wording — the defaults, with any string value of a known key in the setting
+     * over them (TIPS: an array of [title, text] string pairs). Unknown keys and other values are ignored. Never
+     * throws.
+     * @returns {{status: string, text: Object, detail: string}} status 'empty' | 'ok' | 'invalid'
+     */
+    function parseDesignInfoEmail(raw) {
+        var json = parseJsonObject(raw);
+        var text = {};
+        var key;
+        var v;
+        for (key in DESIGNINFO_EMAIL) {
+            if (DESIGNINFO_EMAIL.hasOwnProperty(key)) {
+                text[key] = DESIGNINFO_EMAIL[key];
+            }
+        }
+        if (json.status !== 'ok') {
+            return { status: json.status, text: text, detail: json.detail };
+        }
+        for (key in json.value) {
+            if (!json.value.hasOwnProperty(key) || !DESIGNINFO_EMAIL.hasOwnProperty(key)) {
+                continue;
+            }
+            v = json.value[key];
+            if (key === 'TIPS') {
+                if (Array.isArray(v) && v.length && v.every(function (t) {
+                    return Array.isArray(t) && t.length === 2 && typeof t[0] === 'string' && typeof t[1] === 'string';
+                })) {
+                    text.TIPS = v;
+                }
+            } else if (typeof v === 'string' && !isBlank(v)) {
+                text[key] = v;
+            }
+        }
+        return { status: 'ok', text: text, detail: '' };
+    }
+
+    /**
      * Pure: the error load() throws when a setting is missing.
      * @param {string[]} missing
      * @param {string[]} [keys] - the setting key of each entry (3.0), named in the message
@@ -1205,6 +1456,11 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         EMAIL_ICONS: EMAIL_ICONS,
         SEND_LINK_BANNERS: SEND_LINK_BANNERS,
         SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
+        DESIGNINFO_DENY: DESIGNINFO_DENY,
+        designInfoAllowList: designInfoAllowList,
+        DESIGNINFO_EMAIL: DESIGNINFO_EMAIL,
+        DESIGNINFO_BANNERS: DESIGNINFO_BANNERS,
+        parseDesignInfoEmail: parseDesignInfoEmail,
         parseOptionHints: parseOptionHints,
         parseTypeLabels: parseTypeLabels,
         parseLostStatusMap: parseLostStatusMap,

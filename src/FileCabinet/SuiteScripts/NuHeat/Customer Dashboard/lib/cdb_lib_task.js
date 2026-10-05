@@ -30,17 +30,31 @@
  * address, each "label: old → new", saved or reported together ("Project details NOT saved: …"), as one
  * write. The delivery Task gains the SURCHARGE line when the unloading option chosen carries one.
  *
+ * 1.5.0 (release 2.3, "Tell us about your property"): the design information Note — one per save, on the
+ * opportunity, the audit trail (buildDesignInfoNote(), createNote(); its body clipped at 3,900 characters, under
+ * the Note's 4,000) — and the "DESIGN INFO – …" Task, one per Send (buildDesignInfoTitle(), buildDesignInfoMessage(),
+ * through createTask()). Plain text; the caller escapes the customer's words.
+ *
+ * 1.5.1 (amendment 2): the design information Note and Task are PLAIN TEXT — the caller strips control characters and
+ * clips, and nothing is HTML-escaped (staff read the customer's words as typed); the Task message is clipped as the
+ * Note is (clipBody(): 3,900 characters + "(truncated)"), because Task.message is a 4,000-character text area; a
+ * change-list marker entry (the oldest changes dropped) prints as its own line.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.4.1
+ * 1.5.2 (amendment 3): the DESIGN INFO Task is a SNAPSHOT — every shown section with its current answers ("Label:
+ * value", clipped at 200), "(nothing yet)" for an empty one, and a pointer to the Notes for the changes since the last
+ * send — because the state no longer carries a change list.
+ *
+ * @version 1.5.2
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.4.1';
+    var VERSION = '1.5.2';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -259,8 +273,172 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
             opportunityId: opts.opportunityId, message: opts.message, todayKey: opts.todayKey, priority: PRIORITY.HIGH });
     }
 
+    // ---------------------------------------------------------------- 1.5.0: design information
+
+    /** The Note body's limit (Note.note holds 4,000 characters) and its marker. */
+    var NOTE_MAX = 3900;
+    var TRUNCATED = '\n(truncated)';
+    var DESIGN_PREFIX = 'DESIGN INFO \u2013 ';
+
+    /** Pure: "DESIGN INFO – <project name or QR>", control characters made spaces (plain text, 1.5.1). */
+    function buildDesignInfoTitle(projectName, tranId) {
+        return clampTitle((DESIGN_PREFIX + (String(projectName || '') || String(tranId || '') || 'project'))
+            .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' '));
+    }
+
+    /**
+     * Pure (1.5.1): a Note body or a Task message clipped to NOTE_MAX with "(truncated)" — both fields are 4,000-character
+     * text areas.
+     * @returns {{body: string, clipped: boolean}}
+     */
+    function clipBody(text) {
+        var t = String(text === null || text === undefined ? '' : text);
+        return t.length > NOTE_MAX ? { body: t.slice(0, NOTE_MAX - TRUNCATED.length) + TRUNCATED, clipped: true } :
+            { body: t, clipped: false };
+    }
+
+    /** Pure: "Design information from customer · dd/mm/yyyy HH:mm". */
+    function buildDesignInfoNoteTitle(whenText) {
+        return 'Design information from customer \u00b7 ' + whenText;
+    }
+
+    /** One change line: " Label: old → new" (blank old as —). */
+    function diChangeLine(c, indent) {
+        return indent + c.label + ': ' + (c.oldText ? c.oldText : '\u2014') + ' \u2192 ' + c.newText;
+    }
+
+    function fileList(files) {
+        return files.map(function (f) { return f.name + (f.sizeText ? ' (' + f.sizeText + ')' : ''); }).join(', ');
+    }
+
+    /**
+     * Pure (brief §5.4): the Note's body.
+     * @param {Object} o - { sectionsSaved: [title], sent: boolean, blocks: [{ title, changes: [{label, oldText, newText}],
+     *   files: [{name, sizeText}] }] (sections with nothing changed are left out), notSaved: ['<qid> (why)'],
+     *   bigFiles: boolean, extra: [line] (file problems) } — plain text, clipped by the caller (1.5.1: not escaped)
+     * @returns {{body: string, clipped: boolean}}
+     */
+    function buildDesignInfoNote(o) {
+        var lines = ['Sections saved: ' + ((o.sectionsSaved || []).join(', ') || '(none)'),
+            'Sent to PE: ' + (o.sent ? 'yes' : 'no')];
+        var body;
+        (o.blocks || []).forEach(function (b) {
+            if (!(b.changes || []).length && !(b.files || []).length) {
+                return;
+            }
+            lines.push('', b.title);
+            (b.changes || []).forEach(function (c) {
+                lines.push(diChangeLine(c, ' '));
+            });
+            if ((b.files || []).length) {
+                lines.push(' Files: ' + fileList(b.files));
+            }
+        });
+        if ((o.notSaved || []).length) {
+            lines.push('', 'Not saved to the record: ' + o.notSaved.join('; '));
+        }
+        if ((o.extra || []).length) {
+            lines.push('');
+            lines = lines.concat(o.extra);
+        }
+        if (o.bigFiles) {
+            lines.push('', 'Large files: customer has files over 10 MB');
+        }
+        body = lines.join('\n');
+        return clipBody(body);
+    }
+
+    /**
+     * Pure (brief §5.5; amendment 3): the "DESIGN INFO" Task's message — a SNAPSHOT of every shown section's current
+     * answers, not a change list (the changes are in the Notes, the audit trail).
+     * @param {Object} o - { complete, missing: [title], sections: [{ title, status, lines: ['Label: value'] }] (every shown
+     *   section, in order; no lines -> "(nothing yet)"), sinceText ('' or "dd/mm/yyyy HH:mm": the previous Send, else the
+     *   request), files: [{name, label, attachNote}] (since the last Send), folderText, goodsLine, bigFiles,
+     *   warnings: [line], notSaved: [text], failures: [line], noteFailed, serviceText } — plain text, prepared by the caller
+     * @returns {string} unclipped: the caller clips it with clipBody() (and logs CDB DESIGNINFO_TASK_CLIPPED)
+     */
+    function buildDesignInfoMessage(o) {
+        var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
+            'attached files, then move the sub-status to Design Required when you\u2019re ready.', ''];
+        if ((o.failures || []).length) {
+            lines.push('NOT SAVED (please enter by hand):');
+            o.failures.forEach(function (f) { lines.push('- ' + f); });
+            lines.push('');
+        }
+        if (o.noteFailed) {
+            lines.push('Audit note NOT created for this save: the answers below are its only record.', '');
+        }
+        lines.push(o.complete ? 'Complete: everything the design needs has been answered.' :
+            'Still missing: ' + (o.missing || []).join(', ') + '.');
+        if (o.serviceText) {
+            lines.push('Design service: ' + o.serviceText + '.');
+        }
+        lines.push('');
+        if (o.goodsLine) {
+            lines.push(o.goodsLine, '');
+        }
+        (o.sections || []).forEach(function (sec) {
+            lines.push(sec.title + (sec.status ? ' (' + (sec.status === 'done' ? 'done' : sec.status === 'todo' ? 'to do' :
+                'optional') + ')' : ''));
+            if ((sec.lines || []).length) {
+                sec.lines.forEach(function (l) { lines.push('- ' + l); });
+            } else {
+                lines.push('(nothing yet)');
+            }
+            lines.push('');
+        });
+        if (o.sinceText) {
+            lines.push('Changes since the last send are in the opportunity\u2019s Notes dated after ' + o.sinceText + '.', '');
+        }
+        if ((o.files || []).length) {
+            lines.push('Files uploaded since the last Send (' + o.folderText + '):');
+            o.files.forEach(function (f) {
+                lines.push('- ' + f.name + (f.label ? ', ' + f.label : '') + (f.attachNote ? ' ' + f.attachNote : ''));
+            });
+            lines.push('');
+        }
+        if (o.bigFiles) {
+            lines.push('LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.', '');
+        }
+        if ((o.notSaved || []).length) {
+            lines.push('Not saved to the record (the customer was told we\u2019ll cover it on the call): ' +
+                o.notSaved.join('; ') + '.', '');
+        }
+        if ((o.warnings || []).length) {
+            lines.push('Check these:');
+            o.warnings.forEach(function (w) { lines.push('- ' + w); });
+        }
+        return lines.join('\n').replace(/\n+$/, '');
+    }
+
+    /**
+     * 1.5.0: the audit Note on the opportunity (record.Type.NOTE). notetype only when given.
+     * @param {Object} opts - { title, note, opportunityId, authorId, noteTypeId }
+     * @returns {number} the Note's ID
+     * @throws whatever record.create/save throws — the caller catches
+     */
+    function createNote(opts) {
+        var note = record.create({ type: record.Type.NOTE, isDynamic: false });
+        note.setValue({ fieldId: 'title', value: opts.title });
+        note.setValue({ fieldId: 'note', value: opts.note });
+        note.setValue({ fieldId: 'transaction', value: opts.opportunityId });
+        note.setValue({ fieldId: 'author', value: opts.authorId });
+        if (opts.noteTypeId) {
+            note.setValue({ fieldId: 'notetype', value: opts.noteTypeId });
+        }
+        return note.save({ ignoreMandatoryFields: true });
+    }
+
     return {
         VERSION: VERSION,
+        NOTE_MAX: NOTE_MAX,
+        DESIGN_PREFIX: DESIGN_PREFIX,
+        buildDesignInfoTitle: buildDesignInfoTitle,
+        buildDesignInfoNoteTitle: buildDesignInfoNoteTitle,
+        buildDesignInfoNote: buildDesignInfoNote,
+        buildDesignInfoMessage: buildDesignInfoMessage,
+        clipBody: clipBody,
+        createNote: createNote,
         NEW_ADDRESS_PREFIX: NEW_ADDRESS_PREFIX,
         buildTitle: buildTitle,
         buildMessage: buildMessage,

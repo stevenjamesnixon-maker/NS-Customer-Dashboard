@@ -39,12 +39,18 @@
  * 2.0.4: the LIVE input's two "open customer" searches moved, unchanged, to cdb_lib_data.js
  * (customersWithOpenOpportunity, customersWithOpenOrder), shared with the link backfill.
  *
+ * 2.1.0 (release 2.3): the design cards' four states, as on the dashboard (data.decorateDesign(): the fail-safe
+ * extras search, once per customer with a project in design). The registry is read ONCE PER RUN, in getInputData,
+ * and passed to each map value in compact form (section, title, qid, type, required, store, when); unavailable, a
+ * card in progress says "Still to do: a few more details" (CDB DESIGNINFO_NO_REGISTRY, once). The card's button is the
+ * customer's direct a=designinfo link, only while DESIGNINFO_REGISTRY is set.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 2.0.4
+ * @version 2.1.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -52,7 +58,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '2.0.4';
+    var VERSION = '2.1.0';
 
     var CUST = config.FIELDS.CUSTOMER;
 
@@ -110,9 +116,36 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         return parseInt(a.customerId, 10) - parseInt(b.customerId, 10);
     }
 
+    /**
+     * 2.1.0: the registry, once per run, compact (what the card states need: no wording but the section titles).
+     * null when it is not set or cannot be used (logged once).
+     */
+    function compactRegistry(cfg) {
+        var reg;
+        if (!cfg.DESIGNINFO_REGISTRY) {
+            return null;
+        }
+        reg = data.loadRegistry(cfg.DESIGNINFO_REGISTRY);
+        if (reg.status !== 'ok') {
+            log.audit({ title: title('DESIGNINFO_NO_REGISTRY'), details: 'Digest: registry ' + reg.status + (reg.detail ? ' (' +
+                reg.detail + ')' : '') + '; design cards in progress say "a few more details" this run' });
+            return null;
+        }
+        return reg.questions.map(function (q) {
+            return { section: q.section, sectionTitle: q.sectionTitle, qid: q.qid, type: q.type, required: q.required,
+                store: q.store, when: q.when };
+        });
+    }
+
+    /** One map input: the customer, and (2.1.0) the run's compact registry when there is one. */
+    function inputValue(customerId, reg) {
+        return reg ? { customerId: customerId, reg: reg } : { customerId: customerId };
+    }
+
     function getInputData() {
         var cfg = config.load(log);
         var labels = config.parseTypeLabels(cfg.QUOTE_TYPE_LABELS);
+        var reg = compactRegistry(cfg);
         var todayKey = dates.londonTodayKey(Date.now());
         var withOpp;
         var withOrder;
@@ -130,7 +163,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             log.audit({ title: title('DIGEST_INPUT'), details: 'TEST mode: customers ' +
                 cfg.DIGEST_TEST_CUSTOMERS.join(', ') + ' (v' + VERSION + ')' });
             return cfg.DIGEST_TEST_CUSTOMERS.map(function (id) {
-                return { customerId: id };
+                return inputValue(id, reg);
             });
         }
 
@@ -151,7 +184,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 Math.max(0, chosen.length - cfg.DIGEST_CAP) + ' left over for the next run (v' + VERSION + ')'
         });
         return chosen.slice(0, cfg.DIGEST_CAP).map(function (row) {
-            return { customerId: row.customerId };
+            return inputValue(row.customerId, reg);
         });
     }
 
@@ -160,9 +193,32 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         context.write({ key: OUTCOME.SKIPPED_PREFIX + reason, value: customerId });
     }
 
+    /** 2.1.0: the design rows' card states (one fail-safe extras search; the PE/AM's first name for "received"). */
+    function decorateDesign(groups, cfg, reg, customerId, todayKey) {
+        var logged = false;
+        data.decorateDesign(groups, {
+            extras: data.getOpportunityExtras(groups.inDesign.map(function (d) { return d.opp.id; })),
+            questions: reg,
+            cfg: cfg,
+            todayKey: todayKey,
+            firstNameOf: function (opp) {
+                var e = data.getEmployee(data.resolveRecipient(opp, cfg).employeeId);
+                return e && !e.isInactive ? e.firstName : '';
+            },
+            onStateInvalid: function (oppId, detail) {
+                if (!logged) {
+                    logged = true;
+                    log.audit({ title: title('DESIGNINFO_STATE_INVALID'), details: 'Customer ' + customerId + ', opportunity ' +
+                        oppId + ': ' + detail + '; shown as nothing received' });
+                }
+            }
+        });
+    }
+
     function map(context) {
         var cfg = config.load(log, true);
-        var customerId = String(JSON.parse(context.value).customerId);
+        var input = JSON.parse(context.value);
+        var customerId = String(input.customerId);
         var todayKey = dates.londonTodayKey(Date.now());
         var customer;
         var recipient;
@@ -200,6 +256,10 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
             // 1.3.2: the email follows the page's two delivery groups. Who gets a digest is unchanged:
             // groups.isEmpty was decided above, before this split.
             data.arrangeSections(groups);
+            // 2.1.0: the four design card states.
+            if (groups.inDesign.length) {
+                decorateDesign(groups, cfg, input.reg || null, customerId, todayKey);
+            }
             from = data.emailAuthor(customer, cfg);
 
             body = render.digestEmail({
@@ -215,7 +275,11 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
                 },
                 title: SUBJECT,
                 am: data.emailAm(from, 'Digest, customer ' + customerId),
-                digestDays: cfg.DIGEST_DAYS
+                digestDays: cfg.DIGEST_DAYS,
+                // 2.1.0: a design card's button, only while the design information page can open.
+                designLink: cfg.DESIGNINFO_REGISTRY ? function (oppId) {
+                    return token.buildLink(customerId, { a: 'designinfo', opp: oppId });
+                } : null
             });
 
             email.send({

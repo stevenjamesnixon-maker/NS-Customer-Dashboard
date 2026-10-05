@@ -61,7 +61,10 @@ function fullParams(scriptId) {
     var c = setup().config;
     var column = c.PARAMETER_COLUMNS[scriptId];
     var p = {};
-    c.SCRIPT_KEYS[scriptId].forEach(function (k) { p[c.PARAMETERS[k].ids[column]] = base[k]; });
+    // 3.4.0: a key with no parameter in this column (record only, e.g. the digest's design keys) has none to fill.
+    c.SCRIPT_KEYS[scriptId].forEach(function (k) {
+        if (c.PARAMETERS[k].ids[column]) { p[c.PARAMETERS[k].ids[column]] = base[k]; }
+    });
     return p;
 }
 
@@ -73,6 +76,7 @@ function asRecord(scriptId, params) {
     var blank = {};
     c.SCRIPT_KEYS[scriptId].forEach(function (k) {
         var id = c.PARAMETERS[k].ids[column];
+        if (!id) { return; }
         settings.push(row(k, params[id] === undefined || params[id] === null ? '' : String(params[id])));
         blank[id] = '';
     });
@@ -143,7 +147,13 @@ test('6. neither: a throw key throws as today; a default key gets the default as
         ['custscript_cdb_recent_days is empty: using the default 7', 'setting UPD_LOST_STATUS_MAP is empty: treated as none',
             'setting UPD_BUILD_STAGES is empty: treated as none', 'setting UPD_OBJECTION_TYPES is empty: treated as none',
             // 3.2.1: the two delivery-form record-only keys, the same way.
-            'setting TIME_DEFAULT is empty: treated as none', 'setting UNLOAD_SURCHARGE is empty: treated as none'],
+            'setting TIME_DEFAULT is empty: treated as none', 'setting UNLOAD_SURCHARGE is empty: treated as none',
+            // 3.4.0 (release 2.3): the dashboard's design information keys, the same way.
+            'setting DESIGNINFO_REGISTRY is empty: treated as none', 'setting DESIGNINFO_FOLDER is empty: treated as none',
+            'setting DESIGNINFO_MAX_FILES is empty: using the default 6', 'setting FC_MAP is empty: treated as none',
+            'setting HEAT_MAP is empty: treated as none', 'setting VP_MAP is empty: treated as none',
+            'setting NEWBUILD_MARKET_IDS is empty: treated as none', 'setting NOTE_TYPE is empty: treated as none',
+            'setting DESIGNINFO_DRAWINGS_URL is empty: treated as none'],
         'the 2.x note, word for word');
 });
 
@@ -200,6 +210,16 @@ test('9. the settings search throws: one SETTINGS_UNAVAILABLE line; the paramete
     expected.UPD_OBJECTION_TYPES = [];
     expected.TIME_DEFAULT = '';
     expected.UNLOAD_SURCHARGE = '';
+    // 3.4.0: the dashboard's design information keys.
+    expected.DESIGNINFO_REGISTRY = '';
+    expected.DESIGNINFO_FOLDER = '';
+    expected.DESIGNINFO_MAX_FILES = 6;
+    expected.FC_MAP = '';
+    expected.HEAT_MAP = '';
+    expected.VP_MAP = '';
+    expected.NEWBUILD_MARKET_IDS = [];
+    expected.NOTE_TYPE = '';
+    expected.DESIGNINFO_DRAWINGS_URL = '';
     assert.deepStrictEqual(s.config.load(s.log), expected);
     s.config.load(s.log);
     var lines = logs(s.w, 'SETTINGS_UNAVAILABLE');
@@ -373,19 +393,37 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     // 3.1: the record-only keys (no parameter on any script) — the dashboard Suitelet's update settings.
     var recordOnly = Object.keys(c.PARAMETERS).filter(function (k) { return !Object.keys(c.PARAMETERS[k].ids).length; });
     assert.deepStrictEqual(recordOnly, ['UPD_LOST_STATUS_MAP', 'UPD_BUILD_STAGES', 'UPD_OBJECTION_TYPES',
-        'TIME_DEFAULT', 'UNLOAD_SURCHARGE', 'LINK_BACKFILL_SCOPE']);
-    // 3.3.0: LINK_BACKFILL_SCOPE is the link backfill's, not the dashboard's.
-    var slRecordOnly = recordOnly.filter(function (k) { return k !== 'LINK_BACKFILL_SCOPE'; });
+        'TIME_DEFAULT', 'UNLOAD_SURCHARGE', 'LINK_BACKFILL_SCOPE',
+        // 3.4.0 (release 2.3)
+        'DESIGNINFO_REGISTRY', 'DESIGNINFO_FOLDER', 'DESIGNINFO_MAX_FILES', 'FC_MAP', 'HEAT_MAP', 'VP_MAP',
+        'NEWBUILD_MARKET_IDS', 'NOTE_TYPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL', 'DESIGNINFO_DRAWINGS_URL']);
+    // 3.3.0: LINK_BACKFILL_SCOPE is the link backfill's, not the dashboard's. 3.4.0: the request email's two keys are the
+    // Send design information Suitelet's.
+    var slRecordOnly = recordOnly.filter(function (k) {
+        return ['LINK_BACKFILL_SCOPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL'].indexOf(k) < 0;
+    });
+    // 3.4.0 (amendment 1 §3): the digest reads the design keys from the record, and PE_VALUEPROPS (no MR twin).
+    var mrRecordOnly = ['DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'PE_VALUEPROPS'];
     Object.keys(c.PARAMETER_COLUMNS).forEach(function (scriptId) {
         assert.deepStrictEqual(c.SCRIPT_KEYS[scriptId].slice().sort(),
-            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? slRecordOnly : []).sort(), scriptId);
+            c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? slRecordOnly : scriptId === MR ?
+                mrRecordOnly : []).sort(), scriptId);
     });
+    // 3.4.0: the two new scripts have no parameters: every key they read, from the record.
+    assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.OPP_UE], undefined);
+    assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.SEND_DESIGNINFO], undefined);
+    assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.OPP_UE], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'FC_MAP']);
+    // 3.4.1 (amendment 2): DESIGN_SUBSTATUS, which the facts read.
+    assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.SEND_DESIGNINFO], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
+        'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS',
+        'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL']);
     // 3.3.0: the link backfill has no parameters: the "open" keys and its scope, from the record only.
     assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.LINK_BACKFILL], undefined);
     assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.LINK_BACKFILL], ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS',
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE']);
-    assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND, c.SCRIPTS.LINK_BACKFILL].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 37,
-        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys and the 3.3.0 key, no more (3.2 adds none)');
-    assert.strictEqual(c.VERSION, '3.3.0');
+    assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND, c.SCRIPTS.LINK_BACKFILL, c.SCRIPTS.OPP_UE,
+        c.SCRIPTS.SEND_DESIGNINFO].sort());
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 48,
+        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key and the eleven 3.4.0 keys, no more');
+    assert.strictEqual(c.VERSION, '3.4.2');
 });

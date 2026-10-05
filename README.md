@@ -22,7 +22,10 @@ src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/
     cdb_mr_digest.js           Map/Reduce: the digest email
     cdb_ue_salesorder.js       User Event (2.0): the sales order's "Send delivery link" button
     cdb_sl_send_link.js        Suitelet (2.0), login required: emails a direct delivery link
+    cdb_ue_opportunity.js      User Event (2.3): the opportunity's "Request design information" button
+    cdb_sl_send_designinfo.js  Suitelet (2.3), login required: emails the "Tell us about your property" link
     lib/                       shared modules — uploaded, no script record needed
+content/design-info-registry.csv  the design information questions (2.3), uploaded to the File Cabinet
 test/                          node tests for the pure parts
 docs/context.md                canonical project context
 ```

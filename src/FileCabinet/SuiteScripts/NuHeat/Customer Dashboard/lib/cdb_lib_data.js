@@ -96,16 +96,37 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
+ * 2.3.0 (release 2.3, "Tell us about your property"): the design information page's reads and writes.
+ *   guardDesignInfo()     one lookupFields: the token's customer's, Won, sub-status NEEDINFO (edit) or DESIGN
+ *                         (view), FC not none. Not guardOpportunity(), which refuses Won.
+ *   loadRegistry()        the registry CSV from the File Cabinet (file.load by path, once per execution).
+ *   loadDesignInfo()      ONE record.load (dynamic, read-only, never saved: getSelectOptions() needs it) that
+ *                         discovers each registry field's type and reads its current value; a missing field is
+ *                         omitted, a mismatched one read-only; nothing is ever written to an unverified field.
+ *   validateDesignInfo()  pure: every posted answer and file, before anything is written.
+ *   writeDesignInfo()     ONE submitFields of the changed, non-empty, allowed fields (+ the state); blank never
+ *                         clears. saveUpload() / attachUpload(): the customer's files.
+ *   getOpportunityExtras() the fail-safe extras search for the card states (CDB OPP_EXTRAS_FAILED);
+ *                         decorateDesign() turns it into each design row's card.
+ *   designInfoRequest()   the request button's and the Send design information Suitelet's one lookup and checks.
+ * dateInputError() is the update page's date rule, shared (validateUpdate() calls it; its behaviour is unchanged).
+ *
+ * 2.3.1 (amendment 2): a CHECKBOX yesno reads an unticked box as "no" (a real answer), so a "No" is remembered and a
+ * required checkbox question can be done; RICHTEXT is no longer a target type (customer text there would render as
+ * HTML for staff: such a row is now a type mismatch, read-only and reported); the request rule reads FC_MAP only
+ * (designinfo.parseFcMapOnly()), so the User Event needs no other map.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.2.3
+ * @version 2.3.1
  */
-define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_lib_dates'],
-    function (search, record, format, log, config, dates) {
+define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config', './cdb_lib_dates',
+    './cdb_lib_designinfo'],
+    function (search, record, format, log, file, config, dates, designinfo) {
 
     'use strict';
 
-    var VERSION = '2.2.3';
+    var VERSION = '2.3.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -122,8 +143,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         NEEDS_INFO: 'needs_info'
     };
 
+    /**
+     * The design rows' card states. groupProjects() sets the first and last from the sub-status; 2.3.0's
+     * decorateDesign() widens them from the state JSON (cdb_lib_designinfo.cardState()).
+     */
     var DESIGN_BADGES = {
         NEEDS_INFO: 'needs_info',
+        INFO_PARTIAL: 'info_partial',
+        INFO_SENT: 'info_sent',
         DESIGNING: 'designing'
     };
 
@@ -146,6 +173,15 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         NOT_YOURS: 'opportunity belongs to another customer',
         WON: 'opportunity is Won (WON_STATUSES)',
         LOST: 'opportunity is Lost (LOST_STATUSES)'
+    };
+
+    /** 2.3.0: why guardDesignInfo() refused. Logged; the customer sees a short page, never these. */
+    var GUARD_DI = {
+        NOT_FOUND: 'opportunity not found',
+        NOT_YOURS: 'opportunity belongs to another customer',
+        NOT_WON: 'opportunity is not Won (WON_STATUSES)',
+        SUBSTATUS: 'sub-status in neither NEEDINFO_SUBSTATUS nor DESIGN_SUBSTATUS',
+        FC_NONE: 'FC maps to none in FC_MAP (nothing needed from the customer)'
     };
 
     /** 2.1: the two update-page modes posted as `mode`. */
@@ -686,6 +722,25 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return /^\d{4}-\d{2}-\d{2}$/.test(k) ? k.slice(8, 10) + '/' + k.slice(5, 7) + '/' + k.slice(0, 4) : '';
     }
 
+    /**
+     * Pure (2.3.0; the update page's rule, moved here unchanged): a CHANGED date from an <input type="date"> —
+     * yyyy-mm-dd, a real date, today to five years ahead. '' when it is fine, else the message. The caller skips
+     * it for an unchanged value (an unchanged past date is accepted).
+     * @param {string} value - trimmed
+     * @param {string} todayKey
+     * @returns {string}
+     */
+    function dateInputError(value, todayKey) {
+        var lastKey = dates.addMonths(todayKey, 60);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !dates.isValidKey(value)) {
+            return 'Please enter a date, for example 15/03/2027.';
+        }
+        if (value < todayKey || value > lastKey) {
+            return 'Please choose a date from today onwards, within five years.';
+        }
+        return '';
+    }
+
     /** Pure: text with newlines normalised and trimmed, the way the limits are counted. */
     function longText(value) {
         return String(value === null || value === undefined ? '' : value).replace(/\r\n?/g, '\n')
@@ -757,7 +812,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         var current = ctx.current || {};
         var limits = config.TEXT_LIMITS;
         var mode = trim(input.mode) === UPDATE_MODE.NOT_GOING ? UPDATE_MODE.NOT_GOING : UPDATE_MODE.UPDATE;
-        var lastKey;
+        var dateError;
         var key;
 
         if (mode === UPDATE_MODE.NOT_GOING) {
@@ -788,11 +843,10 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
 
             values.delDate = ctx.showDate ? trim(input.delDate) : '';
             if (values.delDate !== '' && values.delDate !== trim(current.delDateKey)) {
-                lastKey = dates.addMonths(ctx.todayKey, 60);
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(values.delDate) || !dates.isValidKey(values.delDate)) {
-                    errors.delDate = 'Please enter a date, for example 15/03/2027.';
-                } else if (values.delDate < ctx.todayKey || values.delDate > lastKey) {
-                    errors.delDate = 'Please choose a date from today onwards, within five years.';
+                // 2.3.0: the rule moved, unchanged, to dateInputError(), shared with the design information page.
+                dateError = dateInputError(values.delDate, ctx.todayKey);
+                if (dateError) {
+                    errors.delDate = dateError;
                 } else {
                     changes.delDate = values.delDate;
                 }
@@ -2150,6 +2204,632 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         return { written: true };
     }
 
+    // ---------------------------------------------------------------- 2.3.0: "Tell us about your property"
+
+    var DI_STORE = designinfo.STORE;
+
+    /**
+     * Field.type values, upper-cased, a text answer may be written to. CLOBTEXT/LONGTEXT: Long Text. NEVER RICHTEXT
+     * (2.3.1): a Rich Text field renders its value as HTML for staff, and the customer's text is written as typed.
+     */
+    var DI_TEXT_TYPES = ['TEXT', 'TEXTAREA', 'LONGTEXT', 'CLOBTEXT', 'PHONE', 'EMAIL', 'URL'];
+
+    /** NetSuite's own limits by field type, used when getField() exposes no maxLength. */
+    var DI_TYPE_LIMITS = { TEXT: 300, PHONE: 300, EMAIL: 254, URL: 300, TEXTAREA: 4000 };
+
+    /**
+     * 2.3.0: the opportunity for the design information page, for GET and POST alike. One lookupFields. The
+     * customer is the token's; the opportunity ID comes from the request.
+     * @param {string} customerId - from the verified token
+     * @param {string} oppId - from the request
+     * @param {Object} cfg - WON_STATUSES, NEEDINFO_SUBSTATUS, DESIGN_SUBSTATUS, FC_MAP
+     * @returns {{ok: boolean, reason: string, mode: string, opportunity: Object|null}} mode 'edit' (NEEDINFO) or
+     *   'view' (DESIGN); opportunity { id, tranId, title, status, subStatus, pe, salesRep, valueProposition, fc }
+     */
+    function guardDesignInfo(customerId, oppId, cfg) {
+        var result = { ok: false, reason: '', mode: '', opportunity: null };
+        var r;
+        var o;
+        if (!/^\d+$/.test(trim(oppId))) {
+            result.reason = GUARD_DI.NOT_FOUND;
+            return result;
+        }
+        try {
+            r = search.lookupFields({
+                type: search.Type.OPPORTUNITY,
+                id: trim(oppId),
+                columns: ['entity', OPP.STATUS, OPP.SUB_STATUS, 'tranid', 'title', OPP.PE, 'salesrep', OPP.VALUE_PROPOSITION,
+                    OPP.FC]
+            });
+        } catch (e) {
+            result.reason = GUARD_DI.NOT_FOUND;
+            return result;
+        }
+        if (lookupSelect(r.entity).value !== String(customerId)) {
+            result.reason = GUARD_DI.NOT_YOURS;
+            return result;
+        }
+        o = {
+            id: trim(oppId),
+            tranId: trim(r.tranid),
+            title: trim(r.title),
+            status: lookupSelect(r[OPP.STATUS]).value,
+            subStatus: lookupSelect(r[OPP.SUB_STATUS]).value,
+            pe: lookupSelect(r[OPP.PE]).value,
+            salesRep: lookupSelect(r.salesrep).value,
+            valueProposition: lookupSelect(r[OPP.VALUE_PROPOSITION]).value,
+            fc: lookupSelect(r[OPP.FC]).value
+        };
+        result.opportunity = o;
+        if (!contains(cfg.WON_STATUSES, o.status)) {
+            result.reason = GUARD_DI.NOT_WON;
+            return result;
+        }
+        // NEEDINFO first: its sub-status is also a design one.
+        result.mode = contains(cfg.NEEDINFO_SUBSTATUS, o.subStatus) ? 'edit' :
+            contains(cfg.DESIGN_SUBSTATUS, o.subStatus) ? 'view' : '';
+        if (!result.mode) {
+            result.reason = GUARD_DI.SUBSTATUS;
+            return result;
+        }
+        if (designinfo.isFcNone(designinfo.fcTokens(designinfo.parseMaps(cfg), o.fc))) {
+            result.reason = GUARD_DI.FC_NONE;
+            return result;
+        }
+        result.ok = true;
+        return result;
+    }
+
+    /** 2.3.0: the registry, once per execution per path. */
+    var registryCache = {};
+
+    /**
+     * 2.3.0: the question registry from the File Cabinet (file.load by path, ~10 units), parsed with the allow-list
+     * (every FIELDS.OPPORTUNITY value) and the deny-list (config.DESIGNINFO_DENY). Once per execution. Never throws.
+     * @param {string} path - setting DESIGNINFO_REGISTRY
+     * @returns {{status: string, questions: Object[], rejected: Object[], detail: string}} status 'none' (no
+     *   setting), 'missing' (the file cannot be read), or parseRegistry()'s 'ok' | 'empty' | 'invalid'
+     */
+    function loadRegistry(path) {
+        var p = trim(path);
+        var text;
+        if (p === '') {
+            return { status: 'none', questions: [], rejected: [], detail: 'setting DESIGNINFO_REGISTRY is empty' };
+        }
+        if (registryCache.hasOwnProperty(p)) {
+            return registryCache[p];
+        }
+        try {
+            text = file.load({ id: p }).getContents();
+            registryCache[p] = designinfo.parseRegistry(text, config.designInfoAllowList(), config.DESIGNINFO_DENY);
+        } catch (e) {
+            registryCache[p] = { status: 'missing', questions: [], rejected: [], detail: p + ' could not be read: ' +
+                (e && e.message ? e.message : String(e)) };
+        }
+        return registryCache[p];
+    }
+
+    /** Field.type upper-cased, '' when unreadable. */
+    function fieldType(field) {
+        return field && field.type ? String(field.type).toUpperCase() : '';
+    }
+
+    /** Is a field of this type able to hold this question's answer? */
+    function typeFits(q, type) {
+        if (q.type === 'date') {
+            return type === 'DATE';
+        }
+        if (q.type === 'choice' && q.optionsFromField) {
+            return type === 'SELECT';
+        }
+        if (q.type === 'yesno') {
+            return type === 'CHECKBOX' || contains(DI_TEXT_TYPES, type);
+        }
+        return contains(DI_TEXT_TYPES, type);
+    }
+
+    /** A read that never throws: '' (or false) when the field or the call fails. */
+    function safeValue(rec, fieldId) {
+        try {
+            return rec.getValue({ fieldId: fieldId });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function safeText(rec, fieldId) {
+        try {
+            return trim(rec.getText({ fieldId: fieldId }));
+        } catch (e) {
+            return '';
+        }
+    }
+
+    /**
+     * 2.3.0 (brief §4.3; amendment 1 §8): ONE record.load of the opportunity, DYNAMIC (Field.getSelectOptions()
+     * needs it) and read-only: this record is never saved — every write is submitFields. For each registry question
+     * with a field: the field missing -> the question is omitted (missing); its type unfit -> read-only (mismatched);
+     * a choice @field whose options cannot be read -> read-only (optionsUnavailable). Current values come from the
+     * same record. Also the facts' sources, the card's display values and the state.
+     *
+     * @param {string} oppId
+     * @param {Object[]} questions - parseRegistry().questions
+     * @param {Object} cfg - UPD_BUILD_STAGES (the stage choice is offered only from these, as on the update page)
+     * @returns {Object} { fields: qid -> { fieldId, type, maxLength (or 0), limit, options ([{value, text}] for
+     *   @field) }, values: qid -> current value (yesno 'yes'/'no'/'', choice literal: the label, @field: the option
+     *   id, date: key), texts: qid -> display text, missing: [qid], mismatched: [{qid, fieldId, type}],
+     *   optionsUnavailable: [{qid, why}], maxLengthExposed: boolean, info: { ...facts' sources and display } }
+     */
+    function loadDesignInfo(oppId, questions, cfg) {
+        var rec = record.load({ type: record.Type.OPPORTUNITY, id: trim(oppId), isDynamic: true });
+        var out = { fields: {}, values: {}, texts: {}, missing: [], mismatched: [], optionsUnavailable: [],
+            maxLengthExposed: false, info: {} };
+
+        (questions || []).forEach(function (q) {
+            var field;
+            var type;
+            var raw;
+            var options;
+            var max;
+            if (q.store !== DI_STORE.FIELD) {
+                return;
+            }
+            try {
+                field = rec.getField({ fieldId: q.field });
+            } catch (e) {
+                field = null;
+            }
+            if (!field) {
+                out.missing.push(q.qid);
+                return;
+            }
+            type = fieldType(field);
+            max = typeof field.maxLength === 'number' && field.maxLength > 0 ? field.maxLength : 0;
+            if (max) {
+                out.maxLengthExposed = true;
+            }
+            out.fields[q.qid] = { fieldId: q.field, type: type, maxLength: max, ok: typeFits(q, type),
+                limit: max || DI_TYPE_LIMITS[type] || 0, options: null };
+            raw = safeValue(rec, q.field);
+            if (!out.fields[q.qid].ok) {
+                out.mismatched.push({ qid: q.qid, fieldId: q.field, type: type || '(unknown)' });
+                out.texts[q.qid] = type === 'SELECT' ? safeText(rec, q.field) : displayValue(raw);
+                return;
+            }
+            if (q.type === 'choice' && q.optionsFromField) {
+                options = selectOptions(field, q, cfg);
+                out.texts[q.qid] = safeText(rec, q.field);
+                out.values[q.qid] = trim(raw);
+                if (options.why) {
+                    out.optionsUnavailable.push({ qid: q.qid, why: options.why });
+                } else {
+                    out.fields[q.qid].options = options.list;
+                }
+                return;
+            }
+            if (q.type === 'yesno') {
+                // 2.3.1: an unticked box is "no" — a real answer — so a "No" is remembered and counts as answered.
+                out.values[q.qid] = type === 'CHECKBOX' ? (raw === true || raw === 'T' ? 'yes' : 'no') :
+                    (/^y(es)?$/i.test(trim(raw)) ? 'yes' : /^no?$/i.test(trim(raw)) ? 'no' : '');
+                out.texts[q.qid] = out.values[q.qid] === 'yes' ? 'Yes' : out.values[q.qid] === 'no' ? 'No' : '';
+                return;
+            }
+            if (q.type === 'date') {
+                out.values[q.qid] = dateKey(raw);
+                out.texts[q.qid] = designinfo.slashDate(out.values[q.qid]);
+                return;
+            }
+            out.values[q.qid] = displayValue(raw);
+            out.texts[q.qid] = out.values[q.qid];
+        });
+
+        out.info = {
+            tranId: trim(safeValue(rec, 'tranid')),
+            title: trim(safeValue(rec, OPP.TITLE)),
+            siteAddress: trim(safeValue(rec, OPP.SITE_ADDRESS)),
+            subStatus: trim(safeValue(rec, OPP.SUB_STATUS)),
+            valueProposition: trim(safeValue(rec, OPP.VALUE_PROPOSITION)),
+            valuePropositionText: safeText(rec, OPP.VALUE_PROPOSITION),
+            fc: trim(safeValue(rec, OPP.FC)),
+            fcText: safeText(rec, OPP.FC),
+            heatSource: trim(safeValue(rec, OPP.HEAT_SOURCE)),
+            heatSourceText: safeText(rec, OPP.HEAT_SOURCE),
+            market: trim(safeValue(rec, OPP.MARKET)),
+            manifolds: trim(safeValue(rec, OPP.MANIFOLD_LOCATIONS)),
+            thermostatsText: safeText(rec, OPP.THERMOSTATS) || displayValue(safeValue(rec, OPP.THERMOSTATS)),
+            neoHub: isTicked(safeValue(rec, OPP.NEO_HUB)),
+            nextContactKey: dateKey(safeValue(rec, OPP.NEXT_CONTACT)),
+            delDateKey: dateKey(safeValue(rec, OPP.DEL_DATE)),
+            stateRaw: safeValue(rec, OPP.DESIGNINFO_STATE)
+        };
+        return out;
+    }
+
+    /** A field value as text for display and comparison. */
+    function displayValue(raw) {
+        if (raw instanceof Date) {
+            return designinfo.slashDate(dates.keyFromLocalDate(raw));
+        }
+        if (raw === true || raw === false) {
+            return raw ? 'Yes' : 'No';
+        }
+        return String(raw === null || raw === undefined ? '' : raw).replace(/^\s+|\s+$/g, '');
+    }
+
+    /**
+     * The options of a choice @field: getSelectOptions() (the active ones the form offers; blank left out). For
+     * custbody_build_stage only the UPD_BUILD_STAGES IDs, in that order — the update page's validation; empty: none
+     * offered (fail closed). why says why there are none (the question is then read-only).
+     */
+    function selectOptions(field, q, cfg) {
+        var raw;
+        var list;
+        var byId = {};
+        try {
+            raw = field.getSelectOptions() || [];
+        } catch (e) {
+            return { list: [], why: 'getSelectOptions() failed: ' + (e && e.message ? e.message : String(e)) };
+        }
+        list = raw.filter(function (o) { return o && trim(o.value) !== ''; }).map(function (o) {
+            return { value: trim(o.value), text: trim(o.text) };
+        });
+        if (q.field === OPP.BUILD_STAGE) {
+            list.forEach(function (o) { byId[o.value] = o; });
+            list = ((cfg && cfg.UPD_BUILD_STAGES) || []).filter(function (id) { return byId[id]; }).map(function (id) {
+                return byId[id];
+            });
+            if (!((cfg && cfg.UPD_BUILD_STAGES) || []).length) {
+                return { list: [], why: 'setting UPD_BUILD_STAGES is empty' };
+            }
+        }
+        return list.length ? { list: list, why: '' } : { list: [], why: 'no options returned' };
+    }
+
+    /** Pure: a typed line — control characters become spaces, trimmed. */
+    function diLine(value) {
+        return cleanLine(value);
+    }
+
+    /** Pure: typed text — newlines kept (\n), other control characters removed, trimmed. */
+    function diText(value) {
+        return trim(String(value === null || value === undefined ? '' : value).replace(/\r\n?/g, '\n')
+            .replace(/\t/g, ' ').replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]+/g, ''));
+    }
+
+    /** Pure: is the value acceptable to a PHONE / EMAIL / URL field? Anything else is not written there. */
+    function fitsSpecialType(type, value) {
+        if (type === 'PHONE') {
+            return /^[0-9+().\-\s xX]+$/.test(value) && (value.match(/\d/g) || []).length >= 7;
+        }
+        if (type === 'EMAIL') {
+            return looksLikeEmail(value);
+        }
+        if (type === 'URL') {
+            return /^https?:\/\/[^\s"'<>]+$/i.test(value);
+        }
+        return true;
+    }
+
+    /** An uploaded part that is a file: a name and a size above 0. */
+    function isFilePart(f) {
+        return !!(f && trim(f.name) !== '' && Number(f.size) > 0);
+    }
+
+    /**
+     * Pure (brief §4.5; amendment 1 §4): every posted answer and file, before anything is written. Only the questions
+     * the page offered for editing (shown, not read-only) are read; anything else posted is ignored.
+     *
+     * @param {Object} params - the request parameters: q_<qid> per answer
+     * @param {Object} files - the request's files: f_<qid>_<n> -> { name, size, ... } (absent or empty: not a file)
+     * @param {Object[]} questions - the editable questions
+     * @param {Object} ctx - { todayKey, maxFiles, fields (loadDesignInfo().fields), stored (qid -> the current value:
+     *   the record's, or the state's), options (qid -> [{value, text}] for @field) }
+     * @returns {{ok: boolean, errors: Object, values: Object, files: Object}} values: qid -> the cleaned answer ('' for
+     *   none; a choice: the label (literal) or the option id (@field)); files: qid -> [file parts]
+     */
+    function validateDesignInfo(params, files, questions, ctx) {
+        var p = params || {};
+        var f = files || {};
+        var errors = {};
+        var values = {};
+        var chosen = {};
+        var max = parseInt(ctx.maxFiles, 10) || designinfo.LIMITS.MAX_FILES_DEFAULT;
+        var limits = designinfo.LIMITS;
+
+        (questions || []).forEach(function (q) {
+            var raw = p['q_' + q.qid];
+            var v;
+            var opts;
+            var n;
+            var list;
+            var err;
+            if (q.type === 'info') {
+                return;
+            }
+            if (q.type === 'files') {
+                list = [];
+                for (n = 1; n <= Math.max(max, 20); n++) {
+                    if (isFilePart(f['f_' + q.qid + '_' + n])) {
+                        list.push(f['f_' + q.qid + '_' + n]);
+                    }
+                }
+                if (list.length > max) {
+                    errors[q.qid] = 'Please choose at most ' + max + ' files here at a time.';
+                } else {
+                    list.forEach(function (part) {
+                        if (!errors[q.qid] && !designinfo.extensionAllowed(part.name)) {
+                            errors[q.qid] = '“' + part.name + '” is not a file type we can take. Please send PDF, ' +
+                                'DWG, DXF, an image, ZIP, Word or Excel.';
+                        } else if (!errors[q.qid] && Number(part.size) > limits.FILE_BYTES) {
+                            errors[q.qid] = '“' + part.name + '” is bigger than 10 MB. Tick “I have files bigger ' +
+                                'than 10 MB” and we’ll send you a secure way to send it.';
+                        }
+                    });
+                }
+                chosen[q.qid] = list;
+                return;
+            }
+            if (q.type === 'long') {
+                v = diText(raw);
+                if (v.length > limits.LONG) {
+                    errors[q.qid] = 'Please keep this under ' + limits.LONG + ' characters.';
+                }
+            } else if (q.type === 'text') {
+                v = diLine(raw);
+                if (v.length > limits.TEXT) {
+                    errors[q.qid] = 'Please keep this under ' + limits.TEXT + ' characters.';
+                }
+            } else if (q.type === 'date') {
+                v = trim(raw);
+                if (v !== '' && v !== trim((ctx.stored || {})[q.qid])) {
+                    err = dateInputError(v, ctx.todayKey);
+                    if (err) {
+                        errors[q.qid] = err;
+                    }
+                }
+            } else if (q.type === 'yesno') {
+                v = trim(raw).toLowerCase();
+                if (v !== '' && v !== 'yes' && v !== 'no') {
+                    errors[q.qid] = 'Please choose Yes or No.';
+                }
+            } else {
+                v = trim(raw);
+                if (q.optionsFromField) {
+                    opts = ((ctx.options || {})[q.qid] || []).map(function (o) { return o.value; });
+                    if (v !== '' && !contains(opts, v)) {
+                        errors[q.qid] = 'Please choose one of the options shown.';
+                    }
+                } else if (v !== '') {
+                    n = /^\d+$/.test(v) ? parseInt(v, 10) : -1;
+                    if (n < 0 || n >= (q.options || []).length) {
+                        errors[q.qid] = 'Please choose one of the options shown.';
+                    } else {
+                        v = q.options[n];
+                    }
+                }
+            }
+            values[q.qid] = v;
+        });
+        return { ok: !Object.keys(errors).length, errors: errors, values: values, files: chosen };
+    }
+
+    /**
+     * 2.3.0 (brief §4.5 step 1): ONE submitFields of the design information — modelled on writeProjectDetails().
+     * Only registry-allowed fields (FIELDS.OPPORTUNITY, never DESIGNINFO_DENY) and the state field; only non-empty
+     * values (blank never clears). Anything else refuses the whole write (fail closed).
+     * A CHECKBOX "No" IS A VALUE, NOT A BLANK (decision, amendment 2): the customer's "No" writes false, and may untick a
+     * box that was ticked. Only an empty string, null or undefined counts as blank.
+     * @param {string} oppId
+     * @param {Object} changes - fieldId -> value (string, Date or boolean)
+     * @param {string} [stateText] - the state JSON, written in the same call
+     * @returns {Object} the values written, by field ID
+     * @throws CDB_BAD_DESIGNINFO_WRITE, or whatever submitFields throws
+     */
+    function writeDesignInfo(oppId, changes, stateText) {
+        var id = trim(oppId);
+        var values = {};
+        var allow = config.designInfoAllowList();
+        var count = 0;
+        var key;
+        var v;
+        if (!/^\d+$/.test(id)) {
+            throw writeError('CDB_BAD_DESIGNINFO_WRITE', 'opportunity "' + id + '": not written');
+        }
+        for (key in (changes || {})) {
+            if (!changes.hasOwnProperty(key)) {
+                continue;
+            }
+            v = changes[key];
+            if (!contains(allow, key) || contains(config.DESIGNINFO_DENY, key)) {
+                throw writeError('CDB_BAD_DESIGNINFO_WRITE', 'opportunity "' + id + '": ' + key + ' may not be written: ' +
+                    'nothing written');
+            }
+            if (v === null || v === undefined || (typeof v === 'string' && trim(v) === '')) {
+                throw writeError('CDB_BAD_DESIGNINFO_WRITE', 'opportunity "' + id + '": ' + key + ' is blank (blank never ' +
+                    'clears): nothing written');
+            }
+            values[key] = v;
+            count += 1;
+        }
+        if (stateText !== undefined && stateText !== null) {
+            values[OPP.DESIGNINFO_STATE] = String(stateText);
+            count += 1;
+        }
+        if (!count) {
+            throw writeError('CDB_BAD_DESIGNINFO_WRITE', 'opportunity "' + id + '": nothing to write');
+        }
+        record.submitFields({ type: record.Type.OPPORTUNITY, id: id, values: values,
+            options: { enableSourcing: false, ignoreMandatoryFields: true } });
+        return values;
+    }
+
+    /**
+     * 2.3.0 (brief §4.5 step 2): one customer file into the upload folder, private (isOnline false). The uploaded
+     * part is a file.File already (request.files): it is named, filed and saved (~20 units). Returns its ID.
+     * @throws whatever save throws
+     */
+    function saveUpload(part, name, folderId) {
+        part.name = name;
+        part.folder = parseInt(folderId, 10);
+        part.isOnline = false;
+        return String(part.save());
+    }
+
+    /**
+     * 2.3.0: the saved file attached to the opportunity (~10 units). UNVERIFIED in this account: on the Sandbox
+     * list. A failure leaves the file in the folder; the caller says so.
+     */
+    function attachUpload(fileId, oppId) {
+        record.attach({ record: { type: 'file', id: parseInt(fileId, 10) },
+            to: { type: record.Type.OPPORTUNITY, id: parseInt(oppId, 10) } });
+    }
+
+    /**
+     * 2.3.0 (brief §6): the card states' extras for opportunities ALREADY FOUND, in one separate search — the
+     * getOrderExtras() pattern. FAIL-SAFE: any error logs CDB OPP_EXTRAS_FAILED once and gives {}, so the page and
+     * the digest show "needs information" cards. Never add these columns to getOpportunities().
+     * @param {string[]} oppIds
+     * @returns {Object} oppId -> { state, fc, heatSource, market, nextContactKey }
+     */
+    function getOpportunityExtras(oppIds) {
+        var result = {};
+        var wanted = {};
+        if (!oppIds || !oppIds.length) {
+            return result;
+        }
+        oppIds.forEach(function (id) { wanted[String(id)] = true; });
+        try {
+            collect(search.create({
+                type: search.Type.OPPORTUNITY,
+                filters: [['internalid', 'anyof', oppIds]],
+                columns: [OPP.DESIGNINFO_STATE, OPP.FC, OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT]
+            }), function (r) {
+                if (!wanted[String(r.id)]) {
+                    return;
+                }
+                result[String(r.id)] = {
+                    state: r.getValue(OPP.DESIGNINFO_STATE) || '',
+                    fc: trim(r.getValue(OPP.FC)),
+                    heatSource: trim(r.getValue(OPP.HEAT_SOURCE)),
+                    market: trim(r.getValue(OPP.MARKET)),
+                    nextContactKey: dateKey(r.getValue(OPP.NEXT_CONTACT))
+                };
+            });
+        } catch (e) {
+            log.audit({ title: config.logTitle('OPP_EXTRAS_FAILED'), details: 'Opportunities ' + oppIds.join(',') + ': ' +
+                (e && e.message ? e.message : String(e)) + '. Design cards shown as "we need information".' });
+            return {};
+        }
+        return result;
+    }
+
+    /**
+     * 2.3.0 (brief §6): each design row's card — d.design = { key (cdb_lib_designinfo.CARD), progress
+     * (progressFromState(), or null with no registry), sentKey, callKey (the design call, today or later), peFirst
+     * (info_sent only) } — and d.badge widened to the four DESIGN_BADGES (an FC-none row: designing). Never throws.
+     * @param {Object} groups - getProjects()
+     * @param {Object} o - { extras (getOpportunityExtras()), questions (the registry's, or null), cfg, todayKey,
+     *   firstNameOf (function(opp) -> the PE/AM first name; optional), onStateInvalid (function(oppId, detail)) }
+     */
+    function decorateDesign(groups, o) {
+        (groups.inDesign || []).forEach(function (d) {
+            var ex = (o.extras || {})[String(d.opp.id)] || {};
+            var parsed = designinfo.parseState(ex.state);
+            var facts = designinfo.buildFacts({ valueProposition: d.opp.valueProposition, fc: ex.fc,
+                heatSource: ex.heatSource, market: ex.market, subStatus: d.opp.subStatus }, o.cfg);
+            var key = designinfo.cardState({ needInfo: contains(o.cfg.NEEDINFO_SUBSTATUS, d.opp.subStatus),
+                fcNone: designinfo.isFcNone(facts.fc), state: parsed.state });
+            if (parsed.status === 'invalid' && o.onStateInvalid) {
+                o.onStateInvalid(d.opp.id, parsed.detail);
+            }
+            d.design = {
+                key: key,
+                progress: o.questions ? designinfo.progressFromState(designinfo.visibleQuestions(o.questions, facts),
+                    parsed.state) : null,
+                sentKey: parsed.state.sent ? designinfo.londonTime(Date.parse(parsed.state.sent)).key : '',
+                callKey: ex.nextContactKey && ex.nextContactKey >= o.todayKey ? ex.nextContactKey : '',
+                peFirst: key === designinfo.CARD.INFO_SENT && o.firstNameOf ? o.firstNameOf(d.opp) : '',
+                anySaved: designinfo.anySectionSaved(parsed.state)
+            };
+            d.badge = key === designinfo.CARD.FC_NONE ? DESIGN_BADGES.DESIGNING : key;
+        });
+        return groups;
+    }
+
+    /**
+     * 2.3.0 (brief §7): the request button's and the Send design information Suitelet's read — ONE lookupFields —
+     * and the three conditions: Won, sub-status in NEEDINFO_SUBSTATUS, FC maps to anything but none. FC_MAP empty
+     * or invalid: refused (fail closed: it cannot tell a OneZone, Electric or Parts project apart).
+     * @returns {{ok: boolean, reason: string, opp: Object|null}} opp { id, customerId, tranId, title, siteAddress,
+     *   status, subStatus, pe, salesRep, valueProposition, fc, fcText, heatSource, heatSourceText, market,
+     *   nextContactKey, delDateKey, stateRaw }
+     */
+    function designInfoRequest(oppId, cfg) {
+        var out = { ok: false, reason: '', opp: null };
+        var r;
+        var o;
+        var maps = designinfo.parseFcMapOnly(cfg);
+        if (!/^\d+$/.test(trim(oppId))) {
+            out.reason = 'no opportunity ID';
+            return out;
+        }
+        try {
+            r = search.lookupFields({ type: search.Type.OPPORTUNITY, id: trim(oppId), columns: ['entity', 'tranid', 'title',
+                OPP.STATUS, OPP.SUB_STATUS, OPP.SITE_ADDRESS, OPP.PE, 'salesrep', OPP.VALUE_PROPOSITION, OPP.FC,
+                OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT, OPP.DEL_DATE, OPP.DESIGNINFO_STATE] });
+        } catch (e) {
+            out.reason = 'the opportunity could not be read: ' + (e && e.message ? e.message : String(e));
+            return out;
+        }
+        o = {
+            id: trim(oppId),
+            customerId: lookupSelect(r.entity).value,
+            tranId: trim(r.tranid),
+            title: trim(r.title),
+            siteAddress: trim(r[OPP.SITE_ADDRESS]),
+            status: lookupSelect(r[OPP.STATUS]).value,
+            subStatus: lookupSelect(r[OPP.SUB_STATUS]).value,
+            pe: lookupSelect(r[OPP.PE]).value,
+            salesRep: lookupSelect(r.salesrep).value,
+            valueProposition: lookupSelect(r[OPP.VALUE_PROPOSITION]).value,
+            fc: lookupSelect(r[OPP.FC]).value,
+            fcText: lookupSelect(r[OPP.FC]).text,
+            heatSource: lookupSelect(r[OPP.HEAT_SOURCE]).value,
+            heatSourceText: lookupSelect(r[OPP.HEAT_SOURCE]).text,
+            market: lookupSelect(r[OPP.MARKET]).value,
+            nextContactKey: dateKey(r[OPP.NEXT_CONTACT]),
+            delDateKey: dateKey(r[OPP.DEL_DATE]),
+            stateRaw: r[OPP.DESIGNINFO_STATE] || ''
+        };
+        out.opp = o;
+        out.reason = requestRefusal(o.status, o.subStatus, o.fc, cfg, maps);
+        out.ok = !out.reason;
+        return out;
+    }
+
+    /**
+     * Pure (2.3.0): why the request button must not show, or '' when it may — the ONE rule for the User Event (its
+     * record's own values) and the Suitelet (its lookup).
+     * Reads WON_STATUSES, NEEDINFO_SUBSTATUS and FC_MAP only (2.3.1), the User Event's whole key list.
+     * @param {Object} [maps] - designinfo.parseFcMapOnly(cfg), when the caller has it
+     */
+    function requestRefusal(status, subStatus, fc, cfg, maps) {
+        var m = maps || designinfo.parseFcMapOnly(cfg);
+        if (!contains(cfg.WON_STATUSES, status)) {
+            return 'the opportunity is not Won';
+        }
+        if (!contains(cfg.NEEDINFO_SUBSTATUS, subStatus)) {
+            return 'the sub-status is not Awaiting Design Info (NEEDINFO_SUBSTATUS)';
+        }
+        if (m.fcEmpty) {
+            return 'setting FC_MAP is empty or invalid, so a OneZone, Electric or Parts project cannot be told apart';
+        }
+        if (designinfo.isFcNone(designinfo.fcTokens(m, fc))) {
+            return 'the FC maps to none: nothing is needed from the customer';
+        }
+        return '';
+    }
+
     return {
         VERSION: VERSION,
         STATES: STATES,
@@ -2225,6 +2905,21 @@ define(['N/search', 'N/record', 'N/format', 'N/log', './cdb_lib_config', './cdb_
         writeProjectDetails: writeProjectDetails,
         siteAddressLine: siteAddressLine,
         addToAddressBook: addToAddressBook,
-        writeDeliveryAddress: writeDeliveryAddress
+        writeDeliveryAddress: writeDeliveryAddress,
+        // 2.3.0
+        GUARD_DI: GUARD_DI,
+        dateInputError: dateInputError,
+        guardDesignInfo: guardDesignInfo,
+        loadRegistry: loadRegistry,
+        loadDesignInfo: loadDesignInfo,
+        validateDesignInfo: validateDesignInfo,
+        fitsSpecialType: fitsSpecialType,
+        writeDesignInfo: writeDesignInfo,
+        saveUpload: saveUpload,
+        attachUpload: attachUpload,
+        getOpportunityExtras: getOpportunityExtras,
+        decorateDesign: decorateDesign,
+        designInfoRequest: designInfoRequest,
+        requestRefusal: requestRefusal
     };
 });
