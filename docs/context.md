@@ -184,7 +184,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.3.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
+| Dashboard Suitelet | 2.4.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
 | Digest Map/Reduce | 2.1.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
 | Send design information Suitelet (2.3) | 1.0.2 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page, then the *Tell us about your property* email | New |
@@ -197,10 +197,10 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
 | Data library | 2.3.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
-| Design information library (2.3) | 1.0.2 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV, the facts, `when`, visibility, progress, the state JSON, upload names | New |
-| Render library | 2.3.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards; the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Design information library (2.3) | 1.1.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header), the facts, `when`, visibility, progress, the state JSON, upload names | New |
+| Render library | 2.4.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
 | Task library | 1.5.2 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
-| Question registry (2.3) | 1 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
+| Question registry (2.3) | 2 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -670,7 +670,7 @@ field is written only when the answer looks like one (otherwise Note only, *NOT 
 are clipped to the field's own `maxLength` when `getField()` exposes one, else to NetSuite's type limit (text 300,
 text area 4,000), and the Note says so.
 
-**The registry** — `content/design-info-registry.csv` in this repo (registry version 1), uploaded to
+**The registry** — `content/design-info-registry.csv` in this repo (registry version 2 since release 2.3b), uploaded to
 `SuiteScripts/NuHeat/Customer Dashboard Content/`; its path is the setting `DESIGNINFO_REGISTRY`. Parsed per request
 (`designinfo.parseRegistry()`; the digest once per run). No JSON conversion step.
 
@@ -685,12 +685,19 @@ text area 4,000), and the Note says so.
 | `options` | `choice` only: labels separated by `\|`, or exactly `@field` (the field's own select list) |
 | `field` | Empty or `note`: the Note only (short answers also kept in the state for the progress; a `long` one is marked *noted*, not kept). `state`: the state only (`yesno` only). A `custbody…` ID: that opportunity field — it must be in `FIELDS.OPPORTUNITY` and **not** in `config.DESIGNINFO_DENY` |
 | `required` | `Y` / `N` (default N) |
+| `step_intro` (v2) | The step's intro under its title. Read from the section's **first row** only |
+| `step_minutes` (v2) | *about n minutes* on the step's intro card; a whole number (else the row is rejected). First row only |
+| `image` (v2) | A picture for the question. **Empty in this release**: parsed and carried, not rendered (see *How to add images later*) |
+| `placeholder` (v2) | Placeholder text for a `text` or `long` input |
 | `when` | `key=value[,value][;key=value…]`: AND across `;`, OR within `,`. Keys `service` (`ufh`, `ufh_plus`, `hp`, `unknown`), `fc` (`solid`, `joisted`, `overfloor`, `acoustic`, `none`, `hp`, `unknown`; matches when ANY of the project's tokens is listed), `heat` (`boiler`, `nuheat_hp`, `user_hp`, `other`), `newbuild` (`yes`/`no`). Empty: always. An unknown service matches as `ufh_plus` |
 
 A bad **row** (unknown type, duplicate `qid` — the second —, a field outside the allow-list or in the deny-list, a
 choice without options, a `when` that does not parse, an unknown key or value) is rejected and listed
 (`CDB DESIGNINFO_REGISTRY_REJECTED`, once per request); the file is invalid only when a column is missing or the CSV
-does not parse. The parser copes with a BOM, CRLF, quoted cells with commas, `""` and newlines, and unquoted cells.
+does not parse. **Two headers are accepted (designinfo 1.1.0):** v1 (the 12 columns above) and v2 (the 12 plus
+`step_intro, step_minutes, image, placeholder`, 16); `parseRegistry()` reports `headerVersion` 1 or 2. A header with
+some but not all four v2 columns is invalid (*neither the v1 nor the v2 header: missing …*). Column order is free and
+unknown extra columns are ignored. The parser copes with a BOM, CRLF, quoted cells with commas, `""` and newlines, and unquoted cells.
 Every non-empty `label`, `hint`, `options`, `when` and `why` in the committed file is quoted (amendment 1 §2).
 
 **How to add a question or a product.** Add a row (Excel is fine); for a new Project Specification field, first add
@@ -739,17 +746,115 @@ not settings.
 `NEWBUILD_MARKET_IDS` → new build. Unknowns are explicit values, and each is a warning in the Task, as is an HP Design
 without a Nu-Heat heat pump (or the reverse).
 
-**The page** (`render.designInfoPage()`): the header *Design questions? Call [PE or AM] on [phone]* (§5.3: the PE for a PE
-value proposition with a PE, else the rep, else `FALLBACK_EMPLOYEE`); *Your project, as we have it* (project, reference,
-site, *You're having* = FC text · heat source text, thermostats (`custbody16` + Neo hub), design service, who the design
-is with, the design call `custbody_next_contact` when today or later) with section 0's questions; one card per section
-with its status chip (*Needed to start*, *Done*, *Optional*) and its own **Save this section**; the aside (*Goes to*,
-the progress, *What each design service needs*, *Why do we ask?*, the drawings card); the bottom panel (*Still to do
-before your design can start: …*, **Send to my Project Engineer** / *account manager*, **Save and finish later**). The
-**goods date** shows the opportunity's `custbody_opp_del_date` read-only (*We currently have: …*) and asks *Has this
-changed? Tell us the new date*. A small inline script warns before posting a file over 10 MB; the server checks too.
-**One form** (multipart): each Save button posts `sec=<section>`, *Save and finish later* `sec=all`, Send `send=1`; the
-server saves the section pressed and every section with a change, so nothing typed elsewhere is lost.
+**The page — a stepper (release 2.3b; dashboard 2.4.1, render 2.4.1).** One step per screen: the **visible sections in
+registry order**, then **Review**. Every step is a full page that works without JavaScript.
+
+- **Header:** *Design questions? Call [PE or AM] on [phone]* (§5.3: the PE for a PE value proposition with a PE, else
+  the rep, else `FALLBACK_EMPLOYEE`) and **Save and exit** (a submit that saves). Review has nothing to save, so its
+  header link reads **Back to your projects** (2.4.1).
+- **Step bar:** a numbered stop per step, then Review; a tick for a done step; the current stop filled. On a step page the
+  stops are submit buttons (`form="diform" name="goto" value="<step>"`), so jumping saves first; on Review they are
+  links. On a phone only the circles show, with the current step's title above.
+- **Intro card:** *Step n of N · about m minutes* (N counts Review), the step's title and `step_intro`. **Step 1** also
+  shows *Your project, as we have it* (project, reference, site, *You're having* = FC text · heat source text,
+  thermostats (`custbody16` + Neo hub), design service, who the design is with, the design call when today or later).
+- **The step's questions**, grouped into cards by `panel`. The goods date shows the opportunity's `custbody_opp_del_date`
+  read-only (*We currently have: …*).
+- **Navigation:** **← Back: [previous step]** (`nav=back`; on step 1 a link *← Your projects*), *Saved automatically when
+  you continue*, **Save and continue →** (`nav=next`; on the last step **Review and send →**). A hidden `nav=next`
+  button comes first in the document so Enter in a text box continues rather than exits.
+- **Reassurance line:** *Stuck on anything? It's fine to skip it. [PE first name] will go through it on your design call
+  [on date]. Call [phone] if you'd rather talk now.*
+- **Gone from 2.3:** the right column (progress list, *What each design service needs*, *Why do we ask?*), the
+  per-section Save buttons, *Save and finish later*. The drawings link (`DESIGNINFO_DRAWINGS_URL`) is on Review.
+
+**Routing (GET `?t=…&a=designinfo&opp=<id>[&step=<id>]`).** No `step` → the first step whose status is *todo*, else
+Review. `step=review` → Review. A step that is unknown or hidden for this project → the first step, with a
+`CDB DESIGNINFO_STEP_UNKNOWN` **debug** line (the value is never echoed). **View mode** (a DESIGN sub-status): Review
+is the page (no Edit, no Send, no form); a `&step=<section>` redirects to `&step=review`. After a save the URL may carry
+`&saved=1` (*Saved.*) and `&w=files|uploads|partial` (a whitelisted warning; nothing the customer typed is put in a URL),
+and `&more_<qid>=n` (how many file inputs to show).
+
+**The POST parameters.** Hidden: `t`, `a=designinfo`, `opp`, `step=<section>` (`review` on Review). The pressed button
+adds one of: `nav=next | back | exit | stay`, `goto=<step id | review>`, `more=<qid>` (+ Add another file), or
+`send=1` (Review). Each files question also posts `more_<qid>` (the inputs shown). The server **validates, then saves**
+(the fields, the files, the state, a Note — every save), then **redirects** with `redirect.redirect()`:
+
+| Button | Goes to |
+|---|---|
+| `nav=next` | the next visible step; after the last, Review |
+| `nav=back` | the previous step (step 1: stays) |
+| `nav=exit` | the dashboard |
+| `nav=stay`, or no `nav` | the same step |
+| `goto=<id>` | that step or Review (an unknown value: the same step) |
+| `more=<qid>` | the same step with `&more_<qid>=` one more, at most `DESIGNINFO_MAX_FILES − 1` |
+| `send=1` | no redirect: today's Send (the Task), then Review with the confirmation |
+
+**A navigation with nothing changed writes nothing (2.4.1).** When a post (not a Send) has no change — no field, no
+Note-only answer, no state answer — and no file, nothing is written: no fields, no state, no Note. A
+`CDB DESIGNINFO_NO_CHANGE` debug line is logged and the redirect is as in the table, without `&saved=1`, so *Saved.* does
+not show. A tick box whose stored value is empty posts *No* on a step's first visit, which counts as a change: the first
+visit to such a step writes once. A Send always writes the state (`sent`), the Note and the Task.
+
+A **validation error** re-renders the step with the errors and the answers and **writes nothing**, with no redirect;
+if every error is on another step (only a crafted post can do that), that step is shown. `redirect.redirect()` answers
+**302**, not the brief's 303: N/redirect has no status choice, and a browser follows a 302 after a POST with a GET,
+which is the 303 behaviour wanted.
+
+**Review** (`render.designInfoReview()`): an amber banner when steps are still to do (*Nearly there. n steps still need
+you: …* and *Go to [first]*); a card per step with its chip (*Checked* for step 1 and optional steps, *Done*, *Still to
+do*), **Edit** and `Label: value` rows in question order — values as the Task's snapshot reads them (clipped at 200,
+files by name, *Yes*/*No*), *Given* for a Note-only long answer already sent; *Not answered yet* rows only in a step
+still to do (an empty step otherwise reads *Nothing added.*). The foot: *Goes to [name]*, the design-call sentence,
+**Send to [first name]** (`send=1`) with *Sends what you've done so far*, and the drawings link.
+
+**The file control.** The files already uploaded for the question as rows: a type badge (the extension), the name,
+*uploaded dd/mm/yyyy*. **No Remove** (the file is on the opportunity; staff remove it). One file input
+`f_<qid>_1`; inputs `_2 … _(max−1)` are in the page with `hidden`. **+ Add another file** is a submit button
+(`more=<qid>`): with JavaScript it reveals the next hidden input without posting; without it, it saves and reloads with
+one more input. On a phone (≤ 600 px) **Take a photo** shows: a label for `f_<qid>_<max>` with `accept="image/*"
+capture="environment"`. All inputs are read the same way (`f_<qid>_1 … _20`), so a file in any of them saves. The *I have
+files bigger than 10 MB* tick stays on the Plans step. A small inline script warns before posting a file over 10 MB; the
+server checks too. iPhone photos taken in HEIC are not an allowed extension (iOS normally converts to JPEG on upload).
+
+**Phone.** `@media (max-width:600px)`: step titles hidden in the bar (the current one above it), the navigation
+stacked full-width, the facts one column, the photo input shown. Checked in Chromium at 390 × 844: no horizontal
+scroll on a step, step 1 or Review.
+
+**Which steps a project sees** (committed registry v2, existing house; `test/stepper-registry.test.js` holds the full
+36-row table). Every row ends with Review.
+
+| Service | FC | Boiler | Nu-Heat heat pump |
+|---|---|---|---|
+| UFH Design (`ufh`) | solid / joisted / overfloor / solid\|joisted / unknown | project, plans, heating, other | + heatpump |
+| UFH Design (`ufh`) | `hp` (no floor) | project, plans, other | + heatpump |
+| UFH Design + (`ufh_plus`) or HP Design (`hp`) | any floor | project, plans, insulation, heating, other | + heatpump |
+| `ufh_plus` or `hp` | `hp` (no floor) | project, plans, insulation, other | + heatpump |
+
+Inside *Heating and controls*: manifolds and *through walls* for any floor; screed for solid or unknown; joists and the
+joist drawing for joisted or unknown; for `ufh_plus` and `hp`, floor coverings, and — when the heat source is not a
+Nu-Heat heat pump — the heat source question and the cylinder. Ceilings and windows (Plans) and the insulation step are
+`ufh_plus` and `hp` only; the insulation step asks the new-build or the existing-house set by `newbuild`.
+
+**The heat pump step and MCS 020(a).** The step shows when the heat source is a Nu-Heat heat pump (`heat=nuheat_hp`),
+whatever the service. Its neighbour questions collect the inputs of the MCS 020(a) sound calculation, which the PE runs:
+
+| Question | Field | MCS 020(a) input |
+|---|---|---|
+| `hp_location` *Where will the heat pump go?* (+ `hp_photo`) | `custbody25` | the position (and the permitted-development 1 m boundary rule) |
+| `hp_surround` *What will be close to it?* | `custbody37` | the reflecting surfaces, which set the directivity (the ground always counts as one) |
+| `nb_distance` *How far … nearest neighbour's window or door?* | `custbody29` | the distance to the assessment position |
+| `nb_which` *Which window or door is it?* | Note | the assessment position itself |
+| `nb_between` *What's between …?* | `custbody35` | the barrier between the unit and the assessment position |
+| `nb_view` *How much of the heat pump would you see?* | `custbody36` | line of sight, which decides whether the barrier reduction applies |
+| `nb_others` *Any other neighbours close by?* | Note | further assessment positions to check |
+
+**How to add images later.** The `image` column is parsed, kept on each question (`q.image`) and empty in this
+release. To show them: upload the pictures to a public File Cabinet folder (they must be *Available Without Login* to
+load on the external page), put each file's name in the row's `image`, add the folder's URL as a setting read by the
+dashboard (add the key to its `SCRIPT_KEYS`), and render an `<img alt="…">` in `render`'s question block when both are
+set — escaped like every other value, sized to the card, with the alt text taken from the label. No registry change
+beyond filling the column.
 
 **The POST.** `data.validateDesignInfo()` first — trim, control characters stripped, `text` ≤ 300, `long` ≤ 4,000, the
 date rule, a `choice` one of the options (a label's index, or an offered option ID — for `custbody_build_stage` only the
@@ -1692,6 +1797,9 @@ Every title starts `CDB `.
 | `CDB DESIGNINFO_NO_BUTTON` (2.3) | debug | Why the opportunity shows no *Request design information* button | — |
 | `CDB DESIGNINFO_TASK_CLIPPED` (2.3.1) | audit | The DESIGN INFO Task's snapshot was clipped at 3,900 | — (the Notes hold every change; the record holds every answer) |
 | `CDB DESIGNINFO_STATE_TRIMMED` (2.3.1; 2.3.2) | audit | The state was over 3,500 characters; it kept only its last 5 files (older ones stay on the opportunity and in the Notes) | — |
+| `CDB DESIGNINFO_STATE_QID_UNKNOWN` (2.4.0) | audit | The state holds answers under qids the registry no longer has (the v2 registry removed some); they are ignored, once per request | — |
+| `CDB DESIGNINFO_STEP_UNKNOWN` (2.4.0) | debug | A `&step=` that is unknown or hidden for this project; the first step is shown | — |
+| `CDB DESIGNINFO_NO_CHANGE` (2.4.1) | debug | A navigation post with no change and no file: nothing written | — |
 | `CDB DESIGNINFO_WRITE_RETRY` (2.3.1) | audit | The one write of the fields and the state failed; the fields were retried alone | Read the details |
 
 ---
@@ -1869,6 +1977,35 @@ In order. Nothing changes for customers at any step.
    old link shows the invalid page.
 7. **Then Online-quote part B** can be deployed.
 
+### 8.9b Release 2.3b: the stepper (after 8.9; with amendment 1)
+
+1. Upload `content/design-info-registry.csv` (v2, 16 columns) over the existing file in `SuiteScripts/NuHeat/Customer
+   Dashboard Content/`. The 2.3 code still runs on a v2 file (unknown columns are ignored), so the order is not
+   critical, but upload the code straight after.
+2. Upload, overwriting, in this order: `lib/cdb_lib_designinfo.js` 1.1.0 → `lib/cdb_lib_render.js` 2.4.1 →
+   `cdb_sl_dashboard.js` 2.4.1. Config, data, task, the User Event, the send Suitelet and the digest are unchanged.
+3. No new settings, fields or deployments.
+4. Expect one `CDB DESIGNINFO_STATE_QID_UNKNOWN` line per request (an **audit** line, through the once-per-request
+   logger) on opportunities that saved answers under the removed 2.3 qids (`fc_unknown`, `overfloor`, `acoustic`,
+   `mcs_*`, `rad_area`, `hp_files`). Those answers stay in the Notes; they are simply not shown.
+
+**Tests in Production** (the 2.3 test opportunity):
+
+1. Open the request link: it lands on the first step still to do (or Review if everything is done).
+2. Press Save and continue on an untouched step: the next step shows, no new Note on the opportunity.
+3. Change one answer, press Save and continue: *Saved.* shows, one Note, the field updated.
+4. Press a later stop in the step bar after typing: the typed answer is saved first.
+5. Press Save and exit mid-step: back on the dashboard; reopen and the answer is there.
+6. Plans step: + Add another file reveals a second input (with JavaScript) or reloads with two (without). The photo
+   button appears only on a phone.
+7. Review: every step listed with its chip; Edit opens that step; Send to [first name] creates the Task; the page returns
+   to Review with the confirmation.
+8. A phone (390 px): no horizontal scroll on a step, step 1 and Review; the step titles collapse to circles with the
+   current title above.
+9. UFH Design opportunity (VP 1): only Your project, Your plans, Heating and controls, Anything else, Review. HP Design
+   with a Nu-Heat heat pump: six steps plus Review.
+10. Set the opportunity to a DESIGN sub-status and open a step URL: it redirects to Review, read-only, with no Send.
+
 ### 8.9 Release 2.3: Tell us about your property (after part A)
 
 1. **Steve creates first:** the opportunity field `custbody_cdb_designinfo_state` (type `_cdb_designinfo_state`), **Text
@@ -1946,10 +2083,15 @@ parameter, blank, inactive, duplicate, unknown, no search, one search, the sourc
 and the same configuration from either source for every script), the rendered HTML (escaping, no
 third-party URLs; 2.0.2: both emails centred and single-column with every style stripped, one visible link per button, the AM card's photo and buttons), house style (ES5, no current user, versions in
 step), and the Suitelet and digest end to end against an in-memory stub. 2.1 (`test/r2-1.test.js`): the update action end to end with the Online-quote library stubbed to part A's signatures — the button, the guard, the stage options, tampering, the write order, every Lost-mapping case, each failure, the version guard, escaping and the two-step confirm. 2.2 (`test/r2-2.test.js`): the project name (prefill, the one-field write and its order, blank / unchanged / 61 characters, a failed write, escaping), the new address (the dropdown, each validation failure writing nothing, postcodes, the line added, the duplicate, a failed save, the missing opportunity field, the county field, escaping) and an address-book booking compared byte for byte with 2.1.2; the digest polish against the 2.1 snapshot.
-2.3 (`test/designinfo-lib.test.js`, `test/r2-3.test.js`): the committed registry (0 rejected, 48 questions), the CSV
+2.3 (`test/designinfo-lib.test.js`, `test/r2-3.test.js`): the committed registry (0 rejected, 48 questions; 45 in v2), the CSV
 rules, the deny-list, the facts, `when`, visibility, progress and the state; the page, the guard, view mode, each
 write rule, files, the Note, the Task, the card states on the dashboard and in the digest, the request button and the
 request Suitelet and its email.
+2.3b (`test/stepper-registry.test.js`, the *2.4.0* and *2.4.1* tests at the end of `test/r2-3.test.js`): both registry headers, the
+step columns, the committed v2 file (0 rejected, 45 qids), `unknownStateQids`, the visible-section table; routing,
+`&step=` valid, hidden and unknown, every POST navigation and its redirect, the validation re-render, Review's values
+and flags, Send, view mode, the file control and its cap, the phone CSS, Enter, old qids and the Note and Task titles;
+2.4.1: a navigation with nothing changed writes nothing (next, back, exit, goto, more), Send still writes, Review's header.
 Part A (`test/link.test.js`): `linkMatches` (right, wrong customer, wrong version, empty and malformed, extra
 parameters, no crypto); the customer User Event (a match writes nothing, an empty link written once with only
 `custentity_cdb_link`, a version bump, a copied customer, inactive, xedit's one lookup, delete/view ignored,
@@ -2071,7 +2213,8 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
    `create` and `load` as asked; `load` reads the registry.
 3. **One form for the whole page.** *Send* has to post every section, and forms cannot nest, so the page is one
    multipart form: each *Save this section* posts `sec=<id>`, *Save and finish later* `sec=all`, Send `send=1`. The
-   server saves the section pressed **and** every other section with a change or a file, so nothing typed is lost.
+   server saves the section pressed **and** every other section with a change or a file, so nothing typed is lost. *Release 2.3b replaced this with a form per step (`step=<id>` and `nav`, `goto`, `more` or `send`); the server
+   still saves any posted section with a change.*
 4. **Note-only answers** (amendment 3): only the dates are kept in the state (`a`); every other Note-only answer is in the
    Note, and `n` lists the ones given so they count for the progress. The yes/no `state` answers are in `a`.
 5. **The state carries each section's status** (`s.<id>.st`): the cards and the digest compute *Thanks, we have … Still

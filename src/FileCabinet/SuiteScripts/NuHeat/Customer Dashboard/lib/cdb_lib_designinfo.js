@@ -33,19 +33,31 @@
  * the audit trail and the Task is a snapshot; at most 20 files, names clipped to 60; over 3,500 characters the files
  * drop to the last 5 (CDB DESIGNINFO_STATE_TRIMMED); never over the field. Version 1 states are migrated on read.
  *
+ * 1.1.0 (release 2.3b, the stepper): the registry v2 header (step_intro, step_minutes, image, placeholder; a v1 header
+ * still parses), each section's intro and minutes from its first row (sectionsOf() carries them), and
+ * unknownStateQids() for answers stored under qids the registry no longer has.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.2
+ * @version 1.1.0
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.0.2';
+    var VERSION = '1.1.0';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
         'when', 'why'];
+
+    /**
+     * 1.1.0 (release 2.3b): the registry v2 columns, after `why`. All four or none: a v1 file (12 columns) still parses
+     * and reads them as empty; a header with some but not all of them is neither shape and is invalid. step_intro and
+     * step_minutes are read from each section's FIRST row; image is accepted and not used yet; placeholder goes in the
+     * input box (the hint stays under the label).
+     */
+    var COLUMNS_V2 = ['step_intro', 'step_minutes', 'image', 'placeholder'];
 
     var TYPES = ['info', 'text', 'long', 'date', 'yesno', 'choice', 'files'];
 
@@ -300,10 +312,13 @@ define([], function () {
         var missing = [];
         var seen = {};
         var titles = {};
+        var steps = {};
+        var v2;
         var i;
         var r;
         var q;
         var reason;
+        var minutes;
 
         if (trim(text) === '') {
             out.detail = 'the registry is empty';
@@ -331,9 +346,18 @@ define([], function () {
             out.detail = 'missing column' + (missing.length > 1 ? 's' : '') + ': ' + missing.join(', ');
             return out;
         }
+        v2 = COLUMNS_V2.filter(function (c) { return col.hasOwnProperty(c); });
+        if (v2.length && v2.length < COLUMNS_V2.length) {
+            out.status = 'invalid';
+            out.detail = 'neither the v1 nor the v2 header: missing ' + COLUMNS_V2.filter(function (c) {
+                return !col.hasOwnProperty(c);
+            }).join(', ');
+            return out;
+        }
+        out.headerVersion = v2.length ? 2 : 1;
 
         function cell(row, name) {
-            return trim(row[col[name]]);
+            return col.hasOwnProperty(name) ? trim(row[col[name]]) : '';
         }
 
         for (i = 1; i < csv.rows.length; i++) {
@@ -357,9 +381,21 @@ define([], function () {
                 required: false,
                 whenText: cell(r, 'when'),
                 when: null,
-                why: cell(r, 'why')
+                why: cell(r, 'why'),
+                image: cell(r, 'image'),
+                placeholder: cell(r, 'placeholder'),
+                stepIntro: '',
+                stepMinutes: 0
             };
+            // 1.1.0: a section's intro and minutes come from its FIRST row in the file, used or not.
+            if (!steps.hasOwnProperty(q.section)) {
+                minutes = cell(r, 'step_minutes');
+                steps[q.section] = { intro: cell(r, 'step_intro'), minutes: /^\d+$/.test(minutes) ? parseInt(minutes, 10) : 0 };
+            }
             reason = rowProblem(q, cell(r, 'field'), cell(r, 'options'), cell(r, 'required'), allow, deny, seen);
+            if (!reason && cell(r, 'step_minutes') !== '' && !/^\d+$/.test(cell(r, 'step_minutes'))) {
+                reason = 'step_minutes must be a whole number, not "' + cell(r, 'step_minutes') + '"';
+            }
             if (reason) {
                 out.rejected.push({ line: q.line, qid: q.qid, reason: reason });
                 continue;
@@ -370,6 +406,8 @@ define([], function () {
                 titles[q.section] = q.sectionTitle || q.section;
             }
             q.sectionTitle = titles[q.section];
+            q.stepIntro = steps[q.section].intro;
+            q.stepMinutes = steps[q.section].minutes;
             out.questions.push(q);
         }
         out.status = out.questions.length ? 'ok' : 'empty';
@@ -457,14 +495,16 @@ define([], function () {
     /**
      * Pure: the registry's sections, in file order, each with its questions.
      * @param {Object[]} questions
-     * @returns {Array<{id: string, title: string, questions: Object[]}>}
+     * @returns {Array<{id: string, title: string, intro: string, minutes: number, questions: Object[]}>} 1.1.0: intro and
+     *   minutes are the section's step_intro and step_minutes
      */
     function sectionsOf(questions) {
         var list = [];
         var byId = {};
         (questions || []).forEach(function (q) {
             if (!byId[q.section]) {
-                byId[q.section] = { id: q.section, title: q.sectionTitle, questions: [] };
+                byId[q.section] = { id: q.section, title: q.sectionTitle, intro: q.stepIntro || '', minutes: q.stepMinutes || 0,
+                    questions: [] };
                 list.push(byId[q.section]);
             }
             byId[q.section].questions.push(q);
@@ -669,6 +709,30 @@ define([], function () {
 
     function emptyState() {
         return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '' };
+    }
+
+    /**
+     * Pure (1.1.0): the qids a stored state holds answers or noted marks for that the registry no longer has (the v2
+     * registry removed fc_unknown, the old mcs_* rows, ...). They are ignored, never deleted; the caller logs them once
+     * (CDB DESIGNINFO_STATE_QID_UNKNOWN).
+     * @returns {string[]}
+     */
+    function unknownStateQids(state, questions) {
+        var known = {};
+        var out = [];
+        var k;
+        (questions || []).forEach(function (q) { known[q.qid] = true; });
+        for (k in ((state && state.answers) || {})) {
+            if (state.answers.hasOwnProperty(k) && !known[k]) {
+                out.push(k);
+            }
+        }
+        for (k in ((state && state.noted) || {})) {
+            if (state.noted.hasOwnProperty(k) && !known[k] && out.indexOf(k) < 0) {
+                out.push(k);
+            }
+        }
+        return out;
     }
 
     /** The section status codes as stored (v2) and as used. */
@@ -1023,6 +1087,8 @@ define([], function () {
     return {
         VERSION: VERSION,
         COLUMNS: COLUMNS,
+        COLUMNS_V2: COLUMNS_V2,
+        unknownStateQids: unknownStateQids,
         TYPES: TYPES,
         STORE: STORE,
         FROM_FIELD: FROM_FIELD,

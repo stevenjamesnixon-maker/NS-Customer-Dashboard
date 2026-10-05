@@ -48,23 +48,23 @@ function sectionIds(f) {
 
 // ---------------------------------------------------------------- the committed registry (amendment 1 §2)
 
-test('the committed registry parses: every field quoted, 0 rejected, 48 questions in 7 sections', function () {
+test('the committed registry parses (2.4.0: v2, 16 columns): every field quoted, 0 rejected, 45 questions in 6 sections', function () {
     var r = parse(REGISTRY);
     assert.strictEqual(r.status, 'ok');
+    assert.strictEqual(r.headerVersion, 2);
     assert.deepStrictEqual(r.rejected, []);
-    assert.strictEqual(r.questions.length, 48);
+    assert.strictEqual(r.questions.length, 45);
     assert.deepStrictEqual(di.sectionsOf(r.questions).map(function (s) { return s.id; }),
         ['project', 'plans', 'insulation', 'heating', 'heatpump', 'other']);
     // Amendment 1 §2: every non-empty label, hint, options, when and why is quoted.
     REGISTRY.split('\n').slice(1).filter(function (l) { return l; }).forEach(function (line) {
         var cells = di.parseCsv(line).rows[0];
-        assert.strictEqual(cells.length, 12, line);
+        assert.strictEqual(cells.length, 16, line);
     });
     assert.ok(REGISTRY.indexOf(',"Your heat pump: make, model and where it will go",') > 0);
     assert.ok(REGISTRY.indexOf(',"Screed floors: liquid or hand-mixed, and the depth",') > 0);
     assert.ok(REGISTRY.indexOf(',"Joisted floors: joist type, direction and spacing, and any steels",') > 0);
-    assert.ok(REGISTRY.indexOf(',"Roughly how far from the heat pump, in metres?",') > 0);
-    assert.ok(REGISTRY.indexOf(',"Rooms heated by radiators from the heat pump, not underfloor heating",') > 0);
+    assert.ok(REGISTRY.indexOf(',"How far is the heat pump from your nearest neighbour\'s window or door?",') > 0);
 });
 
 test('the committed registry: the corrected labels, the heat rows\' floor condition, goods_date is Note only', function () {
@@ -73,16 +73,17 @@ test('the committed registry: the corrected labels, the heat rows\' floor condit
     assert.strictEqual(q.heat_user_hp.label, 'Your heat pump: make, model and where it will go');
     assert.strictEqual(q.screed.label, 'Screed floors: liquid or hand-mixed, and the depth');
     assert.strictEqual(q.joists.label, 'Joisted floors: joist type, direction and spacing, and any steels');
-    assert.strictEqual(q.mcs_distance.label, 'Roughly how far from the heat pump, in metres?');
-    assert.strictEqual(q.rad_area.label, 'Rooms heated by radiators from the heat pump, not underfloor heating');
+    assert.strictEqual(q.nb_distance.label, 'How far is the heat pump from your nearest neighbour\'s window or door?');
     ['heat_boiler', 'heat_user_hp', 'heat_other', 'cylinder'].forEach(function (id) {
-        assert.ok(/;fc=solid,joisted,overfloor,acoustic,unknown$/.test(q[id].whenText), id);
+        assert.ok(/;service=ufh_plus,hp;fc=solid,joisted,overfloor,acoustic,unknown$/.test(q[id].whenText), id);
     });
-    assert.strictEqual(q.heat_boiler.whenText, 'heat=boiler;fc=solid,joisted,overfloor,acoustic,unknown');
+    assert.strictEqual(q.heat_boiler.whenText, 'heat=boiler;service=ufh_plus,hp;fc=solid,joisted,overfloor,acoustic,unknown');
     assert.strictEqual(q.goods_date.store, 'note', 'amendment 1 §1');
     assert.strictEqual(q.goods_date.field, '');
     assert.strictEqual(q.build_stage.optionsFromField, true);
     assert.strictEqual(q.ins_choice.field, 'custbody_pq_cylinder_location', 'the EPC/SAP field, deliberately');
+    // 2.4.0: no images yet.
+    Object.keys(q).forEach(function (id) { assert.strictEqual(q[id].image, '', id); });
 });
 
 // ---------------------------------------------------------------- parseRegistry
