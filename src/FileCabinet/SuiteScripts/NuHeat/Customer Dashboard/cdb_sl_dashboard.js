@@ -152,7 +152,11 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.5.1
+ * 2.5.2 (2.3c amendment 2): the element dropdown keeps Not sure and I'll describe it (and Built to current Building
+ * Regulations on an extension's card only; never Typical for the age); a card pre-filled with typical or regs shows that
+ * entry; Review rows carry required (an optional one not answered is left out).
+ *
+ * @version 2.5.2
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -161,7 +165,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.5.1';
+    var VERSION = '2.5.2';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1823,14 +1827,26 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         v.tag = designinfo.sourceTag(card, ctxC.band);
         v.epcSays = epcFill && epcFill.text && (epcFill.mixed || card.key === 'unsure') ? epcFill.text : '';
         v.epcMissing = !!(epcFill && epcFill.missing) && designinfo.cardSource(card) !== 'you';
+        // 2.5.2 (amendment 2, Steve to confirm): the presets, then Not sure and I'll describe it; Built to current Building
+        // Regulations only on an extension's card (there is no route question for it); Typical for the age never offered.
+        // A card pre-filled with typical or regs (a band or regs value that is a U-value) shows that one entry, as filled.
         v.elementOptions = ((ctxC.presets.byElement || {})[q.element] || []).map(function (p) {
             return { value: p.key, text: p.label + ' — about U ' + designinfo.uShow(p.u) };
         }).concat(designinfo.ELEMENT_SPECIALS.filter(function (x) {
-            return x.key !== 'typical' || market === 'reno';
-        }).map(function (x) { return { value: x.key, text: x.label }; }));
+            return x.key === 'unsure' || x.key === 'describe' || (x.key === 'regs' && q.ext) || x.key === card.key;
+        }).map(function (x) {
+            return { value: x.key, text: x.key === 'typical' || x.key === 'regs' ? specialText(card.key === x.key ? card : { key: x.key },
+                ctxC) : x.label };
+        }));
         // The JavaScript pre-fill (route or age changed on the page): what each choice would give this card.
         v.fillData = elementFillData(dc, v, market);
         return v;
+    }
+
+    /** 2.5.2: a typical / regs entry's text, as its line reads ("Typical for 1991 – 2002 — about U 0.45"). */
+    function specialText(card, ctxC) {
+        var parts = designinfo.composeElement({ key: card.key, u: '', notes: '', src: card.src }, ctxC);
+        return parts.label + (parts.u ? ' — about U ' + designinfo.uShow(parts.u) : '');
     }
 
     /** 2.5.0: the data the page's script uses to pre-fill a house card when the route or the age changes. */
@@ -1840,15 +1856,22 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         if (v.q.ext) {
             return null;
         }
+        var presets = content(dc, 'presets');
+        var regsRow = market === 'new' ? ages.regs_new : ages.regs_ext;
+        // "src|key|text": text only for typical / regs, which the select does not list until the script adds them (2.5.2).
+        function entry(f, band, regs) {
+            return designinfo.srcString(f.kind, f.key, f.u) + '|' + f.key + '|' + (f.key === 'typical' || f.key === 'regs' ?
+                specialText({ key: f.key }, { presets: presets, element: v.q.element, band: band, regs: regs }) : '');
+        }
         Object.keys(ages).forEach(function (k) {
             var f = /^regs_/.test(k) ? null : designinfo.bandFill('age', ages[k], v.q.element);
             if (f) {
-                out.age[k] = designinfo.srcString('age', f.key, f.u) + '|' + f.key;
+                out.age[k] = entry(f, ages[k], null);
                 out.tags.age[k] = 'Typical for ' + designinfo.bandText(ages[k]);
             }
         });
-        var r = designinfo.bandFill('regs', market === 'new' ? ages.regs_new : ages.regs_ext, v.q.element);
-        out.regs = r ? designinfo.srcString('regs', r.key, r.u) + '|' + r.key : null;
+        var r = designinfo.bandFill('regs', regsRow, v.q.element);
+        out.regs = r ? entry(r, null, regsRow) : null;
         return out;
     }
 
@@ -2051,7 +2074,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 var rows = [];
                 x.questions.forEach(function (v) {
                     if (v.q.type !== 'info' && v.q.revealed !== false) {
-                        rows.push({ label: v.q.label, value: reviewValue(dc, v) });
+                        rows.push({ label: v.q.label, value: reviewValue(dc, v), required: !!v.q.required });
                     }
                 });
                 return { id: x.id, title: x.title, status: x.status, href: x.href, rows: rows };

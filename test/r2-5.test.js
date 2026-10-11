@@ -58,17 +58,18 @@ test('registry v3: the 12-, 16- and 18-column headers all parse; reveal and shor
         'plans,P,main,a,text,A,,,note,N,,,,\n').status, 'invalid', 'v3 without the v2 columns');
 });
 
-test('registry v3: the committed file parses with 0 rejected, 86 questions; titles, shorts and minutes as §B5', function () {
+test('registry v3: the committed file parses with 0 rejected, 87 questions; titles, shorts and minutes as §B5', function () {
     var r = parse(REGISTRY);
     var steps = di.sectionsOf(r.questions);
     assert.strictEqual(r.status, 'ok');
     assert.strictEqual(r.headerVersion, 3);
     assert.deepStrictEqual(r.rejected, []);
-    assert.strictEqual(r.questions.length, 86);
+    // Amendment 2: dhw_info (the hot water line) added.
+    assert.strictEqual(r.questions.length, 87);
     assert.strictEqual(REGISTRY.split(/\r?\n/)[0], V3);
     assert.deepStrictEqual(steps.map(function (s) { return [s.id, s.title, s.short, s.minutes]; }), [
         ['project', 'Your project', 'Your project', 1],
-        ['plans', 'Your plans and layout', 'Plans and layout', 2],
+        ['plans', 'Your plans and layout', 'Plans', 2],
         ['insulation', 'Understanding the heat loss of your property', 'Heat loss', 5],
         ['heating', 'Heating and controls', 'Heating', 2],
         ['heatpump', 'Heat pump information required for MCS', 'Heat pump', 4],
@@ -245,21 +246,21 @@ test('stepsFor: requested empty means every allowed step; a subset; a ruled-out 
  * Heat loss for UFH Design + and HP Design; Heating whenever the floor needs pipe; Heat pump for a Nu-Heat heat pump.
  */
 var STEP_TABLE = {
-    'ufh solid boiler': 'Your project, Plans and layout, Heating, Anything else',
-    'ufh solid ashp': 'Your project, Plans and layout, Heating, Heat pump, Anything else',
-    'ufh hp boiler': 'Your project, Plans and layout, Anything else',
-    'ufh hp hpunknown': 'Your project, Plans and layout, Heat pump, Anything else',
-    'ufh_plus joisted boiler': 'Your project, Plans and layout, Heat loss, Heating, Anything else',
-    'ufh_plus joisted hybrid': 'Your project, Plans and layout, Heat loss, Heating, Heat pump, Anything else',
-    'ufh_plus overfloor userhp': 'Your project, Plans and layout, Heat loss, Heating, Anything else',
-    'ufh_plus hp ashp': 'Your project, Plans and layout, Heat loss, Heat pump, Anything else',
-    'hp solid ashp': 'Your project, Plans and layout, Heat loss, Heating, Heat pump, Anything else',
-    'hp solid boiler': 'Your project, Plans and layout, Heat loss, Heating, Anything else',
-    'hp joisted hpunknown': 'Your project, Plans and layout, Heat loss, Heating, Heat pump, Anything else',
-    'hp overfloor hybrid': 'Your project, Plans and layout, Heat loss, Heating, Heat pump, Anything else',
-    'hp hp ashp': 'Your project, Plans and layout, Heat loss, Heat pump, Anything else',
-    'hp hp boiler': 'Your project, Plans and layout, Heat loss, Anything else',
-    'hp hp userhp': 'Your project, Plans and layout, Heat loss, Anything else'
+    'ufh solid boiler': 'Your project, Plans, Heating, Anything else',
+    'ufh solid ashp': 'Your project, Plans, Heating, Heat pump, Anything else',
+    'ufh hp boiler': 'Your project, Plans, Anything else',
+    'ufh hp hpunknown': 'Your project, Plans, Heat pump, Anything else',
+    'ufh_plus joisted boiler': 'Your project, Plans, Heat loss, Heating, Anything else',
+    'ufh_plus joisted hybrid': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
+    'ufh_plus overfloor userhp': 'Your project, Plans, Heat loss, Heating, Anything else',
+    'ufh_plus hp ashp': 'Your project, Plans, Heat loss, Heat pump, Anything else',
+    'hp solid ashp': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
+    'hp solid boiler': 'Your project, Plans, Heat loss, Heating, Anything else',
+    'hp joisted hpunknown': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
+    'hp overfloor hybrid': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
+    'hp hp ashp': 'Your project, Plans, Heat loss, Heat pump, Anything else',
+    'hp hp boiler': 'Your project, Plans, Heat loss, Anything else',
+    'hp hp userhp': 'Your project, Plans, Heat loss, Anything else'
 };
 var HEATS = { boiler: [['boiler'], []], ashp: [['nuheat_hp', 'ashp'], ['ashp']], hpunknown: [['nuheat_hp'], ['unknown']],
     hybrid: [['boiler', 'nuheat_hp', 'ashp'], ['ashp']], userhp: [['user_hp'], []] };
@@ -279,9 +280,9 @@ test('the visible-step table: services x floor constructions x heat sets (short 
         }).map(function (q) { return q.qid; }).join(' ');
     }
     assert.strictEqual(hpQids(['nuheat_hp', 'ashp'], ['ashp']), 'hp_loc_plan hp_loc_files hp_loc reflect barrier distance ' +
-        'buffer_plan buffer_files buffer cyl_plan cyl_files cyl dhw');
+        'buffer_plan buffer_files buffer cyl_plan cyl_files cyl dhw_info dhw');
     assert.strictEqual(hpQids(['nuheat_hp', 'gshp_loop'], ['gshp_loop']), 'hp_loc_plan hp_loc_files hp_loc loop_plan loop_files ' +
-        'loop_area buffer_plan buffer_files buffer cyl_plan cyl_files cyl dhw');
+        'loop_area buffer_plan buffer_files buffer cyl_plan cyl_files cyl dhw_info dhw');
     assert.ok(/^hp_type .*reflect.*loop_plan.*bore_plan/.test(hpQids(['nuheat_hp'], ['unknown'])));
 });
 
@@ -412,7 +413,7 @@ test('state: rq is read, written, merged and kept by stateTextGuarded; a v2 stat
 // ---------------------------------------------------------------- the flow (the dashboard Suitelet)
 
 var INS = { step: 'insulation', nav: 'stay', q_ptype: '2', q_market: '8', q_age: '2', q_has_ext: 'no', q_drawings: 'yes',
-    q_ins_route_reno: '3' };
+    q_ins_route_reno: '2' };
 
 function merge(a, b) {
     var o = {};
@@ -426,7 +427,7 @@ function cardIn(html, qid) {
     var seg = html.slice(html.indexOf('id="q-' + qid + '"'));
     seg = seg.slice(0, seg.indexOf('</fieldset>'));
     return { key: (seg.match(/<option value="([^"]*)" selected/) || [])[1] || '', src: (seg.match(/_src" value="([^"]*)"/) || [])[1],
-        tag: (seg.match(/class="eltag"[^>]*>([^<]*)/) || [])[1], u: (seg.match(/_u" value="([^"]*)"/) || [])[1] };
+        tag: (seg.match(/eltag"[^>]*>([^<]*)/) || [])[1], u: (seg.match(/_u" value="([^"]*)"/) || [])[1] };
 }
 
 test('POST with reveal: a hidden question\'s answer is ignored (not validated, written or noted); required only when ' +
@@ -756,6 +757,18 @@ function sendPage(t, method, params) {
     return out.form;
 }
 
+/** Amendment 2: the step tick boxes, from the one "Steps to ask for" block: [name, (title,) 'T'|'F']. */
+function ticks(form, withTitle) {
+    var html = field(form, 'custpage_steps').defaultValue;
+    var out = [];
+    var re = /<input type="checkbox" name="(custpage_step_[a-z0-9_]+)" value="T"( checked)?> ([^<]*)<\/label>/g;
+    var m;
+    while ((m = re.exec(html))) {
+        out.push(withTitle ? [m[1], m[3], m[2] ? 'T' : 'F'] : [m[1], m[2] ? 'T' : 'F']);
+    }
+    return out;
+}
+
 function field(form, id) {
     return form.fields.filter(function (f) { return f.id === id; })[0];
 }
@@ -770,30 +783,29 @@ test('stepsFor: the SAME list on the stepper, Review, the request page, the requ
     var rq = ['project', 'plans', 'heating', 'other'];
     var t = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith(rq) } });
     var titles = ['Your project', 'Your plans and layout', 'Heating and controls', 'Anything else for your Project Engineer?'];
-    var shorts = ['Your project', 'Plans and layout', 'Heating', 'Anything else'];
+    // Amendment 2: the step bar shows the short labels; the email lists the long titles.
+    var shorts = ['Your project', 'Plans', 'Heating', 'Anything else'];
     // The stepper's step bar (then Review).
     var bar = (v3.step(t, 'plans').match(/<span class="stitle">[^<]*<\/span>/g) || []).map(function (x) {
         return x.replace(/<[^>]+>/g, '');
     });
-    assert.deepStrictEqual(bar, titles.concat(['Review and send']), 'the stepper');
+    assert.deepStrictEqual(bar, shorts.concat(['Review and send']), 'the stepper');
     assert.strictEqual(v3.step(t, 'insulation').indexOf('<h1 id="h-step">Understanding'), -1, 'not requested: not a step');
     var rv = (v3.step(t, 'review').match(/<h2 id="rv-[^"]+">[^<]*/g) || []).map(function (x) { return x.replace(/<[^>]+>/g, ''); });
     assert.deepStrictEqual(rv, titles, 'Review');
     // The request page: "will be asked about", and the ticks pre-ticked from rq.
     var form = sendPage(t, 'GET');
     assert.ok(form.fields[0].defaultValue.indexOf('<td style="padding:4px 0">' + titles.join(', ') + '</td>') > 0, 'the request page');
-    assert.deepStrictEqual(form.fields.filter(function (f) { return f.type === 'CHECKBOX'; }).map(function (f) {
-        return [f.id, f.label, f.defaultValue];
-    }), [['custpage_step_plans', 'Your plans and layout', 'T'], ['custpage_step_insulation',
+    assert.deepStrictEqual(ticks(form, true), [['custpage_step_plans', 'Your plans and layout', 'T'], ['custpage_step_insulation',
         'Understanding the heat loss of your property', 'F'], ['custpage_step_heating', 'Heating and controls', 'T'],
         ['custpage_step_heatpump', 'Heat pump information required for MCS', 'F']]);
     // The email, sent with those ticks.
     sendPage(t, 'POST', { custpage_step_plans: 'T', custpage_step_heating: 'T' });
     var body = t.w.emails[0].body;
-    shorts.forEach(function (s, i) {
+    titles.forEach(function (s, i) {
         assert.ok(body.indexOf('<b>' + (i + 1) + '</b>') > 0 && body.indexOf('<b>' + s + '</b>') > 0, 'the email: ' + s);
     });
-    assert.strictEqual(body.indexOf('<b>Heat loss</b>'), -1);
+    assert.strictEqual(body.indexOf('<b>Understanding the heat loss of your property</b>'), -1);
     assert.strictEqual(body.indexOf('<b>5</b>'), -1, 'four steps');
     // The card: "about N minutes" is the requested steps' minutes (1 + 2 + 2 + 1).
     var dash = v3.run(t, 'GET', { t: t.tok });
@@ -814,9 +826,8 @@ test('the request page: a crafted tick for a ruled-out step is dropped; rq is st
     var t = v3.setup({ opp: { custbody_heat_source_type_26: ['10'], custbody_cdb_designinfo_state: stateWith([], {
         a: { has_ext: 'no' }, s: { plans: { at: '2026-10-01T10:00Z', st: 'done' } } }) } });
     var form = sendPage(t, 'GET');
-    assert.deepStrictEqual(form.fields.filter(function (f) { return f.type === 'CHECKBOX'; }).map(function (f) {
-        return [f.id, f.defaultValue];
-    }), [['custpage_step_plans', 'T'], ['custpage_step_insulation', 'T'], ['custpage_step_heating', 'T']],
+    assert.deepStrictEqual(ticks(form), [['custpage_step_plans', 'T'], ['custpage_step_insulation', 'T'],
+        ['custpage_step_heating', 'T']],
         'no earlier request: every step ticked; the heat pump step is not offered');
     sendPage(t, 'POST', { custpage_step_insulation: 'T', custpage_step_heatpump: 'T', custpage_step_bogus: 'T' });
     var st = v3.state(t.w);
@@ -826,17 +837,16 @@ test('the request page: a crafted tick for a ruled-out step is dropped; rq is st
     assert.ok(v3.logs(t.w, 'DESIGNINFO_REQUESTED')[0][2].indexOf('asking about: Your project, Understanding the heat loss of ' +
         'your property, Anything else for your Project Engineer? (rq project,insulation,other)') > 0);
     form = sendPage(t, 'GET');
-    assert.deepStrictEqual(form.fields.filter(function (f) { return f.type === 'CHECKBOX'; }).map(function (f) {
-        return [f.id, f.defaultValue];
-    }), [['custpage_step_plans', 'F'], ['custpage_step_insulation', 'T'], ['custpage_step_heating', 'F']], 'pre-ticked from rq');
+    assert.deepStrictEqual(ticks(form), [['custpage_step_plans', 'F'], ['custpage_step_insulation', 'T'],
+        ['custpage_step_heating', 'F']], 'pre-ticked from rq');
     // Nothing ticked: project and other only (allowed), never "everything".
     sendPage(t, 'POST', {});
     assert.deepStrictEqual(v3.state(t.w).rq, ['project', 'other']);
     var bar = v3.step(t, 'project');
-    assert.strictEqual(bar.indexOf('Your plans and layout</span>'), -1);
+    assert.strictEqual(bar.indexOf('<span class="stitle">Plans</span>'), -1);
     // A 2.3 / 2.3b request (no rq): every allowed step on the page.
     var old = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith(undefined) } });
-    assert.ok(v3.step(old, 'project').indexOf('<span class="stitle">Heat pump information required for MCS</span>') > 0);
+    assert.ok(v3.step(old, 'project').indexOf('<span class="stitle">Heat pump</span>') > 0);
 });
 
 test('fix the facts: shown when the heat source and the FC are empty or unmapped; "Update and recheck" writes only those ' +
@@ -1039,3 +1049,181 @@ test('A1. another home above or below: presets of U 0 ("U 0.00"), mapped from th
         assert.strictEqual(v3.oppWrites(t.w)[0].values.custbody_existing_floors_2026,
             'Another home below (no heat loss through it) · U 0.00 (preset)');
     });
+
+// ---------------------------------------------------------------- 2.3c amendment 2: the page script
+
+var vm = require('vm');
+
+function scriptsOf(html) {
+    var out = [];
+    var re = /<script>([\s\S]*?)<\/script>/g;
+    var m;
+    while ((m = re.exec(html))) {
+        out.push(m[1]);
+    }
+    return out;
+}
+
+test('A2. every inline script parses (vm.Script), on every step and Review, for HP and UFH, an extension and a new build',
+    function () {
+        var worlds = [
+            ['HP Design, ASHP, renovation', {}],
+            ['UFH Design, boiler', { custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }],
+            ['an extension', { custbody_cdb_designinfo_state: JSON.stringify({ v: 2, s: {}, a: { has_ext: 'yes', ext_count: 'Two',
+                ext1_walls_same: 'Different' }, f: [], req: '', sent: '', task: '' }), custbody15: '1950 – 1975',
+                custbody_pq_cylinder_location: 'Typical for the age of my property' }],
+            ['a new build', { custbody_mis_opp_market: '9', custbody_pq_cylinder_location: 'Built to current Building Regulations' }]
+        ];
+        var parsed = 0;
+        worlds.forEach(function (wv) {
+            var t = v3.setup({ opp: wv[1] });
+            ['project', 'plans', 'insulation', 'heating', 'heatpump', 'other', 'review'].forEach(function (id) {
+                var html = v3.step(t, id);
+                scriptsOf(html).forEach(function (body) {
+                    assert.doesNotThrow(function () { new vm.Script(body); }, wv[0] + ', ' + id);
+                    parsed += 1;
+                });
+            });
+            scriptsOf(v3.run(t, 'GET', { t: t.tok })).forEach(function (body) { new vm.Script(body); parsed += 1; });
+        });
+        assert.ok(parsed > 20, parsed + ' scripts parsed');
+    });
+
+/**
+ * A tiny DOM for the reveal script: the form, its radios (name, value, data-key, checked) and its reveal panels (id,
+ * data-reveal, hidden), read from the rendered HTML. Selectors the script uses that it does not model match nothing.
+ */
+function tinyDom(html) {
+    function unesc(x) {
+        return x.replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    }
+    function attrs(tag) {
+        var a = {};
+        var re = /([a-z-]+)(?:="([^"]*)")?/g;
+        var m;
+        tag = tag.replace(/^<[a-z]+/, '');
+        while ((m = re.exec(tag))) {
+            a[m[1]] = m[2] === undefined ? '' : unesc(m[2]);
+        }
+        return a;
+    }
+    function el(a) {
+        return { attrs: a, hidden: false, checked: a.hasOwnProperty('checked'), value: a.value || '', name: a.name || '',
+            getAttribute: function (n) { return a.hasOwnProperty(n) ? a[n] : null; } };
+    }
+    var listeners = [];
+    var form = { addEventListener: function (type, fn) { if (type === 'change') { listeners.push(fn); } } };
+    var inputs = (html.match(/<input [^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
+    var panels = (html.match(/<div class="rvp"[^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
+    inputs.concat(panels).forEach(function (x) { x.parentNode = form; });
+    form.querySelectorAll = function (sel) {
+        var m = /^input\[name='([^']+)'\]$/.exec(sel);
+        if (sel === '[data-reveal]') {
+            return panels;
+        }
+        if (m) {
+            return inputs.filter(function (x) { return x.name === m[1]; });
+        }
+        return [];
+    };
+    var doc = {
+        getElementById: function (id) {
+            if (id === 'diform') {
+                return form;
+            }
+            return panels.filter(function (p) { return p.attrs.id === id; })[0] || null;
+        },
+        documentElement: { className: '' },
+        querySelectorAll: function () { return []; },
+        querySelector: function () { return null; },
+        createElement: function () { return {}; }
+    };
+    return { document: doc, window: { JSON: JSON }, JSON: JSON, form: form, inputs: inputs, panel: function (qid) {
+        return panels.filter(function (p) { return p.attrs.id === 'rp-' + qid; })[0];
+    }, choose: function (name, value) {
+        inputs.forEach(function (x) { if (x.name === name) { x.checked = x.value === value; } });
+        listeners.forEach(function (fn) { fn({ target: inputs.filter(function (x) { return x.name === name && x.checked; })[0] }); });
+    } };
+}
+
+test('A2. the reveal script runs: rp-flat_floor hidden until ptype=flat; market and extension panels follow the answers',
+    function () {
+        var t = v3.setup();
+        var html = v3.step(t, 'insulation');
+        var dom = tinyDom(html);
+        scriptsOf(html).forEach(function (body) {
+            vm.runInNewContext(body, { document: dom.document, window: dom.window, JSON: JSON });
+        });
+        assert.strictEqual(dom.panel('flat_floor').hidden, true, 'no property type: hidden');
+        assert.strictEqual(dom.panel('age').hidden, false, 'Renovation is stored: the age shows');
+        assert.strictEqual(dom.panel('ext_count').hidden, true, 'no extension answer: hidden');
+        dom.choose('q_ptype', '2');
+        assert.strictEqual(dom.panel('flat_floor').hidden, true, 'semi-detached: still hidden');
+        dom.choose('q_ptype', '6');
+        assert.strictEqual(dom.panel('flat_floor').hidden, false, 'flat: shown');
+        dom.choose('q_has_ext', 'yes');
+        assert.strictEqual(dom.panel('ext_count').hidden, false);
+        assert.strictEqual(dom.panel('ext1_what').hidden, false);
+        assert.strictEqual(dom.panel('ext2_what').hidden, true, 'one extension until Two');
+        dom.choose('q_ext_count', '1');
+        assert.strictEqual(dom.panel('ext2_what').hidden, false);
+        dom.choose('q_market', '9');
+        assert.strictEqual(dom.panel('age').hidden, true, 'new build: no age');
+        assert.strictEqual(dom.panel('ext1_what').hidden, true, 'the cascade: has_ext hidden hides the extension');
+        assert.strictEqual(dom.panel('ins_route_new').hidden, false);
+    });
+
+test('A2. the step bar and Review\'s prompts use the short labels; the element cards; the route tiles; hot water',
+    function () {
+        var t = v3.setup({ opp: { custbody_pq_cylinder_location: 'Typical for the age of my property', custbody15: '1991 – 2002' } });
+        var html = v3.step(t, 'insulation');
+        assert.deepStrictEqual((html.match(/<span class="stitle">[^<]*/g) || []).map(function (x) {
+            return x.replace('<span class="stitle">', '');
+        }),
+            ['Your project', 'Plans', 'Heat loss', 'Heating', 'Heat pump', 'Anything else', 'Review and send']);
+        assert.ok(html.indexOf('<h1 id="h-step">Understanding the heat loss of your property</h1>') > 0, 'the long title stays');
+        // The element cards: a grid, the title, the tag as a chip under it, "Which is closest?".
+        assert.ok(html.indexOf('<section class="card elgrid">') > 0);
+        assert.ok(/<legend class="eltitle">Walls<span class="req">Needed<\/span><\/legend><span class="chip chip-optional eltag" aria-live="polite">Typical for 1991 – 2002<\/span>/
+            .test(html));
+        assert.ok(html.indexOf('<label class="lbl" for="di-el_windows">Which is closest?</label>') > 0);
+        assert.strictEqual(html.indexOf('What is it made of?'), -1);
+        // The dropdown: Not sure and I'll describe it; no Typical for the age; no Regs on a house card; a card pre-filled
+        // with a typical U shows that one entry.
+        var walls = html.slice(html.indexOf('id="di-el_walls"'), html.indexOf('</select>', html.indexOf('id="di-el_walls"')));
+        assert.ok(walls.indexOf('value="unsure"') > 0 && walls.indexOf('value="describe"') > 0);
+        assert.strictEqual(walls.indexOf('value="typical"'), -1);
+        assert.strictEqual(walls.indexOf('value="regs"'), -1);
+        var floor = html.slice(html.indexOf('id="di-el_floor"'), html.indexOf('</select>', html.indexOf('id="di-el_floor"')));
+        assert.ok(floor.indexOf('<option value="typical" selected>Typical for 1991 – 2002 — about U 0.45</option>') > 0, floor);
+        // The route tiles: 2 x 2, in the design order.
+        assert.ok(html.indexOf('[data-role=route] .opts{grid-template-columns:1fr 1fr}') > 0);
+        var route = html.slice(html.indexOf('name="q_ins_route_reno"') - 200);
+        assert.deepStrictEqual((route.slice(0, route.indexOf('</fieldset>')).match(/<span class="ot">[^<]*/g) || []).map(function (x) {
+            return x.slice(17);
+        }), ['Upload my SAP calculation', 'Find my EPC', 'Typical for the age of my property', 'I&#39;ll describe it']);
+        // An extension's "Different" card offers Regs.
+        var ext = html.slice(html.indexOf('id="di-ext1_walls"'), html.indexOf('</select>', html.indexOf('id="di-ext1_walls"')));
+        assert.ok(ext.indexOf('value="regs"') > 0);
+        // Hot water: the line, then the optional question; not answered, it is not on Review.
+        var hp = v3.step(t, 'heatpump');
+        assert.ok(hp.indexOf('We size your hot water from the number of bedrooms we hold for your home') > 0);
+        assert.ok(hp.indexOf('<textarea class="inp" id="di-dhw" name="q_dhw"') > 0, 'a question, not read-only');
+        var rv = v3.step(t, 'review');
+        assert.strictEqual(rv.indexOf('Any specific hot water needs?'), -1, 'optional, not answered: left out');
+        assert.ok(rv.indexOf('Nearly there.') > 0 && rv.indexOf('Go to Your project') < 0);
+        assert.ok(/Go to (Plans|Heat loss|Heating|Heat pump)</.test(rv), 'the short label in "Go to"');
+    });
+
+test('A2. the request page: the steps in one block, in step order, Your project and Anything else as fixed lines', function () {
+    var t = v3.setup();
+    var form = sendPage(t, 'GET');
+    var html = field(form, 'custpage_steps').defaultValue;
+    assert.strictEqual(form.fields.filter(function (f) { return f.type === 'CHECKBOX'; }).length, 0);
+    assert.ok(html.indexOf('<p style="font-weight:600;margin:0 0 6px">Steps to ask for</p>') > 0);
+    assert.deepStrictEqual((html.match(/> [^<]*<\/label>/g) || []).map(function (x) { return x.slice(2, -8); }),
+        ['Your project (always included)', 'Your plans and layout', 'Understanding the heat loss of your property',
+            'Heating and controls', 'Heat pump information required for MCS',
+            'Anything else for your Project Engineer? (always included)']);
+    assert.strictEqual((html.match(/checked disabled/g) || []).length, 2);
+});

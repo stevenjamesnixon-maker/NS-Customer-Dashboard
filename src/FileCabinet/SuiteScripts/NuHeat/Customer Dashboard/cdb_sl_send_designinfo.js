@@ -52,7 +52,10 @@
  * @NModuleScope SameAccount
  * 1.1.1 (2.3c amendment 1): the email's subtitle time is the asked steps' minutes summed (none: no time).
  *
- * @version 1.1.1
+ * 1.1.2 (2.3c amendment 2): the step tick boxes in one block under "Steps to ask for" (Your project and Anything else as
+ * fixed lines); the email lists the steps' long titles.
+ *
+ * @version 1.1.2
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -60,7 +63,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.1.1';
+    var VERSION = '1.1.2';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 
@@ -249,12 +252,18 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
             '<table style="font-size:14px;border-collapse:collapse">' + rows.map(function (r) {
                 return '<tr><td style="padding:4px 16px 4px 0;color:#666;vertical-align:top">' + render.esc(r[0]) +
                     '</td><td style="padding:4px 0">' + render.esc(r[1]) + '</td></tr>';
-            }).join('') + '</table>' + (p.tickable.length ? '<p style="font-size:14px;margin:12px 0 0">Ask about these steps ' +
-            '(Your project and Anything else are always asked):</p>' : '');
-        p.tickable.forEach(function (st) {
-            form.addField({ id: FIELD_STEP + st.id, type: serverWidget.FieldType.CHECKBOX, label: st.title }).defaultValue =
-                ticked.indexOf(st.id) >= 0 ? 'T' : 'F';
-        });
+            }).join('') + '</table>';
+        // 1.1.2 (amendment 2): the step tick boxes in ONE block, one per line, in step order, under "Steps to ask for"; Your
+        // project and Anything else as fixed lines. Plain checkboxes posting custpage_step_<id>=T, as the CHECKBOX fields did.
+        form.addField({ id: 'custpage_steps', type: serverWidget.FieldType.INLINEHTML, label: ' ' }).defaultValue =
+            '<div style="font-size:14px;margin:16px 0 0"><p style="font-weight:600;margin:0 0 6px">Steps to ask for</p>' +
+            p.allowed.map(function (st) {
+                var always = designinfo.ALWAYS_STEPS.indexOf(st.id) >= 0;
+                return '<label style="display:block;padding:3px 0' + (always ? ';color:#666' : '') + '"><input type="checkbox"' +
+                    (always ? ' checked disabled' : ' name="' + FIELD_STEP + render.esc(st.id) + '" value="T"' +
+                    (ticked.indexOf(st.id) >= 0 ? ' checked' : '')) + '> ' + render.esc(st.title) +
+                    (always ? ' (always included)' : '') + '</label>';
+            }).join('') + '</div>';
         // 1.1.0: fix the facts first, when they are missing or unmapped.
         if (p.fix.heat || p.fix.fc) {
             options = factOptions(p.opp.id);
@@ -381,7 +390,8 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
                 sender: am,
                 senderRole: p.sender.role,
                 peName: pe && !pe.isInactive ? pe.name : '',
-                askList: asked.map(function (st) { return st.short; }),
+                // 1.1.2 (amendment 2): the long titles (the step bar has the short ones).
+                askList: asked.map(function (st) { return st.title; }),
                 // 1.1.1: the subtitle's time, the same sum as the card's ("about N minutes"; 0: no time).
                 minutes: designinfo.stepsMinutes(asked)
             });

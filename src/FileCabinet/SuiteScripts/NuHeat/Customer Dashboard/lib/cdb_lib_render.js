@@ -87,13 +87,18 @@
  *
  * 2.5.1 (2.3c amendment 1): the request email's subtitle time is computed (m.minutes; none: SUB_NO_TIME).
  *
- * @version 2.5.1
+ * 2.5.2 (2.3c amendment 2): the reveal script's selectors single-quote their attribute values (2.5.0's \" was read as a
+ * bare " and the script did not parse); the step bar and Review's "still need you" use the short labels; the element
+ * cards as designed (a 2 x 2 grid, the title, the tag as a chip, "Which is closest?" or the row's hint); the route tiles
+ * 2 x 2; Review leaves out an optional question not answered.
+ *
+ * @version 2.5.2
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.5.1';
+    var VERSION = '2.5.2';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -2748,12 +2753,17 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var id = 'di-' + q.qid;
         var off = m.mode === 'view' ? ' disabled' : '';
         var describe = c.key === 'describe';
+        var tag = qm.epcMissing ? t.EL_EPC_MISSING : (qm.tag || '');
+        // 2.5.1 (amendment 2): a card titled by its element, the source tag as a chip under the title, then the select
+        // (labelled by the row's hint, else "Which is closest?"), the exact U-value and the notes.
         return '<div class="dq el" id="q-' + esc(q.qid) + '"' + (qm.fillData ? ' data-fill="' + esc(JSON.stringify(qm.fillData)) +
-            '"' : '') + '><fieldset><legend>' + esc(q.label) + (q.required ? '<span class="req">' + esc(DESIGN_TEXT.REQUIRED) +
-            '</span>' : '') + '</legend>' + whyToggle(q) + fieldError(e, q.qid) +
+            '"' : '') + '><fieldset><legend class="eltitle">' + esc(q.label) + (q.required ? '<span class="req">' +
+            esc(DESIGN_TEXT.REQUIRED) + '</span>' : '') + '</legend>' +
+            '<span class="chip chip-optional eltag" aria-live="polite"' + (tag ? '' : ' hidden') + '>' + esc(tag) + '</span>' +
+            whyToggle(q) + fieldError(e, q.qid) +
             (qm.prose ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_HAVE, { text: qm.prose })) + '</p>' : '') +
             (qm.epcSays ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_EPC_SAYS, { text: qm.epcSays })) + '</p>' : '') +
-            '<label class="lbl" for="' + esc(id) + '">' + esc(t.EL_CHOOSE) + '</label>' +
+            '<label class="lbl" for="' + esc(id) + '">' + esc(q.hint || t.EL_CHOOSE) + '</label>' +
             '<select class="inp" id="' + esc(id) + '" name="' + esc(name) + '"' + off + describedBy(e, q.qid) + '><option value="">' +
             esc(t.EL_PICK) + '</option>' + (qm.elementOptions || []).map(function (o) {
                 return '<option value="' + esc(o.value) + '"' + (o.value === c.key ? ' selected' : '') + '>' + esc(o.text) + '</option>';
@@ -2765,7 +2775,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<input class="inp" type="text" id="' + esc(id) + '-notes" name="' + esc(name) + '_notes" value="' + esc(c.notes) +
             '" maxlength="300"' + off + '>' +
             '<input type="hidden" name="' + esc(name) + '_src" value="' + esc(c.src || 'you') + '">' +
-            '<p class="eltag" aria-live="polite">' + esc(qm.epcMissing ? t.EL_EPC_MISSING : (qm.tag || '')) + '</p>' +
             '</fieldset></div>';
     }
 
@@ -2838,26 +2847,32 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * "you") takes the age band's or the regs row's value; a card the customer changes becomes "you".
      */
     var REVEAL_SCRIPT = [
+        // 2.5.1 (amendment 2): the attribute values inside these selectors are SINGLE-quoted (\' here, ' as served). 2.5.0
+        // wrote \" inside these single-quoted strings, which JavaScript reads as a bare ", so the served script did not parse
+        // (SyntaxError) and none of it ran. test/r2-5.test.js parses every inline script of every step with vm.Script.
         '(function(){var f=document.getElementById("diform");if(!f||!f.querySelectorAll||!window.JSON)return;',
         'var ps=f.querySelectorAll("[data-reveal]");',
-        'function key(q){var r=f.querySelectorAll("input[name=\"q_"+q+"\"]"),i;if(!r.length)return null;',
+        'function key(q){var r=f.querySelectorAll("input[name=\'q_"+q+"\']"),i;if(!r.length)return null;',
         'for(i=0;i<r.length;i++){if(r[i].checked)return r[i].getAttribute("data-key")||r[i].value;}return "";}',
         'function hid(q){var p=document.getElementById("rp-"+q);return !!(p&&p.hidden);}',
         'function vis(el){while(el&&el!==f){if(el.hidden)return false;el=el.parentNode;}return true;}',
-        'function role(n){var s=f.querySelectorAll("[data-role=\""+n+"\"] input:checked"),i;',
+        'function role(n){var s=f.querySelectorAll("[data-role=\'"+n+"\'] input:checked"),i;',
         'for(i=0;i<s.length;i++){if(vis(s[i]))return s[i].getAttribute("data-key")||"";}return "";}',
         'function run(){var i,j,k,sp,ok,a,c,v;for(i=0;i<ps.length;i++){sp=JSON.parse(ps[i].getAttribute("data-reveal"));ok=false;',
         'for(j=0;j<sp.length&&!ok;j++){a=sp[j];ok=true;for(k=0;k<a.length&&ok;k++){c=a[k];v=key(c[0]);',
         'if(v===null)continue;if(hid(c[0])||c[1].indexOf(v)<0)ok=false;}}ps[i].hidden=!ok;}}',
+        'function opt(s,v,x){var o,i;for(i=0;i<s.options.length;i++){if(s.options[i].value===v)return;}',
+        'if(!x)return;o=document.createElement("option");o.value=v;o.text=x;s.appendChild(o);}',
         'function prefill(){var r=role("route"),g=role("age"),cs=f.querySelectorAll(".el[data-fill]"),i,d,s,u,h,t,v,p;',
         'for(i=0;i<cs.length;i++){d=JSON.parse(cs[i].getAttribute("data-fill"));s=cs[i].querySelector("select");',
-        'u=cs[i].querySelector("input[name$=\"_u\"]");h=cs[i].querySelector("input[name$=\"_src\"]");t=cs[i].querySelector(".eltag");',
+        'u=cs[i].querySelector("input[name$=\'_u\']");h=cs[i].querySelector("input[name$=\'_src\']");t=cs[i].querySelector(".eltag");',
         'if(!s||!h)continue;if(h.value.indexOf("you")===0&&(s.value!==""||(u&&u.value!=="")))continue;',
-        'v=r==="typical"?d.age[g]:r==="regs"?d.regs:null;if(!v)continue;p=v.split("|");s.value=p[1];if(u)u.value="";h.value=p[0];',
-        'if(t)t.textContent=r==="typical"?(d.tags.age[g]||""):d.tags.regs;}}',
+        'v=r==="typical"?d.age[g]:r==="regs"?d.regs:null;if(!v)continue;p=v.split("|");opt(s,p[1],p[2]);s.value=p[1];',
+        'if(u)u.value="";h.value=p[0];if(t){t.textContent=r==="typical"?(d.tags.age[g]||""):d.tags.regs;t.hidden=false;}}}',
         'f.addEventListener("change",function(e){var n=e.target&&e.target.name||"";',
         'if(/^q_.+(_u)?$/.test(n)&&e.target.closest&&e.target.closest(".el")){var c=e.target.closest(".el"),',
-        'h=c.querySelector("input[name$=\"_src\"]"),t=c.querySelector(".eltag");if(h)h.value="you";if(t)t.textContent="You chose this";}',
+        'h=c.querySelector("input[name$=\'_src\']"),t=c.querySelector(".eltag");if(h)h.value="you";',
+        'if(t){t.textContent="You chose this";t.hidden=false;}}',
         'run();prefill();});run();})();'
     ].join('');
 
@@ -2928,7 +2943,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         W_FILES: 'We couldn’t save one of your files. Please try again, or email it to {name}.',
         W_PARTIAL: 'Some answers couldn’t be saved to your project just now, but {name} has them.',
         // 2.5.0 (release 2.3c): the element cards, the EPC lookup.
-        EL_CHOOSE: 'What is it made of?',
+        EL_CHOOSE: 'Which is closest?',
         EL_PICK: 'Choose the closest',
         EL_U: 'I know the exact U-value (optional)',
         EL_U_UNIT: 'W/m²K',
@@ -3011,9 +3026,18 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '.js .rvif{display:none}',
             '.rvp[hidden]{display:none}',
             '.rvp > .dq{border-top:0;padding-top:0}',
-            '.el fieldset{display:flex;flex-direction:column;gap:6px}',
+            '.el fieldset{display:flex;flex-direction:column;gap:6px;margin:0}',
+            '.el{border:1px solid ' + c.BORDER + ';border-radius:10px;padding:14px 16px;background:#fff}',
+            '.rvp > .dq.el{border-top:1px solid ' + c.BORDER + ';padding-top:14px}',
+            '.eltitle{font-size:17px;font-weight:700;padding:0}',
+            '.eltag{align-self:flex-start;margin-left:0}',
+            '.eltag[hidden]{display:none}',
+            '.elgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}',
+            '.elgrid > .rvp{border-top:0;padding-top:0}',
+            '[data-role=route] .opts{grid-template-columns:1fr 1fr}',
+            '@media (max-width:700px){.elgrid{grid-template-columns:minmax(0,1fr)}}',
+            '@media (max-width:600px){[data-role=route] .opts{grid-template-columns:minmax(0,1fr)}}',
             '.urow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
-            '.eltag{margin:0;font-size:13px;color:' + c.MUTED + '}',
             '.os{display:block;font-size:14px;color:' + c.MUTED + '}',
             '.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}',
             '.pic{display:flex;flex-direction:column;gap:6px;border:1px solid ' + c.BORDER + ';border-radius:8px;padding:8px;cursor:pointer}',
@@ -3110,11 +3134,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var html = stops.map(function (s, i) {
             var cls = (s.status === 'done' ? 'sdone' : '') + (s.id === m.currentId ? ' scur' : '');
             var inner = '<span class="scirc" aria-hidden="true">' + (s.status === 'done' ? '✓' : (i + 1)) + '</span>' +
-                '<span class="stitle">' + esc(s.title) + '</span>';
+                '<span class="stitle">' + esc(s.short || s.title) + '</span>';
             var label = esc(fill(STEP_TEXT.STEP_OF, { n: i + 1, total: stops.length }) + ': ' + s.title +
                 (s.status === 'done' ? ', done' : ''));
             if (s.id === m.currentId) {
-                current = s.title;
+                current = s.short || s.title;
             }
             return '<li class="' + cls + '">' + (inForm ? '<button type="submit" class="sstop" form="diform" name="goto" value="' +
                 esc(s.id) + '" aria-label="' + label + '"' + (s.id === m.currentId ? ' aria-current="step"' : '') + '>' + inner +
@@ -3208,7 +3232,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
             '<input type="hidden" name="step" value="' + esc(st.id) + '">';
         panels.forEach(function (p) {
-            body += '<section class="card">' + byPanel[p].map(function (qm) {
+            // 2.5.1: a panel of element cards is a 2 x 2 grid (one column below 700 px).
+            var grid = byPanel[p].every(function (qm) { return qm.q.type === 'element'; });
+            body += '<section class="card' + (grid ? ' elgrid' : '') + '">' + byPanel[p].map(function (qm) {
                 return revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
             }).join('') + '</section>';
         });
@@ -3238,7 +3264,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     /** Review: a section's rows in question order; the unanswered ones only in a step still to do. */
     function rowsOf(s) {
-        return (s.rows || []).filter(function (x) { return !!x.value || s.status === 'todo'; });
+        // 2.5.1: an optional question not answered is left out ("Not answered yet" is for a needed one).
+        return (s.rows || []).filter(function (x) { return !!x.value || (s.status === 'todo' && x.required !== false); });
     }
 
     /**
@@ -3266,10 +3293,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             body += '<div class="notice" role="status">' + esc(t.VIEW_REVIEW) + (how ? ' Need to change something? ' + how + '.' : '') +
                 '</div>';
         } else if ((m.todo || []).length) {
-            body += '<div class="amber" role="status"><p><strong>' + esc(m.todo.length === 1 ? fill(t.NEARLY_ONE, { title: m.todo[0].title }) :
-                fill(t.NEARLY_MANY, { n: m.todo.length, list: m.todo.map(function (x) { return x.title; }).join(', ') })) +
+            // 2.5.1: the short labels, as the step bar.
+            body += '<div class="amber" role="status"><p><strong>' + esc(m.todo.length === 1 ? fill(t.NEARLY_ONE, {
+                title: m.todo[0].short || m.todo[0].title }) : fill(t.NEARLY_MANY, { n: m.todo.length, list: m.todo.map(function (x) {
+                return x.short || x.title; }).join(', ') })) +
                 '</strong></p><p>' + esc(t.SEND_LATER) + '</p><p><a class="out" href="' + esc(m.todo[0].href) + '">' +
-                esc(fill(t.GO_TO, { title: m.todo[0].title })) + '</a></p></div>';
+                esc(fill(t.GO_TO, { title: m.todo[0].short || m.todo[0].title })) + '</a></p></div>';
         }
 
         (m.review || []).forEach(function (s) {

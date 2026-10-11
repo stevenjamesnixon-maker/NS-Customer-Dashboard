@@ -193,10 +193,10 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.5.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule | Not deployed |
+| Dashboard Suitelet | 2.5.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule | Not deployed |
 | Digest Map/Reduce | 2.2.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states; 2.2.0: the cards from `stepsFor()`) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
-| Send design information Suitelet (2.3) | 1.1.1 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
+| Send design information Suitelet (2.3) | 1.1.2 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
 | Customer User Event (part A) | 1.0.0 | `cdb_ue_customer.js` | afterSubmit, create/edit/xedit, all contexts: keeps `custentity_cdb_link` right | New |
 | Link backfill Map/Reduce (part A) | 1.0.0 | `cdb_mr_link_backfill.js` | Rerunnable: writes `custentity_cdb_link` wherever it is missing or wrong | New |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
@@ -207,7 +207,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
 | Data library | 2.4.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
 | Design information library (2.3) | 1.2.1 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
-| Render library | 2.5.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Render library | 2.5.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
 | Task library | 1.5.2 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
 | Question registry (2.3) | 3 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | Element presets (2.3c) | — | `content/element-presets.csv` (uploaded beside the registry) | `element,key,label,u`: the element cards' choices. Designers may edit | New |
@@ -1015,7 +1015,7 @@ bar's and the email's label. `image` is still unused (pictures come from setting
 | id | `section_title` | `short` | minutes |
 |---|---|---|---|
 | project | Your project | Your project | 1 |
-| plans | Your plans and layout | Plans and layout | 2 |
+| plans | Your plans and layout | Plans (amendment 2; was Plans and layout) | 2 |
 | insulation | Understanding the heat loss of your property | Heat loss | 5 |
 | heating | Heating and controls | Heating | 2 |
 | heatpump | Heat pump information required for MCS | Heat pump | 4 |
@@ -1059,6 +1059,33 @@ heat pump in the set (a hybrid such as `{nuheat_hp, boiler}`) the cylinder is as
 **A text answer in the state (amendment 1).** `field=state` is allowed for a `text` question as well (yesno and choice
 before); the answer is kept in the state, clipped at 200 (`designinfo.STATE_TEXT_MAX`). `ext1_what` and `ext2_what` use it,
 so the Task's extension line always has "what is it".
+
+**Amendment 2 (dashboard 2.5.2, render 2.5.2, send 1.1.2), from walking the live page.**
+- **The page script.** 2.5.0's reveal/prefill block wrote `\"` inside single-quoted JavaScript strings in the render source,
+  which JavaScript reads as a bare `"`: the served script did not parse (`SyntaxError: missing ) after argument list`) and
+  none of the page's script ran (no reveals, no prefill, no *+ Add another file*, no 10 MB check). The four selectors now
+  single-quote their attribute values (`"input[name='q_"+q+"']"`). `test/r2-5.test.js` parses **every inline script** of
+  every step and Review (HP and UFH, an extension, a new build) with `vm.Script`, and runs the reveal script in a small DOM
+  stub (`rp-flat_floor` hidden until the property type is a flat).
+- **The step bar** and Review's "still need you" / *Go to …* use the `short` labels (Your project · Plans · Heat loss ·
+  Heating · Heat pump · Anything else · Review). The long title stays as the step's heading, Review's section headings and
+  the request email's list (the email lists **titles** again, as this amendment says).
+- **The element cards** as designed: a 2 × 2 grid (`.elgrid`, one column below 700 px), each card titled by its element with
+  the source tag as a chip under the title, then *Which is closest?* (or the row's `hint`), the exact U-value and Notes.
+  Extension cards use the same card.
+- **The element dropdown** (Steve to confirm): the presets, then *Not sure* and *I'll describe it*; *Built to current
+  Building Regulations* on an extension's card only; *Typical for the age* never offered. A card the route pre-filled with a
+  typical or regs **U-value** (a band whose value is a number, every `regs_*` value) shows that one entry, labelled as it
+  reads (*Typical for 1991 – 2002 — about U 0.45*); the page's script adds it the same way.
+- **The insulation route tiles** 2 × 2 (one column on a phone), in the design order SAP · EPC · Typical · I'll describe it.
+  The stored values are labels, so the reorder changes no stored answer.
+- **Hot water.** `dhw` rendered read-only in Production (a field-type mismatch on `custbody_domestic_hot_water_2026`), so it is
+  now a Note-only optional question, *Any specific hot water needs? (optional)*, after an info line on how we size hot water.
+  `custbody_domestic_hot_water_2026` is no longer written by the page. Review leaves out any **optional** question not
+  answered (a needed one still shows *Not answered yet* in a step to do).
+- **The request page's tick boxes** are one INLINEHTML block, *Steps to ask for*, one per line in step order, with Your
+  project and Anything else as fixed *(always included)* lines; they post `custpage_step_<id>=T` as before.
+- Held: the MCS pictures not loading in the built-in browser (Steve to check on a phone), and the design-call wording.
 
 **The heat facts (§B2).** `heat` is a **set**. First `custbody_heat_source_type_26` (Multiple Select: an array from
 `record.getValue`, a `"4,10"` string from a search, `\u0005`-joined when posted; `designinfo.idsOf()` normalises) through
@@ -2481,6 +2508,10 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
 12. **Amendment 1: a local shadowed a module.** `epcLookup`'s `var token` (the bearer token) shadowed the imported `token`
     module; renamed `epcToken`. A scan of every script and library for a local or parameter named after a module the file
     imports found no other.
+13. **Amendment 2: open.** (a) The element dropdown's entries: Steve to confirm. (b) The bedrooms we hold: the hot water line
+    cannot show the number, because the field that holds it is not known to the page (`custbody_domestic_hot_water_2026`
+    rendered read-only, so it is not a text field). Tell us the field and its type if the line should show the number.
+    (c) The pictures and (d) the design-call wording are held.
 
 ### Release 2.3 — unverified in the account (check in Sandbox)
 
