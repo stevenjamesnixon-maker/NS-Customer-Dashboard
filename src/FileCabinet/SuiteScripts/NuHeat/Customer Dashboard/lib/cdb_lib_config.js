@@ -86,13 +86,15 @@
  * DI_BUILD_TYPE_OPTIONS, DI_MARKET_OPTIONS, DI_FILL_REPLACEABLE, DI_PIC_REFLECT, DI_PIC_BARRIER, EPC_BEARER_TOKEN — never
  * logged); DESIGNINFO_EMAIL's STEP1_* to STEP3_HP are retired (the email lists the requested steps' short titles).
  *
- * @version 3.5.0
+ * 3.5.1 (2.3c amendment 1): DESIGNINFO_EMAIL.SUB takes {about} (the asked steps' minutes) and SUB_NO_TIME is new.
+ *
+ * @version 3.5.1
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.5.0';
+    var VERSION = '3.5.1';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -533,7 +535,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         EYEBROW: 'Let\u2019s start your design',
         HEADING: 'Tell us about your property, {name}',
         HEADING_NO_NAME: 'Tell us about your property',
-        SUB: 'Your plans and a few details are all we need to begin. About 10 minutes.',
+        // 3.5.1: {about} is the asked steps' minutes summed ("About 12 minutes"); with none, SUB_NO_TIME.
+        SUB: 'Your plans and a few details are all we need to begin. {about}.',
+        SUB_NO_TIME: 'Your plans and a few details are all we need to begin.',
         HELLO: 'Hello {name}.',
         HELLO_NO_NAME: 'Hello.',
         // The sender is the PE.

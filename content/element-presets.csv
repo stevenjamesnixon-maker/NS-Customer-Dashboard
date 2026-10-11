@@ -24,8 +24,10 @@ roof,mm200,About 200 mm insulation,0.25
 roof,mm270,270 mm or more,0.16
 roof,flat_ins,"Flat roof, insulated",0.25
 roof,flat_limited,"Flat roof, little or no insulation",1.5
+roof,dwelling_above,Another home above (no heat loss through it),0
 floor,solid_unins,"Solid concrete, uninsulated",0.7
 floor,solid_ins,"Solid concrete, insulated",0.25
 floor,susp_unins,"Suspended timber, uninsulated",0.8
 floor,susp_ins,"Suspended timber, insulated",0.3
 floor,above_unheated,Above an unheated space (garage or cellar),0.5
+floor,dwelling_below,Another home below (no heat loss through it),0

@@ -892,7 +892,8 @@ test('the Task: the extension line, the EPC used, the heat warnings; revealed an
     assert.strictEqual(t.w.notes[0].values.note.indexOf('Should be ignored'), -1);
     v3.post(t, { step: 'review', send: '1' });
     var msg = t.w.tasks[0].values.message;
-    assert.ok(msg.indexOf('Extension 1: (in the Notes), Being built now, marked on plans') > 0, msg);
+    // Amendment 1: "what is it" is kept in the state, so the line always has it.
+    assert.ok(msg.indexOf('Extension 1: Kitchen extension, Being built now, marked on plans') > 0, msg);
     assert.ok(msg.indexOf('EPC used: certificate 1111-2222-3333-4444-5555, lodged 19/11/2021, valid until 19/11/2031.') > 0);
     assert.ok(msg.indexOf('- HP Design but no heat pump in Heat Source Type.') > 0);
     assert.ok(msg.indexOf('- The design service is HP Design, but the heat source is not a Nu-Heat heat pump.') > 0);
@@ -959,3 +960,82 @@ test('element cards: a save of another step never fills or writes a card (the ro
     assert.strictEqual(t.w.unitLog.filter(function (k) { return k === 'fileLoad'; }).length, 1, 'the registry only: no ' +
         'presets or age bands for a step without cards');
 });
+
+// ---------------------------------------------------------------- 2.3c amendment 1
+
+test('A1. `when` negation: key!=v1,v2 holds when the facts hold none of them; the cylinder is asked once for a hybrid',
+    function () {
+        var w = di.parseWhen('heat!=nuheat_hp,user_hp;service=hp');
+        assert.deepStrictEqual(w.clauses, [{ key: 'heat', values: ['nuheat_hp', 'user_hp'], not: true },
+            { key: 'service', values: ['hp'], not: false }]);
+        assert.strictEqual(di.whenMatches(w, { heat: ['boiler'], service: 'hp' }), true);
+        assert.strictEqual(di.whenMatches(w, { heat: ['boiler', 'user_hp'], service: 'hp' }), false);
+        assert.strictEqual(di.whenMatches('fc!=hp', { fc: ['solid', 'hp'] }), false);
+        assert.strictEqual(di.parseWhen('heat!=gas').ok, false, 'values are still checked');
+        var qs = parse(REGISTRY).questions;
+        function shown(heat, hp) {
+            return di.visibleQuestions(qs, { service: 'hp', fc: ['solid'], heat: heat, hp: hp }).map(function (q) { return q.qid; });
+        }
+        var hybrid = shown(['boiler', 'nuheat_hp'], ['unknown']);
+        assert.ok(hybrid.indexOf('cyl') >= 0 && hybrid.indexOf('cyl_plan') >= 0, '{nuheat_hp, boiler}: the heat pump step asks');
+        assert.strictEqual(hybrid.indexOf('cylinder'), -1, '{nuheat_hp, boiler}: not the heating step');
+        var boiler = shown(['boiler'], []);
+        assert.ok(boiler.indexOf('cylinder') >= 0, '{boiler}: the heating step asks');
+        assert.strictEqual(boiler.indexOf('cyl'), -1);
+    });
+
+test('A1. the request email\'s time: the asked steps\' minutes summed, as the card; none: no time', function () {
+    var t = v3.setup();
+    sendPage(t, 'POST', { custpage_step_plans: 'T' });
+    assert.ok(t.w.emails[0].body.indexOf('Your plans and a few details are all we need to begin. About 4 minutes.') > 0,
+        'project 1 + plans 2 + other 1');
+    var render = amd.load('lib/cdb_lib_render', {});
+    var html = render.designInfoRequestEmail({ customerName: 'A', opp: {}, sender: {}, askList: [], minutes: 0 });
+    assert.ok(html.indexOf('Your plans and a few details are all we need to begin.<') > 0 ||
+        /all we need to begin\.<\/font>/.test(html), 'no time');
+    assert.strictEqual(html.indexOf('minute'), -1);
+    assert.ok(render.designInfoRequestEmail({ customerName: 'A', opp: {}, sender: {}, askList: [], minutes: 1 })
+        .indexOf('About 1 minute.') > 0);
+});
+
+test('A1. ext<N>_what is kept in the state (clipped at 200), not only in the Note', function () {
+    var q = byQid(parse(REGISTRY).questions);
+    assert.strictEqual(q.ext1_what.store, 'state');
+    assert.strictEqual(q.ext2_what.store, 'state');
+    var t = v3.setup();
+    var long = new Array(30).join('Kitchen ');
+    v3.post(t, merge(INS, { q_has_ext: 'yes', q_ext_count: '0', q_ext1_what: long }));
+    var kept = v3.state(t.w).answers.ext1_what;
+    assert.strictEqual(kept.length, 200);
+    assert.strictEqual(kept.slice(-1), '…');
+    var n = t.w.notes.length;
+    v3.post(t, { step: 'insulation', nav: 'stay', q_ext1_what: long });
+    assert.strictEqual(t.w.notes.length, n, 'the same long answer again is no change');
+    assert.ok(v3.step(t, 'insulation').indexOf('value="' + kept.replace(/&/g, '&amp;') + '"') > 0, 'shown again');
+});
+
+test('A1. another home above or below: presets of U 0 ("U 0.00"), mapped from the EPC; the exact U box keeps 0.05',
+    function () {
+        assert.deepStrictEqual(di.presetOf(PRESETS, 'roof', 'dwelling_above'), { key: 'dwelling_above',
+            label: 'Another home above (no heat loss through it)', u: '0' });
+        assert.strictEqual(di.presetOf(PRESETS, 'floor', 'dwelling_below').u, '0');
+        ['Pitched, 100 mm loft insulation; (another dwelling above)', '(other premises above)'].forEach(function (x, i) {
+            assert.strictEqual(di.epcElement(x, EPCMAP, 'roof').key, i ? 'dwelling_above' : 'unsure', x);
+        });
+        assert.strictEqual(di.epcElement('(another dwelling above)', EPCMAP, 'roof').key, 'dwelling_above');
+        assert.strictEqual(di.epcElement('(another dwelling below)', EPCMAP, 'floor').key, 'dwelling_below');
+        assert.strictEqual(di.epcElement('(other premises below)', EPCMAP, 'floor').key, 'dwelling_below');
+        var line = di.elementLine(di.composeElement({ key: 'dwelling_below', u: '', src: 'you' },
+            { presets: PRESETS, element: 'floor' }));
+        assert.strictEqual(line, 'Another home below (no heat loss through it) · U 0.00 (preset)');
+        assert.deepStrictEqual(di.parseElementLine(line).u, '0');
+        assert.strictEqual(di.sameElement(line, line.replace('0.00', '0')), true);
+        assert.strictEqual(di.parsePresets('element,key,label,u\nwalls,x,X,-1\nwalls,y,Y,0\n').rejected.length, 1);
+        var t = v3.setup();
+        assert.ok(v3.step(t, 'insulation').indexOf('Another home below (no heat loss through it) — about U 0.00</option>') > 0);
+        var e = v3.post(t, merge(INS, { q_el_floor: 'solid_unins', q_el_floor_u: '0' }));
+        assert.ok(e.indexOf('A U-value is a number between 0.05 and 6') > 0, 'the exact U box: 0.05 minimum');
+        v3.post(t, merge(INS, { q_el_floor: 'dwelling_below', q_el_floor_src: 'you' }));
+        assert.strictEqual(v3.oppWrites(t.w)[0].values.custbody_existing_floors_2026,
+            'Another home below (no heat loss through it) · U 0.00 (preset)');
+    });

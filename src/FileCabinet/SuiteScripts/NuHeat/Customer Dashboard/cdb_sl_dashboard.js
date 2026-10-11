@@ -145,10 +145,14 @@
  * and age bands (two file.loads, 20); a step 3 save with element cards the same 20; the EPC search POST adds the https
  * call (10) and the certificate POST the https call and the EPC map (20); step 5 GET with pictures adds one file search (10).
  *
+ * 2.5.1 (2.3c amendment 1): the request email's time is computed (the send Suitelet); ext<N>_what is kept in the state, so
+ * the Task's extension line always has it; epcLookup's bearer token is `epcToken` (it shadowed the imported `token` module);
+ * a preset of U 0 shows as "about U 0.00".
+ *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.5.0
+ * @version 2.5.1
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -157,7 +161,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.5.0';
+    var VERSION = '2.5.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1820,7 +1824,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         v.epcSays = epcFill && epcFill.text && (epcFill.mixed || card.key === 'unsure') ? epcFill.text : '';
         v.epcMissing = !!(epcFill && epcFill.missing) && designinfo.cardSource(card) !== 'you';
         v.elementOptions = ((ctxC.presets.byElement || {})[q.element] || []).map(function (p) {
-            return { value: p.key, text: p.label + ' — about U ' + p.u };
+            return { value: p.key, text: p.label + ' — about U ' + designinfo.uShow(p.u) };
         }).concat(designinfo.ELEMENT_SPECIALS.filter(function (x) {
             return x.key !== 'typical' || market === 'reno';
         }).map(function (x) { return { value: x.key, text: x.label }; }));
@@ -2255,6 +2259,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                     nv = nv + ' · EPC ' + num + ((epcNumber ? epcDate : extraValue(dc, OPPF.EPC_DATE)) ? ', lodged ' +
                         designinfo.slashDate(epcNumber ? epcDate : extraValue(dc, OPPF.EPC_DATE)) : '');
                 }
+            }
+            // 2.5.1: a text answer kept in the state (ext<N>_what) is clipped there, so it is compared clipped.
+            if (q.store === STORE.STATE && q.type === 'text') {
+                nv = designinfo.clipValue(nv, designinfo.STATE_TEXT_MAX);
             }
             cur = currentValue(dc, q);
             // 2.3.1: line endings normalised on both sides — NetSuite may give back \r\n for what was posted as \n.
@@ -2897,7 +2905,8 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
     function epcLookup(ctx, dc, params, check, sec) {
         var why = epcUnavailable(dc.cfg);
         var lib = epcLib().lib;
-        var token = dc.cfg.EPC_BEARER_TOKEN;
+        // 2.5.1: not `token` — that is the imported token module (the shadowing behind the 1.8.1 defect).
+        var epcToken = dc.cfg.EPC_BEARER_TOKEN;
         var nav = String(params.nav || '');
         var postcode = String(params.epc_postcode || '').replace(/^\s+|\s+$/g, '').slice(0, 10);
         var number = String(params.epc_cert || '').replace(/^\s+|\s+$/g, '');
@@ -2921,7 +2930,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 if (!postcode) {
                     return notFound('');
                 }
-                r = lib.search(postcode, token);
+                r = lib.search(postcode, epcToken);
                 if (!r.ok || !r.rows || !r.rows.length) {
                     return notFound(r.statusCode);
                 }
@@ -2934,7 +2943,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             if (!EPC_NUMBER_RE.test(number)) {
                 return notFound('');
             }
-            r = lib.certificate(number, token);
+            r = lib.certificate(number, epcToken);
             if (!r.ok || !r.data) {
                 return notFound(r.statusCode);
             }
@@ -3042,7 +3051,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             if (!what || what.q.revealed === false) {
                 return;
             }
-            whatText = ch.posted.hasOwnProperty(what.q.qid) ? ch.posted[what.q.qid] : s.noted[what.q.qid] ? '(in the Notes)' : '';
+            // 2.5.1: "what is it" is kept in the state (field state), so the line always has it.
+            whatText = what.q.store === STORE.STATE ? String(s.answers[what.q.qid] || '') :
+                ch.posted.hasOwnProperty(what.q.qid) ? ch.posted[what.q.qid] : s.noted[what.q.qid] ? '(in the Notes)' : '';
             whereText = marked && s.answers[marked.q.qid] === 'yes' ? 'marked on plans' : where && ch.posted.hasOwnProperty(where.q.qid) ?
                 ch.posted[where.q.qid] : where && s.noted[where.q.qid] ? 'described (in the Notes)' : '';
             out.push('Extension ' + n + ': ' + [whatText || '(not given)', age ? s.answers[age.q.qid] || '(age not given)' : '',

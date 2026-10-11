@@ -85,13 +85,15 @@
  * its alt and visible text), choice options with sub-lines; every choice radio carries data-key. The card's "about N
  * minutes" is the requested steps' sum (none: no time); the request email lists the requested steps' short titles.
  *
- * @version 2.5.0
+ * 2.5.1 (2.3c amendment 1): the request email's subtitle time is computed (m.minutes; none: SUB_NO_TIME).
+ *
+ * @version 2.5.1
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.5.0';
+    var VERSION = '2.5.1';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -3025,6 +3027,12 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         ].join('\n');
     }
 
+    /** 2.5.1: "About 2 minutes" — aboutText() with a capital, to start a sentence. */
+    function aboutTextCap(minutes) {
+        var t = aboutText(minutes);
+        return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+    }
+
     /** "about 2 minutes" ('' with none). */
     function aboutText(minutes) {
         var n = parseInt(minutes, 10) || 0;
@@ -3393,7 +3401,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      *   opp ({ tranId, title, siteAddress }), havingText, callKey ('' or the design call, today or later), goodsKey,
      *   link (the direct link), dashboardLink, sender ({ name, firstName, phone, email, photoUrl }: the card; email
      *   already DESIGN_EMAIL_ADDRESS when it applies), senderRole ('pe'|'am'), peName (the PE's name for the AM
-     *   variant, '' when none), askList (2.5.0: the requested steps' short titles) }
+     *   variant, '' when none), askList (2.5.0: the requested steps' short titles), minutes (2.5.1: their minutes summed) }
      * @returns {string}
      */
     function designInfoRequestEmail(m) {
@@ -3411,7 +3419,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             .filter(function (x) { return !!x; }).join(' · ');
 
         html += emailLogo(m.logoUrl);
-        html += emailBand(t.EYEBROW, name ? fill(t.HEADING, { name: name }) : t.HEADING_NO_NAME, t.SUB);
+        // 2.5.1: the subtitle's time is the asked steps' minutes summed, as the card's; none: SUB_NO_TIME.
+        html += emailBand(t.EYEBROW, name ? fill(t.HEADING, { name: name }) : t.HEADING_NO_NAME, m.minutes > 0 ?
+            fill(t.SUB, { about: aboutTextCap(m.minutes) }) : t.SUB_NO_TIME);
         if (isHttpsUrl(hero)) {
             html += '<tr><td align="center" valign="top"><img src="' + esc(hero) + '" width="' + config.EMAIL_HERO_WIDTH +
                 '" height="' + config.EMAIL_HERO_HEIGHT + '" alt="" border="0" class="fluid" style="display:block;width:100%;' +

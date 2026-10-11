@@ -938,7 +938,8 @@ test('the email: band, personal paragraph (PE), facts rows present and omitted, 
     var b = r.w.emails[0].body;
     assert.ok(b.indexOf('Let\u2019s start your design') > 0);
     assert.ok(b.indexOf('Tell us about your property, Acme Ltd') > 0);
-    assert.ok(b.indexOf('Your plans and a few details are all we need to begin. About 10 minutes.') > 0);
+    // 2.3c amendment 1: the subtitle's time is the asked steps' minutes summed (the 2.3b registry: 1 + 2 + 2 + 2 + 4 + 1).
+    assert.ok(b.indexOf('Your plans and a few details are all we need to begin. About 12 minutes.') > 0);
     assert.ok(b.indexOf('I\u2019m Pem, your Project Engineer for this system, and I\u2019ll be designing it with you.') > 0);
     assert.ok(b.indexOf('QR20 \u00b7 Plot 4, Village') > 0);
     assert.ok(b.indexOf('In floor, solid + joisted \u00b7 Nu-Heat heat pump') > 0);

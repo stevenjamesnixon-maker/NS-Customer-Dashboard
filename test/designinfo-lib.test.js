@@ -128,7 +128,8 @@ test('registry: a bad row is rejected and listed, never the file', function () {
         'plans,P,main,w1,text,Bad when,,,note,N,service=,',
         'plans,P,main,w2,text,Unknown key,,,note,N,colour=red,',
         'plans,P,main,w3,text,Unknown value,,,note,N,heat=gas,',
-        'plans,P,main,s1,text,State on text,,,state,N,,',
+        // 2.3c amendment 1: state is allowed on a text question now; a long one is still refused.
+        'plans,P,main,s1,long,State on long,,,state,N,,',
         'plans,P,main,s2,yesno,State yesno,,,state,Y,,',
         'plans,P,main,r1,text,Bad required,,,note,maybe,,',
         'plans,P,main,Bad-Id,text,Upper case,,,note,N,,',

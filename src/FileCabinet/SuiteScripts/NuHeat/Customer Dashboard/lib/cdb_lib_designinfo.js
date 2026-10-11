@@ -46,15 +46,19 @@
  * pure parts (parsePresets, parseAgeBands, parseEpcMap, elementLine, parseElementLine, elementTargets, epcElement,
  * ageBandKey, fillPrefill) and parseOptionsSetting().
  *
+ * 1.2.1 (2.3c amendment 1): `when` takes a negated clause, key!=v1,v2 (true when the facts hold none of the values;
+ * the cylinder row: heat!=nuheat_hp); field `state` for a text question (kept in the state, clipped at STATE_TEXT_MAX);
+ * a preset's U may be 0 (another home above or below), shown as "U 0.00" — the exact U-value box keeps its 0.05 minimum.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.2.1
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.2.1';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -177,6 +181,8 @@ define([], function () {
     var STATE_TRIM_AT = 3500;
     var STATE_TRIM_FILES = 5;
     var STATE_HARD_MAX = 3900;
+    /** 1.2.1: a text answer kept in the state (field `state`) is clipped to this. */
+    var STATE_TEXT_MAX = 200;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -277,9 +283,10 @@ define([], function () {
 
     /**
      * Pure: `key=value[,value][;key=value…]` — AND across ;, OR within ,. Keys and values are WHEN_VALUES;
-     * anything else is a syntax error. '' is no condition.
+     * anything else is a syntax error. '' is no condition. 1.2.1: `key!=value[,value]` negates a clause — true when the
+     * facts hold NONE of the values.
      * @param {string} text
-     * @returns {{ok: boolean, clauses: Array<{key: string, values: string[]}>, error: string}}
+     * @returns {{ok: boolean, clauses: Array<{key: string, values: string[], not: boolean}>, error: string}}
      */
     function parseWhen(text) {
         var t = trim(text);
@@ -295,7 +302,7 @@ define([], function () {
         }
         parts = t.split(';');
         for (i = 0; i < parts.length; i++) {
-            m = /^\s*([a-z_]+)\s*=\s*([^=]+?)\s*$/i.exec(parts[i]);
+            m = /^\s*([a-z_]+)\s*(!?=)\s*([^=!]+?)\s*$/i.exec(parts[i]);
             if (!m) {
                 return { ok: false, clauses: [], error: 'when: "' + trim(parts[i]) + '" is not key=value' };
             }
@@ -303,13 +310,13 @@ define([], function () {
             if (!WHEN_VALUES.hasOwnProperty(key)) {
                 return { ok: false, clauses: [], error: 'when: unknown key "' + key + '"' };
             }
-            values = m[2].split(',').map(function (v) { return trim(v).toLowerCase(); });
+            values = m[3].split(',').map(function (v) { return trim(v).toLowerCase(); });
             for (j = 0; j < values.length; j++) {
                 if (!contains(WHEN_VALUES[key], values[j])) {
                     return { ok: false, clauses: [], error: 'when: "' + values[j] + '" is not a value of ' + key };
                 }
             }
-            clauses.push({ key: key, values: values });
+            clauses.push({ key: key, values: values, not: m[2] === '!=' });
         }
         return { ok: true, clauses: clauses, error: '' };
     }
@@ -350,6 +357,10 @@ define([], function () {
                 ok = asList(f[c.key]).some(function (h) { return contains(c.values, h); });
             } else {
                 ok = contains(c.values, f.newbuild ? 'yes' : 'no');
+            }
+            // 1.2.1: a negated clause holds when the positive one does not.
+            if (c.not) {
+                ok = !ok;
             }
             if (!ok) {
                 return false;
@@ -630,8 +641,9 @@ define([], function () {
         } else if (field === '' || field.toLowerCase() === 'note') {
             q.store = STORE.NOTE;
         } else if (field.toLowerCase() === 'state') {
-            if (q.type !== 'yesno' && q.type !== 'choice') {
-                return 'field "state" is for yesno and choice questions only';
+            // 1.2.1: and a text question (a short answer the Task needs later, clipped at STATE_TEXT_MAX).
+            if (q.type !== 'yesno' && q.type !== 'choice' && q.type !== 'text') {
+                return 'field "state" is for yesno, choice and text questions only';
             }
             q.store = STORE.STATE;
         } else {
@@ -1468,6 +1480,12 @@ define([], function () {
 
     // ---------------------------------------------------------------- 1.2.0: the element cards (brief §B8)
 
+    /** Pure (1.2.1): a U-value as shown — "0.00" for 0 (another home above or below), else uText(). */
+    function uShow(u) {
+        var t = uText(u);
+        return t === '0' ? '0.00' : t;
+    }
+
     /** Pure: a U-value as text ("0.55", "1.7"), '' when it is not a number in range. */
     function uText(u) {
         var n = typeof u === 'number' ? u : parseFloat(trim(u));
@@ -1531,7 +1549,8 @@ define([], function () {
                 !/^[a-z0-9_]+$/.test(r.key) ? 'key "' + r.key + '" must be lower-case letters, digits and _' :
                     contains(ELEMENT_SPECIALS.map(function (x) { return x.key; }), r.key) ? 'key "' + r.key + '" is a special' :
                         list.some(function (x) { return x.key === r.key; }) ? 'duplicate key "' + r.key + '"' :
-                            r.label === '' ? 'no label' : !uInRange(r.u) ? 'u "' + r.u + '" is not a U-value (0.05–6.0)' : '';
+                            r.label === '' ? 'no label' : !(uInRange(r.u) || /^0*\.?0+$/.test(r.u)) ?
+                                'u "' + r.u + '" is not a U-value (0, or 0.05–6.0)' : '';
             if (reason) {
                 out.rejected.push({ line: r.line, reason: reason });
                 return;
@@ -1723,7 +1742,7 @@ define([], function () {
             parts.push(label);
         }
         if (u) {
-            parts.push('U ' + u + ' (' + (contains(U_SOURCES, x.uSource) ? x.uSource : 'preset') + ')');
+            parts.push('U ' + uShow(u) + ' (' + (contains(U_SOURCES, x.uSource) ? x.uSource : 'preset') + ')');
         }
         if (notes) {
             parts.push('notes: ' + notes);
@@ -2194,6 +2213,9 @@ define([], function () {
         fillPrefill: fillPrefill,
         bandFill: bandFill,
         sourceTag: sourceTag,
-        bandText: bandText
+        bandText: bandText,
+        // 1.2.1
+        uShow: uShow,
+        STATE_TEXT_MAX: STATE_TEXT_MAX
     };
 });

@@ -50,7 +50,9 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.1.0
+ * 1.1.1 (2.3c amendment 1): the email's subtitle time is the asked steps' minutes summed (none: no time).
+ *
+ * @version 1.1.1
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -58,7 +60,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.1.1';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 
@@ -379,7 +381,9 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
                 sender: am,
                 senderRole: p.sender.role,
                 peName: pe && !pe.isInactive ? pe.name : '',
-                askList: asked.map(function (st) { return st.short; })
+                askList: asked.map(function (st) { return st.short; }),
+                // 1.1.1: the subtitle's time, the same sum as the card's ("about N minutes"; 0: no time).
+                minutes: designinfo.stepsMinutes(asked)
             });
             email.send({
                 author: parseInt(emp.id, 10),
