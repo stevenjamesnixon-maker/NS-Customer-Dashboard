@@ -12,7 +12,7 @@ var amd = require('./helpers/amd');
 var ns = require('./helpers/netsuite');
 
 var REGISTRY_PATH = 'SuiteScripts/NuHeat/Customer Dashboard Content/design-info-registry.csv';
-var REGISTRY = fs.readFileSync(path.join(__dirname, '..', 'content', 'design-info-registry.csv'), 'utf8');
+var REGISTRY = fs.readFileSync(path.join(__dirname, 'fixtures', 'design-info-registry-2.3b.csv'), 'utf8');
 var HEADER = 'section,section_title,panel,qid,type,label,hint,options,field,required,when,why';
 
 var SETTINGS = {
@@ -713,8 +713,9 @@ var SAVED = { v: 1, sections: { plans: { saved: '2026-10-02T10:00:00Z', status: 
 
 test('cards: needs_info — the line and "Tell us about your property", on the dashboard and in the digest', function () {
     var c = cards(null);
+    // 2.3c (§B3): the requested steps' minutes summed — here every step of the 2.3b registry: 1 + 2 + 2 + 2 + 4 + 1.
     assert.ok(c.row.indexOf('We need some information about your property to start your design. Plans are the main thing. It ' +
-        'takes about 10 minutes, and you can do it in stages.') > 0);
+        'takes about 12 minutes, and you can do it in stages.') > 0);
     assert.ok(c.row.indexOf('<a class="cta" href="https://acct.extforms.netsuite.com/sl?t=' + c.t.tok +
         '&amp;a=designinfo&amp;opp=20">Tell us about your property</a>') > 0);
     assert.ok(c.digest.indexOf('We need some information about your property to start your design.') > 0);
@@ -840,8 +841,13 @@ function request(method, opts) {
         { id: '406', name: 'DESIGN_SUBSTATUS', value: '1,4,5,13' },
         { id: '403', name: 'PE_VALUEPROPS', value: '2,3' }, { id: '404', name: 'FALLBACK_EMPLOYEE', value: '500' }]).concat(o.extra || []);
     if (o.world) { o.world(w); }
+    // 2.3c (§B4): a POST carries the step checkboxes as the browser posts them — every step ticked (the page pre-ticks all
+    // when there is no earlier request), unless o.params says otherwise.
+    var post = { custpage_opp: '20', custpage_step_plans: 'T', custpage_step_insulation: 'T', custpage_step_heating: 'T',
+        custpage_step_heatpump: 'T' };
+    Object.keys(o.params || {}).forEach(function (k) { post[k] = o.params[k]; });
     amd.load('cdb_sl_send_designinfo', t.s).onRequest({
-        request: { method: method, parameters: method === 'POST' ? { custpage_opp: '20' } : { opp: '20' } },
+        request: { method: method, parameters: method === 'POST' ? post : { opp: '20' } },
         response: { writePage: function (f) { out.form = f; }, setHeader: function () {}, write: function () {} }
     });
     out.w = w;
@@ -941,8 +947,11 @@ test('the email: band, personal paragraph (PE), facts rows present and omitted, 
     assert.ok(b.indexOf('<b>TELL US ABOUT YOUR PROPERTY</b>') > 0);
     assert.ok(b.indexOf('a=designinfo&amp;opp=20') > 0);
     assert.ok(b.indexOf('Or view all your projects') > 0);
-    assert.ok(b.indexOf('How well insulated it is') > 0, 'HP Design: step 2');
-    assert.ok(b.indexOf('And where the heat pump, cylinder and buffer tank will go.') > 0, 'nuheat_hp: the heat pump sentence');
+    // 2.3c (§B3): "What we'll ask" lists the requested steps' short titles (the 2.3b registry has no short column: titles).
+    ['Your project', 'Your plans', 'How well insulated is it?', 'Heating and controls', 'Your heat pump',
+        'Anything else for your Project Engineer?'].forEach(function (title, i) {
+        assert.ok(b.indexOf('<b>' + (i + 1) + '</b>') > 0 && b.indexOf('<b>' + title.replace('?', '?') + '</b>') > 0, title);
+    });
     assert.ok(b.indexOf('We only ask about what\u2019s on your quote, and you can stop and come back.') > 0);
     assert.ok(b.indexOf('What happens next') > 0 && b.indexOf('Drawings in 5\u20137 days') > 0);
     assert.ok(b.indexOf('<b>YOUR PROJECT ENGINEER</b>') > 0);
@@ -963,11 +972,12 @@ test('the email: the account manager variant — UFH Design, a boiler: no step 2
     assert.strictEqual(r.w.emails[0].author, 88, 'not a PE case: the sales rep');
     assert.ok(b.indexOf('I\u2019m Ray, your account manager. Pem Engineer will design your system with you.') > 0);
     assert.ok(b.indexOf('<b>YOUR ACCOUNT MANAGER</b>') > 0);
-    assert.strictEqual(b.indexOf('How well insulated it is'), -1);
-    assert.strictEqual(b.indexOf('And where the heat pump'), -1);
+    // 2.3c (§B3): UFH Design with a boiler — the steps stepsFor() gives, renumbered: no insulation, no heat pump.
+    assert.strictEqual(b.indexOf('<b>How well insulated is it?</b>'), -1);
+    assert.strictEqual(b.indexOf('<b>Your heat pump</b>'), -1);
     assert.ok(b.indexOf('rep@x') > 0, 'the rep\'s own email');
-    assert.ok(/<b>2<\/b>/.test(b) && !/<b>3<\/b><\/font><\/td><\/tr><\/table><\/td><td align="left" valign="top" style="padding:0 0 16px 0;"><p[^>]*><font[^>]*><b>Where things go/.test(b),
-        'two steps, renumbered');
+    assert.ok(/<b>4<\/b><\/font><\/td><\/tr><\/table><\/td><td align="left" valign="top" style="padding:0 0 16px 0;"><p[^>]*><font[^>]*><b>Anything else for your Project Engineer\?/.test(b),
+        'four steps, renumbered');
 });
 
 // ---------------------------------------------------------------- amendment 2 (2.3.1)

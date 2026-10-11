@@ -77,13 +77,21 @@
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.4.1
+ * 2.5.0 (release 2.3c): the step's questions may sit in a reveal panel (id rp-<qid>, data-reveal) with an "If you chose …"
+ * heading for script-off; REVEAL_SCRIPT hides the false panels and toggles them on change (and pre-fills the house's
+ * element cards when the route or the age changes). New question kinds: the element card (preset select, exact U, notes,
+ * hidden source, source tag, "We have: …" for staff prose), the EPC block (postcode, Find my EPC, the address list, Use
+ * this certificate, the certificate summary, the hidden epc_number / epc_date), picture cards (an image with the label as
+ * its alt and visible text), choice options with sub-lines; every choice radio carries data-key. The card's "about N
+ * minutes" is the requested steps' sum (none: no time); the request email lists the requested steps' short titles.
+ *
+ * @version 2.5.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.4.1';
+    var VERSION = '2.5.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -1996,7 +2004,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</td></tr></table></td>' +
             '<td align="left" valign="top" style="padding:0 0 16px 0;">' +
             emailP('0 0 2px 0', 17, COLORS.TEXT, title, true) +
-            emailP('0', 15, '#4a4650', text) + (extraHtml || '') + '</td></tr>\n';
+            (text ? emailP('0', 15, '#4a4650', text) : '') + (extraHtml || '') + '</td></tr>\n';
     }
 
     /**
@@ -2540,8 +2548,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NOTHING_NEEDED: 'Nothing is needed from you for this project.',
         NOT_HERE: 'That project isn’t waiting for design information.',
         // The project cards (brief §6).
+        // 2.5.0: {about} is the requested steps' minutes ("about 16 minutes"); with none, CARD_NEEDS_INFO_NO_TIME.
         CARD_NEEDS_INFO: 'We need some information about your property to start your design. Plans are the main thing. ' +
-            'It takes about 10 minutes, and you can do it in stages.',
+            'It takes {about}, and you can do it in stages.',
+        CARD_NEEDS_INFO_NO_TIME: 'We need some information about your property to start your design. Plans are the main ' +
+            'thing. You can do it in stages.',
         CARD_HAVE: 'Thanks, we have: {list}.',
         CARD_HAVE_NONE: 'Thanks for what you’ve sent so far.',
         CARD_TODO: 'Still to do: {list}.',
@@ -2643,23 +2654,41 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         if (q.type === 'info') {
             return html + '<p style="margin:0;font-weight:600">' + esc(q.label) + '</p>' + hint + whyToggle(q) + '</div>';
         }
+        // 2.5.0 (release 2.3c): the element card and the EPC block.
+        if (q.type === 'element' && !qm.readOnly) {
+            return elementQuestion(qm, m);
+        }
+        if (q.type === 'epc') {
+            return epcQuestion(qm, m);
+        }
         if (qm.readOnly) {
             return html + '<p class="lbl" style="margin:0">' + esc(q.label) + '</p>' + whyToggle(q) +
                 '<p class="ro">' + esc(qm.readOnlyText || '—') + ' <span class="muted">' + esc(t.READ_ONLY) + '</span></p></div>';
         }
         if (q.type === 'yesno' || q.type === 'choice') {
-            html += '<fieldset><legend>' + label + '</legend>' + whyToggle(q) + fieldError(e, q.qid);
+            html += '<fieldset' + (qm.role ? ' data-role="' + esc(qm.role) + '"' : '') + '><legend>' + label + '</legend>' +
+                whyToggle(q) + fieldError(e, q.qid);
             if (q.type === 'yesno') {
                 html += '<div class="segs">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
                     return '<label class="seg"><input class="sr" type="radio" name="' + esc(name) + '" value="' + o[0] + '"' +
                         (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span class="s">' + esc(o[1]) +
                         '</span></label>';
                 }).join('') + '</div>';
+            } else if (q.pictures) {
+                // 2.5.0 (§B7): picture cards — the image (alt: the label), the radio, the label as visible text.
+                html += '<div class="pics">' + (qm.options || []).map(function (o) {
+                    return '<label class="pic"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
+                        (o.key ? ' data-key="' + esc(o.key) + '"' : '') + (String(qm.value) === String(o.value) ? ' checked' : '') +
+                        off + describedBy(e, q.qid) + '>' + (o.src ? '<img src="' + esc(o.src) + '" alt="' + esc(o.text) +
+                        '" loading="lazy">' : '') + '<span class="ot">' + esc(o.text) + '</span></label>';
+                }).join('') + '</div>';
             } else {
                 html += '<div class="opts">' + (qm.options || []).map(function (o) {
                     return '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
+                        (o.key ? ' data-key="' + esc(o.key) + '"' : '') +
                         (String(qm.value) === String(o.value) ? ' checked' : '') + off + describedBy(e, q.qid) +
-                        '><span><span class="ot">' + esc(o.text) + '</span></span></label>';
+                        '><span><span class="ot">' + esc(o.text) + '</span>' + (o.sub ? '<span class="os">' + esc(o.sub) +
+                        '</span>' : '') + '</span></label>';
                 }).join('') + '</div>';
             }
             return html + hint + '</fieldset></div>';
@@ -2701,6 +2730,134 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         return html + hint + '</div>';
     }
+
+    /**
+     * 2.5.0 (§B8): an element card — the preset select ("Label — about U x.xx", then the specials), the exact U-value, the
+     * notes, the hidden source (q_<qid>_src), and the source tag. Staff prose on the field shows as "We have: …"; an EPC
+     * pre-fill that could not decide shows the certificate's words. data-fill carries the house card's route pre-fills.
+     * qm: { q, card: { key, u, notes, src }, elementOptions, tag, prose, epcSays, epcMissing, fillData }
+     */
+    function elementQuestion(qm, m) {
+        var q = qm.q;
+        var t = STEP_TEXT;
+        var e = m.errors || {};
+        var c = qm.card || { key: '', u: '', notes: '', src: 'you' };
+        var name = 'q_' + q.qid;
+        var id = 'di-' + q.qid;
+        var off = m.mode === 'view' ? ' disabled' : '';
+        var describe = c.key === 'describe';
+        return '<div class="dq el" id="q-' + esc(q.qid) + '"' + (qm.fillData ? ' data-fill="' + esc(JSON.stringify(qm.fillData)) +
+            '"' : '') + '><fieldset><legend>' + esc(q.label) + (q.required ? '<span class="req">' + esc(DESIGN_TEXT.REQUIRED) +
+            '</span>' : '') + '</legend>' + whyToggle(q) + fieldError(e, q.qid) +
+            (qm.prose ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_HAVE, { text: qm.prose })) + '</p>' : '') +
+            (qm.epcSays ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_EPC_SAYS, { text: qm.epcSays })) + '</p>' : '') +
+            '<label class="lbl" for="' + esc(id) + '">' + esc(t.EL_CHOOSE) + '</label>' +
+            '<select class="inp" id="' + esc(id) + '" name="' + esc(name) + '"' + off + describedBy(e, q.qid) + '><option value="">' +
+            esc(t.EL_PICK) + '</option>' + (qm.elementOptions || []).map(function (o) {
+                return '<option value="' + esc(o.value) + '"' + (o.value === c.key ? ' selected' : '') + '>' + esc(o.text) + '</option>';
+            }).join('') + '</select>' +
+            '<label class="lbl" for="' + esc(id) + '-u">' + esc(t.EL_U) + '</label><span class="urow"><input class="inp" type="text" ' +
+            'inputmode="decimal" id="' + esc(id) + '-u" name="' + esc(name) + '_u" value="' + esc(c.u) + '" maxlength="6" ' +
+            'style="max-width:120px"' + off + '> <span class="muted">' + esc(t.EL_U_UNIT) + '</span></span>' +
+            '<label class="lbl" for="' + esc(id) + '-notes">' + esc(describe ? t.EL_NOTES_REQ : t.EL_NOTES) + '</label>' +
+            '<input class="inp" type="text" id="' + esc(id) + '-notes" name="' + esc(name) + '_notes" value="' + esc(c.notes) +
+            '" maxlength="300"' + off + '>' +
+            '<input type="hidden" name="' + esc(name) + '_src" value="' + esc(c.src || 'you') + '">' +
+            '<p class="eltag" aria-live="polite">' + esc(qm.epcMissing ? t.EL_EPC_MISSING : (qm.tag || '')) + '</p>' +
+            '</fieldset></div>';
+    }
+
+    /**
+     * 2.5.0 (§B9): the EPC block — unavailable: the line saying so; else the postcode and Find my EPC (nav=epc), the address
+     * list and Use this certificate (nav=epc_use, epc_cert), the certificate's summary (the rating badge, the number, valid
+     * until, the floor area, the age band) and the hidden epc_number / epc_date that ride until a save.
+     * qm.epc: { available, postcode, rows ([{value, text}]), cert ({ number, dateKey, rating, floorArea, ageBand }), notice,
+     *   number, dateKey, validText }
+     */
+    function epcQuestion(qm, m) {
+        var q = qm.q;
+        var t = STEP_TEXT;
+        var x = qm.epc || {};
+        var off = m.mode === 'view' ? ' disabled' : '';
+        var html = '<div class="dq epc" id="q-' + esc(q.qid) + '"><p class="lbl" style="margin:0">' + esc(q.label) + '</p>' +
+            whyToggle(q) + (q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '');
+        if (!x.available) {
+            return html + '<p class="hint" style="margin:0">' + esc(t.EPC_UNAVAILABLE) + '</p></div>';
+        }
+        if (x.notice) {
+            html += '<p class="notice" role="status" style="margin:0">' + esc(x.notice) + '</p>';
+        }
+        if (x.cert) {
+            html += '<div class="epcsum"><span class="epcr epcr-' + esc((x.cert.rating || 'x').toLowerCase()) + '" aria-label="' +
+                esc(t.EPC_RATING + ' ' + (x.cert.rating || '')) + '">' + esc(x.cert.rating || '?') + '</span><dl class="facts">' +
+                '<dt>' + esc(t.EPC_NUMBER) + '</dt><dd>' + esc(x.cert.number) + '</dd>' +
+                (x.validText ? '<dt>' + esc(t.EPC_VALID) + '</dt><dd>' + esc(x.validText) + '</dd>' : '') +
+                (x.cert.floorArea ? '<dt>' + esc(t.EPC_AREA) + '</dt><dd>' + esc(x.cert.floorArea) + ' m²</dd>' : '') +
+                (x.cert.ageBand ? '<dt>' + esc(t.EPC_AGE) + '</dt><dd>' + esc(x.cert.ageBand) + '</dd>' : '') + '</dl></div>' +
+                '<p class="hint" style="margin:0">' + esc(t.EPC_PREFILLED) + '</p>';
+        } else if (x.number) {
+            html += '<p style="margin:0">' + esc(fill(t.EPC_HELD, { number: x.number, valid: x.validText ? ', valid until ' +
+                x.validText : '' })) + '</p>';
+        }
+        if (x.number) {
+            html += '<input type="hidden" name="epc_number" value="' + esc(x.number) + '"><input type="hidden" name="epc_date" ' +
+                'value="' + esc(x.dateKey || '') + '">';
+        }
+        html += '<label class="lbl" for="di-epc-pc">' + esc(t.EPC_POSTCODE) + '</label><span class="urow"><input class="inp" ' +
+            'type="text" id="di-epc-pc" name="epc_postcode" value="' + esc(x.postcode || '') + '" maxlength="10" autocomplete=' +
+            '"postal-code" style="max-width:160px"' + off + '> <button type="submit" class="out" name="nav" value="epc"' + off + '>' +
+            esc(t.EPC_FIND) + '</button></span>';
+        if ((x.rows || []).length) {
+            html += '<label class="lbl" for="di-epc-cert">' + esc(t.EPC_ADDRESS) + '</label><select class="inp" id="di-epc-cert" ' +
+                'name="epc_cert"' + off + '>' + x.rows.map(function (r) {
+                    return '<option value="' + esc(r.value) + '">' + esc(r.text) + '</option>';
+                }).join('') + '</select><button type="submit" class="out addf" name="nav" value="epc_use"' + off + '>' +
+                esc(t.EPC_USE) + '</button>';
+        }
+        return html + '</div>';
+    }
+
+    /**
+     * 2.5.0 (§B5): a question inside its reveal panel — every panel renders (script off: under its "If you chose …" heading);
+     * REVEAL_SCRIPT hides the false ones.
+     */
+    function revealPanel(qm, inner) {
+        if (!qm.revealSpec) {
+            return inner;
+        }
+        return '<div class="rvp" id="rp-' + esc(qm.q.qid) + '" data-reveal="' + esc(JSON.stringify(qm.revealSpec)) + '">' +
+            (qm.revealHeading ? '<p class="rvif">' + esc(qm.revealHeading) + '</p>' : '') + inner + '</div>';
+    }
+
+    /**
+     * 2.5.0: the reveal script (no library) — each panel's alternatives against the checked radios' data-key (an absent
+     * question: true; a hidden one: false), in page order so hiding cascades; again on every change. Then the house's
+     * element cards: when the route (data-role="route") is typical or regs, a card still empty or pre-filled (its source not
+     * "you") takes the age band's or the regs row's value; a card the customer changes becomes "you".
+     */
+    var REVEAL_SCRIPT = [
+        '(function(){var f=document.getElementById("diform");if(!f||!f.querySelectorAll||!window.JSON)return;',
+        'var ps=f.querySelectorAll("[data-reveal]");',
+        'function key(q){var r=f.querySelectorAll("input[name=\"q_"+q+"\"]"),i;if(!r.length)return null;',
+        'for(i=0;i<r.length;i++){if(r[i].checked)return r[i].getAttribute("data-key")||r[i].value;}return "";}',
+        'function hid(q){var p=document.getElementById("rp-"+q);return !!(p&&p.hidden);}',
+        'function vis(el){while(el&&el!==f){if(el.hidden)return false;el=el.parentNode;}return true;}',
+        'function role(n){var s=f.querySelectorAll("[data-role=\""+n+"\"] input:checked"),i;',
+        'for(i=0;i<s.length;i++){if(vis(s[i]))return s[i].getAttribute("data-key")||"";}return "";}',
+        'function run(){var i,j,k,sp,ok,a,c,v;for(i=0;i<ps.length;i++){sp=JSON.parse(ps[i].getAttribute("data-reveal"));ok=false;',
+        'for(j=0;j<sp.length&&!ok;j++){a=sp[j];ok=true;for(k=0;k<a.length&&ok;k++){c=a[k];v=key(c[0]);',
+        'if(v===null)continue;if(hid(c[0])||c[1].indexOf(v)<0)ok=false;}}ps[i].hidden=!ok;}}',
+        'function prefill(){var r=role("route"),g=role("age"),cs=f.querySelectorAll(".el[data-fill]"),i,d,s,u,h,t,v,p;',
+        'for(i=0;i<cs.length;i++){d=JSON.parse(cs[i].getAttribute("data-fill"));s=cs[i].querySelector("select");',
+        'u=cs[i].querySelector("input[name$=\"_u\"]");h=cs[i].querySelector("input[name$=\"_src\"]");t=cs[i].querySelector(".eltag");',
+        'if(!s||!h)continue;if(h.value.indexOf("you")===0&&(s.value!==""||(u&&u.value!=="")))continue;',
+        'v=r==="typical"?d.age[g]:r==="regs"?d.regs:null;if(!v)continue;p=v.split("|");s.value=p[1];if(u)u.value="";h.value=p[0];',
+        'if(t)t.textContent=r==="typical"?(d.tags.age[g]||""):d.tags.regs;}}',
+        'f.addEventListener("change",function(e){var n=e.target&&e.target.name||"";',
+        'if(/^q_.+(_u)?$/.test(n)&&e.target.closest&&e.target.closest(".el")){var c=e.target.closest(".el"),',
+        'h=c.querySelector("input[name$=\"_src\"]"),t=c.querySelector(".eltag");if(h)h.value="you";if(t)t.textContent="You chose this";}',
+        'run();prefill();});run();})();'
+    ].join('');
 
     /** "Design questions? Call [name] on [phone]" — the page header's contact line. */
     function designQuestionsLine(r) {
@@ -2767,7 +2924,32 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         UPLOADED: 'uploaded {date}',
         SAVED: 'Saved.',
         W_FILES: 'We couldn’t save one of your files. Please try again, or email it to {name}.',
-        W_PARTIAL: 'Some answers couldn’t be saved to your project just now, but {name} has them.'
+        W_PARTIAL: 'Some answers couldn’t be saved to your project just now, but {name} has them.',
+        // 2.5.0 (release 2.3c): the element cards, the EPC lookup.
+        EL_CHOOSE: 'What is it made of?',
+        EL_PICK: 'Choose the closest',
+        EL_U: 'I know the exact U-value (optional)',
+        EL_U_UNIT: 'W/m²K',
+        EL_NOTES: 'Notes (optional)',
+        EL_NOTES_REQ: 'Notes: please describe it',
+        EL_HAVE: 'We have: {text}',
+        EL_EPC_SAYS: 'Your certificate says: {text}',
+        EL_EPC_MISSING: 'Not on your EPC: please check',
+        EPC_UNAVAILABLE: 'We can’t look up certificates right now. Choose ‘Typical for the age of my property’ or ‘I’ll ' +
+            'describe it’ instead.',
+        EPC_NONE: 'No certificate found for that postcode. Choose ‘Typical for the age of my property’ or ‘I’ll describe ' +
+            'it’ instead.',
+        EPC_POSTCODE: 'Postcode',
+        EPC_FIND: 'Find my EPC',
+        EPC_ADDRESS: 'Your address',
+        EPC_USE: 'Use this certificate',
+        EPC_RATING: 'Energy rating',
+        EPC_NUMBER: 'Certificate',
+        EPC_VALID: 'Valid until',
+        EPC_AREA: 'Floor area',
+        EPC_AGE: 'Age band',
+        EPC_HELD: 'We have certificate {number}{valid}.',
+        EPC_PREFILLED: 'We’ve filled in what your certificate says below. Check each one and change anything that’s wrong.'
     };
 
     /** 2.4.0: the stepper's own rules, after designCss(); the phone layout at max-width 600px, CSS only. */
@@ -2815,6 +2997,31 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 '.fphoto{display:flex}' +
                 '.facts{grid-template-columns:minmax(0,1fr)}' +
                 '}'
+        ].join('\n');
+    }
+
+    /** 2.5.0: the reveal panels, the element cards, the EPC block, the picture cards. */
+    function revealCss() {
+        var c = COLORS;
+        return [
+            '.rvp{display:flex;flex-direction:column;gap:6px;padding-top:14px;border-top:1px solid #ece8e3}',
+            '.rvif{margin:0;font-size:13px;font-weight:700;color:' + c.MUTED + '}',
+            '.js .rvif{display:none}',
+            '.rvp[hidden]{display:none}',
+            '.rvp > .dq{border-top:0;padding-top:0}',
+            '.el fieldset{display:flex;flex-direction:column;gap:6px}',
+            '.urow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+            '.eltag{margin:0;font-size:13px;color:' + c.MUTED + '}',
+            '.os{display:block;font-size:14px;color:' + c.MUTED + '}',
+            '.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}',
+            '.pic{display:flex;flex-direction:column;gap:6px;border:1px solid ' + c.BORDER + ';border-radius:8px;padding:8px;cursor:pointer}',
+            '.pic img{width:100%;height:auto;border-radius:4px}',
+            '.pic:has(input:checked){border-color:' + c.PURPLE + ';box-shadow:0 0 0 2px ' + c.PURPLE + '}',
+            '.epcsum{display:flex;gap:16px;align-items:flex-start}',
+            '.epcr{display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;border-radius:8px;' +
+                'font-weight:700;font-size:22px;color:#fff;background:#6b6b6b}',
+            '.epcr-a,.epcr-b{background:#008054}.epcr-c{background:#19b459}.epcr-d{background:#8dce46;color:#2b2a2e}',
+            '.epcr-e{background:#ffd500;color:#2b2a2e}.epcr-f{background:#fcaa65;color:#2b2a2e}.epcr-g{background:#ef3c39}'
         ].join('\n');
     }
 
@@ -2994,7 +3201,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<input type="hidden" name="step" value="' + esc(st.id) + '">';
         panels.forEach(function (p) {
             body += '<section class="card">' + byPanel[p].map(function (qm) {
-                return qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m);
+                return revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
             }).join('') + '</section>';
         });
         // The nav row: Back saves first; on the first step it is a link to the dashboard.
@@ -3007,7 +3214,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         body += '<p class="stuck">' + esc(stuck) + '</p></form>';
 
         return page({ title: st.title + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design', width: 'w1120',
-            body: body, css: '\n' + designCss() + '\n' + stepperCss(), script: STEPPER_SCRIPT, headerExtra: saveExit(m) });
+            body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(), script: STEPPER_SCRIPT +
+                (st.questions.some(function (qm) { return qm.revealSpec || qm.q.type === 'element'; }) ? REVEAL_SCRIPT : ''),
+            headerExtra: saveExit(m) });
     }
 
     /** A files question in the stepper: label, why, hint, then the file control. */
@@ -3103,7 +3312,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var lines = [];
         var p = g.progress;
         if (g.key === 'needs_info') {
-            lines.push(t.CARD_NEEDS_INFO);
+            lines.push(g.minutes > 0 ? fill(t.CARD_NEEDS_INFO, { about: aboutText(g.minutes) }) : t.CARD_NEEDS_INFO_NO_TIME);
         } else if (g.key === 'info_partial') {
             lines.push((p && p.done.length ? fill(t.CARD_HAVE, { list: p.done.join(', ') }) : t.CARD_HAVE_NONE) + ' ' +
                 (!p ? t.CARD_TODO_FALLBACK : p.missing.length ? fill(t.CARD_TODO, { list: p.missing.join(', ') }) : t.CARD_READY));
@@ -3184,7 +3393,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      *   opp ({ tranId, title, siteAddress }), havingText, callKey ('' or the design call, today or later), goodsKey,
      *   link (the direct link), dashboardLink, sender ({ name, firstName, phone, email, photoUrl }: the card; email
      *   already DESIGN_EMAIL_ADDRESS when it applies), senderRole ('pe'|'am'), peName (the PE's name for the AM
-     *   variant, '' when none), steps ({ insulation: boolean, heatPump: boolean }) }
+     *   variant, '' when none), askList (2.5.0: the requested steps' short titles) }
      * @returns {string}
      */
     function designInfoRequestEmail(m) {
@@ -3244,18 +3453,14 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
             ';text-decoration:underline;">' + fontHtml(COLORS.PURPLE, esc(t.DASHBOARD_LINK)) + '</a></td></tr>\n';
 
-        // What we'll ask: the plans; the insulation unless UFH Design; where things go (+ the heat pump).
+        // What we'll ask: 2.5.0 — the requested steps' short titles, in step order (designinfo.stepsFor()).
         html += '<tr><td align="center" valign="top" class="pad" style="padding:24px 48px 8px 48px;">\n' +
             emailH2(t.ASK_HEADING, std.PURPLE) +
             '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n';
-        n += 1;
-        html += stepRow(n, t.STEP1_TITLE, t.STEP1_TEXT);
-        if (m.steps && m.steps.insulation) {
+        (m.askList || []).forEach(function (title) {
             n += 1;
-            html += stepRow(n, t.STEP2_TITLE, t.STEP2_TEXT);
-        }
-        n += 1;
-        html += stepRow(n, t.STEP3_TITLE, t.STEP3_TEXT + (m.steps && m.steps.heatPump ? ' ' + t.STEP3_HP : ''));
+            html += stepRow(n, title, '');
+        });
         html += '</table>\n' +
             '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#fff5dc" ' +
             'style="background-color:#fff5dc;border-radius:6px;"><tr><td align="left" valign="top" bgcolor="#fff5dc" ' +

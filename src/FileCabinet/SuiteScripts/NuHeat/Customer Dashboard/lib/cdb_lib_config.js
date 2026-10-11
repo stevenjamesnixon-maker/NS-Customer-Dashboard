@@ -78,13 +78,21 @@
  *
  * 3.4.2 (amendment 3): FIELDS.OPPORTUNITY.DESIGNINFO_STATE is a Text Area (comment only; the ID is unchanged).
  *
- * @version 3.4.2
+ * 3.5.0 (release 2.3c): FIELDS.OPPORTUNITY gains BUILD_TYPE (custbodyopp_build_type), EPC_NUMBER and EPC_DATE;
+ * DESIGNINFO_DENY drops custbody_mis_opp_market (the page writes it under the fill rule, DI_FILL_REPLACEABLE) and adds
+ * custbody_heat_source_type_26 (a fact source, like the Sales MI); FACTS_FIX_FIELDS, the request page's own allow-list for
+ * "Update and recheck"; EPCLIB, the shared EPC library (NS-Quick-Estimate epc_lib.js) by absolute path; DESIGNINFO_CONTENT,
+ * the three content files beside the registry; DI_OPTION_SETTINGS; seven record-only keys (DI_HEAT26_MAP,
+ * DI_BUILD_TYPE_OPTIONS, DI_MARKET_OPTIONS, DI_FILL_REPLACEABLE, DI_PIC_REFLECT, DI_PIC_BARRIER, EPC_BEARER_TOKEN — never
+ * logged); DESIGNINFO_EMAIL's STEP1_* to STEP3_HP are retired (the email lists the requested steps' short titles).
+ *
+ * @version 3.5.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.4.2';
+    var VERSION = '3.5.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -196,7 +204,15 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
             // The design contact as a Contact record. NOT written in 2.3 (Contact creation is deferred): kept here so
             // the deny-list can name it.
             CAD_DES_CONTACT: 'custbody_cad_des_contact',
+            // 3.5.0 (release 2.3c): MULTIPLE SELECT — the heat facts' first source (DI_HEAT26_MAP), the Sales MI the fallback.
+            // Read by loadDesignInfo(), the extras search and the request lookup; in DESIGNINFO_DENY; written only by the
+            // request page's "Update and recheck" (FACTS_FIX_FIELDS).
             HEAT_SOURCE_TYPE: 'custbody_heat_source_type_26',
+            // 3.5.0: the property type (List). Written by the page only when empty or in DI_FILL_REPLACEABLE.
+            BUILD_TYPE: 'custbodyopp_build_type',
+            // 3.5.0: the EPC the customer chose on the page (text) and its lodgement date (date). The rating is never stored.
+            EPC_NUMBER: 'custbody_epc_number',
+            EPC_DATE: 'custbody_epc_date',
             MANIFOLD_LOCATIONS: 'custbody_manifold_locations_2026',
             THERMOSTATS: 'custbody16',
             NEO_HUB: 'custbody_on_hub_tick',
@@ -303,10 +319,27 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
      * FIELDS.OPPORTUNITY (the allow-list). parseRegistry() rejects such a row. custbody_opp_del_date first: after
      * Won the sync copies it onto the sales orders' ship dates, so the goods date is Note and Task only.
      */
+    // 3.5.0: custbody_mis_opp_market is no longer denied — the page writes it (the `market` question) under the fill
+    // rule; custbody_heat_source_type_26 is denied, as the other heat fact source is.
     var DESIGNINFO_DENY = [FIELDS.OPPORTUNITY.DEL_DATE, FIELDS.OPPORTUNITY.SUB_STATUS, FIELDS.OPPORTUNITY.STATUS,
-        FIELDS.OPPORTUNITY.FC, FIELDS.OPPORTUNITY.HEAT_SOURCE, FIELDS.OPPORTUNITY.MARKET, FIELDS.OPPORTUNITY.CAD_DES_CONTACT,
-        FIELDS.OPPORTUNITY.VALUE_PROPOSITION, FIELDS.OPPORTUNITY.PE, FIELDS.OPPORTUNITY.NEXT_CONTACT,
-        FIELDS.OPPORTUNITY.DESIGNINFO_STATE, FIELDS.OPPORTUNITY.DELIVERY_ADDRESS];
+        FIELDS.OPPORTUNITY.FC, FIELDS.OPPORTUNITY.HEAT_SOURCE, FIELDS.OPPORTUNITY.HEAT_SOURCE_TYPE,
+        FIELDS.OPPORTUNITY.CAD_DES_CONTACT, FIELDS.OPPORTUNITY.VALUE_PROPOSITION, FIELDS.OPPORTUNITY.PE,
+        FIELDS.OPPORTUNITY.NEXT_CONTACT, FIELDS.OPPORTUNITY.DESIGNINFO_STATE, FIELDS.OPPORTUNITY.DELIVERY_ADDRESS];
+
+    /**
+     * 3.5.0 (release 2.3c §B4): the ONLY fields the request page's "Update and recheck" may write — the facts' sources,
+     * shown when they are empty or unmapped. A separate allow-list: DESIGNINFO_DENY is unchanged for the customer page.
+     */
+    var FACTS_FIX_FIELDS = [FIELDS.OPPORTUNITY.HEAT_SOURCE_TYPE, FIELDS.OPPORTUNITY.HEAT_SOURCE, FIELDS.OPPORTUNITY.FC];
+
+    /**
+     * 3.5.0: the fields the fill rule (DI_FILL_REPLACEABLE's keys) may govern, and the fields read beside the registry's
+     * own: the eight element fields and the EPC pair.
+     */
+    var DESIGNINFO_EXTRA_FIELDS = [FIELDS.OPPORTUNITY.NEW_WALLS, FIELDS.OPPORTUNITY.NEW_WINDOWS, FIELDS.OPPORTUNITY.NEW_ROOFS,
+        FIELDS.OPPORTUNITY.NEW_FLOORS, FIELDS.OPPORTUNITY.EXISTING_WALLS, FIELDS.OPPORTUNITY.EXISTING_WINDOWS,
+        FIELDS.OPPORTUNITY.EXISTING_ROOFS, FIELDS.OPPORTUNITY.EXISTING_FLOORS, FIELDS.OPPORTUNITY.EPC_NUMBER,
+        FIELDS.OPPORTUNITY.EPC_DATE];
 
     /** 3.4.0: the registry's allow-list — every opportunity field ID above. */
     function designInfoAllowList() {
@@ -376,6 +409,29 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         PATH: '/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib',
         MIN_VERSION: '1.2.0'
     };
+
+    /**
+     * 3.5.0 (release 2.3c §B9): the shared EPC library (NS-Quick-Estimate's epc_lib.js, @NModuleScope Public), required by
+     * absolute path at request time exactly as OPPLIB, with a version gate. Missing or too old: the EPC lookup is
+     * unavailable (CDB DESIGNINFO_EPC_UNAVAILABLE) and the rest of the page works.
+     */
+    var EPCLIB = {
+        PATH: '/SuiteScripts/NuHeat/Quick Quote Tool/epc_lib',
+        MIN_VERSION: '1.0.0'
+    };
+
+    /**
+     * 3.5.0: the content files the element cards read, by name, in the REGISTRY'S OWN FOLDER (the folder of setting
+     * DESIGNINFO_REGISTRY), so no folder is committed. Each is read with file.load (~10 units) only when a step needs it.
+     */
+    var DESIGNINFO_CONTENT = {
+        PRESETS: 'element-presets.csv',
+        AGE_BANDS: 'age-bands.csv',
+        EPC_MAP: 'epc-element-map.csv'
+    };
+
+    /** 3.5.0: the settings rows a registry `options` cell may name as @setting:KEY. Any other KEY rejects the row. */
+    var DI_OPTION_SETTINGS = ['DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER'];
 
     /**
      * 3.1: the customer stages an opportunity's customer can be at, as UPD_LOST_STATUS_MAP keys them.
@@ -496,17 +552,9 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         FACT_GOODS: 'Goods needed',
         BUTTON: 'TELL US ABOUT YOUR PROPERTY',
         DASHBOARD_LINK: 'Or view all your projects',
+        // 3.5.0: the list under it is the requested steps' short titles (designinfo.stepsFor()); STEP1_* to STEP3_HP are
+        // retired.
         ASK_HEADING: 'What we\u2019ll ask',
-        STEP1_TITLE: 'Your plans',
-        STEP1_TEXT: 'Are the plans we quoted from still the current ones? Upload any newer revision, and sections or ' +
-            'elevations if you have them.',
-        // Left out for UFH Design (service ufh).
-        STEP2_TITLE: 'How well insulated it is',
-        STEP2_TEXT: 'Your SAP calculation or EPC if you have one; otherwise a rough description is fine.',
-        STEP3_TITLE: 'Where things go',
-        STEP3_TEXT: 'Where you\u2019d like the manifolds, and how your floors are built.',
-        // Only for a Nu-Heat heat pump (heat nuheat_hp).
-        STEP3_HP: 'And where the heat pump, cylinder and buffer tank will go.',
         NOTE: 'We only ask about what\u2019s on your quote, and you can stop and come back. Anything you can\u2019t ' +
             'answer, we\u2019ll cover on the call.',
         NEXT_HEADING: 'What happens next',
@@ -797,7 +845,25 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // JSON overrides of DESIGNINFO_EMAIL's wording (same keys). Empty or invalid: the built-in wording.
         DESIGNINFO_EMAIL: { kind: 'text', empty: 'none', ids: {} },
         // The "Understanding your drawings" page (https). Empty: the card is left out.
-        DESIGNINFO_DRAWINGS_URL: { kind: 'https', empty: 'none', ids: {} }
+        DESIGNINFO_DRAWINGS_URL: { kind: 'https', empty: 'none', ids: {} },
+
+        // 3.5.0 (release 2.3c). RECORD ONLY (ids: {}): the record row wins; there is no parameter; else empty.
+        // JSON {"<custbody_heat_source_type_26 list id>": "ashp|gshp_loop|gshp_bore|user_hp|boiler"}. Empty: the heat
+        // facts come from the Sales MI only (HEAT_MAP).
+        DI_HEAT26_MAP: { kind: 'text', empty: 'none', ids: {} },
+        // JSON options arrays, [{"id": "<list id>", "key": "<reveal key>", "label": "...", "sub": "...", "file": "<file id>"}]:
+        // the property type (keys detached, semi, end, mid, bungalow, flat), new build or renovation (keys new, reno), and
+        // the two MCS picture questions (with file). Empty or invalid: that question is left out (logged); the step renders.
+        DI_BUILD_TYPE_OPTIONS: { kind: 'text', empty: 'none', ids: {} },
+        DI_MARKET_OPTIONS: { kind: 'text', empty: 'none', ids: {} },
+        DI_PIC_REFLECT: { kind: 'text', empty: 'none', ids: {} },
+        DI_PIC_BARRIER: { kind: 'text', empty: 'none', ids: {} },
+        // JSON {"<fieldId>": ["<list id>", ...]}: the fill rule — such a field is written only when it is empty or holds one
+        // of these values; otherwise the answer goes to the Note and the Task as "Customer says X; opportunity holds Y".
+        // Empty: no field is governed (each is written as any other).
+        DI_FILL_REPLACEABLE: { kind: 'text', empty: 'none', ids: {} },
+        // The GOV.UK EPC API bearer token (a secret: NEVER logged). Empty: the EPC lookup is unavailable.
+        EPC_BEARER_TOKEN: { kind: 'text', empty: 'none', ids: {} }
     };
 
     /**
@@ -837,6 +903,12 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
         'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'DESIGN_EMAIL_ADDRESS',
         'DESIGNINFO_EMAIL'];
+    // 3.5.0 (release 2.3c): the heat facts' map, and the options settings the registry's @setting rows parse with (so
+    // every script parses the same registry). EPC_BEARER_TOKEN and DI_FILL_REPLACEABLE: the dashboard only.
+    SCRIPT_KEYS[SCRIPTS.SUITELET] = SCRIPT_KEYS[SCRIPTS.SUITELET].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS,
+        ['DI_FILL_REPLACEABLE', 'EPC_BEARER_TOKEN']);
+    SCRIPT_KEYS[SCRIPTS.DIGEST] = SCRIPT_KEYS[SCRIPTS.DIGEST].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS);
+    SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS);
 
     /**
      * 3.0: the transition fallback. Which PARAMETERS ids column each existing script's parameters
@@ -1458,6 +1530,11 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         SEND_LINK_BANNER_SECONDS: SEND_LINK_BANNER_SECONDS,
         DESIGNINFO_DENY: DESIGNINFO_DENY,
         designInfoAllowList: designInfoAllowList,
+        FACTS_FIX_FIELDS: FACTS_FIX_FIELDS,
+        DESIGNINFO_EXTRA_FIELDS: DESIGNINFO_EXTRA_FIELDS,
+        EPCLIB: EPCLIB,
+        DESIGNINFO_CONTENT: DESIGNINFO_CONTENT,
+        DI_OPTION_SETTINGS: DI_OPTION_SETTINGS,
         DESIGNINFO_EMAIL: DESIGNINFO_EMAIL,
         DESIGNINFO_BANNERS: DESIGNINFO_BANNERS,
         parseDesignInfoEmail: parseDesignInfoEmail,

@@ -6,8 +6,17 @@ repository wins** — read the file and then fix this document in the same PR.
 Scope of this document: the SuiteScript in this repo and the NetSuite configuration it depends
 on. It does not describe the wider NetSuite account.
 
-**Last updated:** 2 Oct 2026 (release 2.3, *Tell us about your property*, config 3.4.0; "Request an update" part A, the stored link, config 3.3.0; release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
+**Last updated:** 11 Oct 2026 (release 2.3c, the heat loss step, `reveal`, the EPC lookup and the MCS pictures, config 3.5.0; release 2.3, *Tell us about your property*, config 3.4.0; "Request an update" part A, the stored link, config 3.3.0; release 2.2, project name and new delivery address, config 3.2; release 2.1 part B, *Tell us where you're up to*, config 3.1; config 3.0, the settings record; release 2.0, direct links and *Send delivery link*). **Status:** releases 1 and 1.1
 passed their Production tests on 30 Sep 2026; releases 1.2 and 1.3 merged; release 2.0 not merged, not deployed.
+
+**Release 2.3c (11 Oct 2026, new PR cut from PR #11's head `66e99d7`; dashboard 2.5.0, config 3.5.0):** the six steps keep
+their IDs and get new content (registry **v3**, 18 columns): step 3 becomes *Understanding the heat loss of your property*
+(property type, new build or renovation, up to two extensions, drawings, four insulation routes, an **EPC lookup** and
+**element cards**); step 5 uses the Gravity Form's MCS wording with **picture options**; questions show on the customer's
+own answers through the new **`reveal`** column; one **`stepsFor()`** drives the stepper, Review, the request page, the
+email and the cards; the request page gets **step tick boxes** (`rq`) and a **fix-the-facts** form; the heat source comes
+from **`custbody_heat_source_type_26`**. Depends on NS-Quick-Estimate's **`epc_lib.js` 1.0.0** (upload it first). Section 4,
+*Release 2.3c*; section 8.9c; section 10, *Release 2.3c*. Not merged, not deployed.
 
 **Release 2.3 (2 Oct 2026, new PR, with amendment 1; config 3.4.0):** *Tell us about your property* replaces the
 design-information Gravity Form with a dashboard page, `a=designinfo&opp=<id>`, driven by a question registry CSV in the
@@ -184,23 +193,27 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.4.1 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo` | Not deployed |
-| Digest Map/Reduce | 2.1.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states) | Not deployed |
+| Dashboard Suitelet | 2.5.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule | Not deployed |
+| Digest Map/Reduce | 2.2.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states; 2.2.0: the cards from `stepsFor()`) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
-| Send design information Suitelet (2.3) | 1.0.2 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page, then the *Tell us about your property* email | New |
+| Send design information Suitelet (2.3) | 1.1.0 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
 | Customer User Event (part A) | 1.0.0 | `cdb_ue_customer.js` | afterSubmit, create/edit/xedit, all contexts: keeps `custentity_cdb_link` right | New |
 | Link backfill Map/Reduce (part A) | 1.0.0 | `cdb_mr_link_backfill.js` | Rerunnable: writes `custentity_cdb_link` wherever it is missing or wrong | New |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.4.2 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.5.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.1.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)`; 2.1.0: the EXTERNAL CONSUMER note and the pure `linkMatches()` | Not deployed |
 | Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.3.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
-| Design information library (2.3) | 1.1.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header), the facts, `when`, visibility, progress, the state JSON, upload names | New |
-| Render library | 2.4.1 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Data library | 2.4.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
+| Design information library (2.3) | 1.2.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
+| Render library | 2.5.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
 | Task library | 1.5.2 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
-| Question registry (2.3) | 2 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
+| Question registry (2.3) | 3 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
+| Element presets (2.3c) | — | `content/element-presets.csv` (uploaded beside the registry) | `element,key,label,u`: the element cards' choices. Designers may edit | New |
+| Age bands (2.3c) | — | `content/age-bands.csv` (beside the registry) | `key,label,walls,windows,roof,floor`: what *Typical for the age* and the Building Regulations rows fill. Designers may edit | New |
+| EPC element map (2.3c) | — | `content/epc-element-map.csv` (beside the registry) | `element,pattern,preset,priority`: the EPC's RdSAP phrases to presets. Designers may edit | New |
+| **External:** EPC library (NS-Quick-Estimate) | ≥ 1.0.0 | `/SuiteScripts/NuHeat/Quick Quote Tool/epc_lib.js` (repo `NS-Quick-Estimate`) | `search`, `certificate`, `mapCertificate`, `validCertificateNumber`, `LIB_VERSION` — the EPC lookup (2.3c). Required at request time; missing: the lookup only is unavailable | Deployed separately, first |
 | **External:** Update Opportunity library (Online-quote) | ≥ 1.2.0 | `/SuiteScripts/NuHeat/2026 Quote/nuheat_opp_update_lib.js` (repo `2026.03-Online-quote`, PR #35) | `fieldOptions`, `writeOppUpdate`, `createObjections`, `LIB_VERSION` — every opportunity write and objection of the update action (2.1) | Deployed separately, first |
 
 All paths are relative to `src/FileCabinet/SuiteScripts/NuHeat/Customer Dashboard/`.
@@ -986,6 +999,165 @@ registry 10, the record load 10, the employee 1). A POST with three files and Se
 10, three files × (save 20 + attach 10), the state write 10, the Note 10, the Task 10); a Send without files ≈ 64. The
 dynamic and standard loads of a transaction cost the same 10 units in NetSuite's table; the node stub cannot measure
 governance. The request Suitelet: GET ≈ 25, POST ≈ 60.
+
+### Release 2.3c: the heat loss step, `reveal`, the EPC lookup and the MCS pictures (dashboard 2.5.0)
+
+The six steps keep their IDs (`project, plans, insulation, heating, heatpump, other`), so saved progress survives; their
+content is the registry **v3** (`content/design-info-registry.csv`, 18 columns, 86 rows). The 2.3 data principles are
+unchanged: answers go to opportunity fields, an empty input never overwrites, every save writes a Note (`old → new`), Send
+creates a Task to the PE or AM, nothing moves the sub-status.
+
+**The registry v3.** v2's 16 columns plus **`reveal`** and **`short`**, appended in that order. `parseRegistry` accepts
+the v1 (12), v2 (16) and v3 (18) headers; a header with only one of `reveal`/`short`, or with them but not the v2 four, is
+invalid. `short` is read from a section's first row (like `step_intro`), falls back to `section_title`, and is the step
+bar's and the email's label. `image` is still unused (pictures come from settings).
+
+| id | `section_title` | `short` | minutes |
+|---|---|---|---|
+| project | Your project | Your project | 1 |
+| plans | Your plans and layout | Plans and layout | 2 |
+| insulation | Understanding the heat loss of your property | Heat loss | 5 |
+| heating | Heating and controls | Heating | 2 |
+| heatpump | Heat pump information required for MCS | Heat pump | 4 |
+| other | Anything else for your Project Engineer? | Anything else | 1 |
+
+**`options`** may be:
+- **literal**, `key=Label|key=Label` — a literal option without `key=` gets the key `o<index>` (0-based: the index the page
+  posts, as before). Keys are what `reveal` compares; the **label** is what is stored or written (to a text field, the state
+  or the Note);
+- **`@field`** — the field's own select options (2.3, unchanged);
+- **`@setting:KEY`** — a JSON array in settings row `KEY`, `[{ "id", "key", "label", "sub"?, "file"? }]` (ids and keys
+  unique, keys `a-z0-9_`). On a List field the `id` is the internal ID written; with `field` `note` or `state` the `id` is
+  stored. A `file` on any option makes the question **picture cards**. `KEY` must be one of `config.DI_OPTION_SETTINGS`
+  (`DI_BUILD_TYPE_OPTIONS`, `DI_MARKET_OPTIONS`, `DI_PIC_REFLECT`, `DI_PIC_BARRIER`); a missing or invalid row **rejects the
+  question** (`CDB DESIGNINFO_REGISTRY_REJECTED`), and the step renders without it;
+- **`@preset:ELEMENT`** — an element card's presets from `content/element-presets.csv` (`ELEMENT` must match the field's).
+
+**`field`** may also be `state` for a **choice** (2.3: yesno only), **`@element:<walls|windows|roof|floor>[:extN]`** for an
+`element` question, and **`@epc`** for the `epc` question.
+
+**`reveal`** (recon recommendation b). Alternatives separated by `|`; each is clauses joined by `;`; a clause is
+`qid=key1,key2`. The question shows when **any** alternative has **all** its clauses true; a clause is true when that
+question's current answer key is listed. **Current answer** = the value posted in this request when there is one, else the
+stored one (the field; the state; a declined fill-rule answer). **The missing-question rule:** a clause on a question
+**absent for this opportunity** (its `when` is false) is **true**; on a question present but **hidden by its own reveal**,
+**false** — so hiding cascades. **Parse-time checks:** the named qid is an **earlier question of the same section**, a yesno
+or a choice with keys, and each key is one of its keys (`yes`/`no` for a yesno); a failing row is rejected and logged.
+Consequence: a row whose `reveal` names a **rejected** row is rejected too — with `DI_MARKET_OPTIONS` empty, 45 of step 3's
+rows go (only the drawings rows are left). **Render:** every reveal panel is in the page (`<div class="rvp"
+id="rp-<qid>" data-reveal>`) under an "If you chose …" heading for script-off; the page's script (no library) hides the
+false panels and re-evaluates on every change (`.js .rvif` hides the headings). **POST:** a hidden question's answer is
+**ignored** (not validated, not written, not noted); `required` counts only when revealed (`sectionStatus` skips
+`revealed === false`); Review and the Task show revealed questions only. A Note-only **choice** answer is now **kept** in the
+state (a reveal or a pre-fill reads it back: `hp_type`, `extN_age`); Note-only text answers still are not (2.3.2).
+
+**The heat facts (§B2).** `heat` is a **set**. First `custbody_heat_source_type_26` (Multiple Select: an array from
+`record.getValue`, a `"4,10"` string from a search, `\u0005`-joined when posted; `designinfo.idsOf()` normalises) through
+`DI_HEAT26_MAP` (`{"<listId>": "ashp|gshp_loop|gshp_bore|user_hp|boiler"}`); any heat pump type also adds `nuheat_hp`;
+unmapped IDs are ignored (`CDB DESIGNINFO_HEAT26_UNMAPPED`, debug). If `_26` is empty or maps to nothing, the Sales MI's one
+value through `HEAT_MAP`, as before (`heatFrom: 'mi'`). `hp` is the heat pump types present, or `['unknown']` for a Nu-Heat
+heat pump of no known type (the Sales MI fallback). `when` tests **membership**: `heat=boiler,user_hp` is true when the set
+holds any of them; the new `when` key `hp` takes `ashp, gshp_loop, gshp_bore, unknown`. Warnings: as before on the set, plus
+**"HP Design but no heat pump in Heat Source Type."** `custbody_heat_source_type_26` is in the extras search, the request
+lookup and `DESIGNINFO_DENY`.
+
+**`stepsFor(questions, facts, requested)` (§B3)** — the ONE list of steps: the sections with at least one question whose
+`when` holds (`reveal` never removes a step), kept only where `requested` names them; **`project` and `other` always**; an
+empty or missing `requested` keeps every step (2.3 and 2.3b requests). Used by the stepper and its step bar, Review, the
+request page's "will be asked about", the request email's *What we'll ask* (the steps' `short` titles; the hard-coded
+insulation / heat pump rule and `DESIGNINFO_EMAIL.STEP1_*`–`STEP3_HP` are gone — nothing else read them) and the cards
+(`progressFromState` and `anySectionSaved` count only these steps; *needs information* says "about N minutes", N the steps'
+minutes summed, or no time when 0 or the registry is unavailable — the dashboard now reads the registry for a
+*needs information* card too, 10 units).
+
+**`rq` — the steps a request asked about (§B4).** The request page shows one checkbox `custpage_step_<id>` per step
+`stepsFor(questions, facts, [])` gives, **project and other left out**, labelled with the step's title, pre-ticked from the
+previous request's `rq` (else all). On Send the ticks are **intersected with the allowed steps again on the server** and
+stored as the state's **`rq`** (beside `req`) **with project and other**, so "nothing ticked" is stored as
+`["project","other"]` — never empty, which would mean "every step". `stateTextGuarded` keeps it.
+
+**Fix the facts (§B4).** When `custbody_heat_source_type_26` **and** `custbody_mi_heat_source` are both empty or unmapped,
+or `custbody_mi_opp_fc` is empty or unmapped, the request page shows those fields as selects of the **field's own options**
+(one dynamic `record.load`; `_26` as a multi-select) and **Update and recheck** (`custpage_recheck`, an INLINEHTML submit):
+it writes **only** those fields (`config.FACTS_FIX_FIELDS`, `data.writeFacts()`, its own allow-list — `DESIGNINFO_DENY` is
+unchanged for the customer page), each value checked against the options, blank never written, then redraws the page with
+the facts recalculated (`CDB DESIGNINFO_FACTS_UPDATED`). **Send the email** stays the form's own submit.
+
+**The fill rule (`DI_FILL_REPLACEABLE`).** `{ "<fieldId>": ["<id>", …] }`: a field named there (the property type and the
+market) is written **only when it is empty or holds one of those IDs** (House, for the property type). Otherwise nothing is
+written, the customer's answer is kept in the state (the page shows it, and `reveal` reads it), and the Note and the Task
+say *"Customer says X; the opportunity holds Y"*. `custbody_mis_opp_market` left `DESIGNINFO_DENY` for this (config 3.5.0).
+
+**The element cards (§B8).** Per element question: a **preset select** (`content/element-presets.csv` rows for the element,
+in file order, each `Label — about U x.xx`, then the specials **Typical for the age of my property** (renovation only),
+**Built to current Building Regulations**, **Not sure**, **I'll describe it**), **I know the exact U-value** (0.05–6.0
+W/m²K), **notes** (≤ 300; required for *I'll describe it*), a **source tag** (*From your EPC* / *Typical for <band>* /
+*Building Regulations* / *You chose this*). Posted: `q_<qid>` (the key), `q_<qid>_u`, `q_<qid>_notes`, `q_<qid>_src`. `_src`
+is `you`, or a **fingerprint** `epc|age|regs:<key>:<u>` of the values the page pre-filled: the source holds while the card is
+as it was given, so a customer's change counts as theirs **without script**. **Pre-fill:** the route *typical* fills the
+house's cards from `content/age-bands.csv` for the chosen age; *regs* fills from `regs_new` (a new build) or `regs_ext`;
+an extension's *Different* card defaults to `regs_ext` while its age is *Being built now*; the EPC fills from the
+certificate. Pre-fill sets only a card that is empty or still pre-filled — never the customer's own choice; the page's
+script does the same when the route or the age changes. Only cards **posted** count: a save of another step never fills or
+writes one.
+
+**The element line** (the field's text): `Label · U 0.55 (typical) · notes: …` — uSource `customer` (an exact U typed),
+else `EPC`, `typical`, `regs` or `preset`; `''` when empty. `parseElementLine()` reads it back, or `null` for **staff
+prose** (a line counts as ours with its U part, its notes part, or a known label). **Routing** (`elementTargets()`): a new
+build → the **New** fields; a renovation → the house to the **Existing** fields, each extension's *Different* element to the
+matching **New** field as `Extension N: <line>`, two joined by a newline; *Same as the main house* writes nothing (the Note
+says "Extension N walls: … → Same as the main house"). A target keeps the parts no card gives (staff prose in a New field,
+another extension). **A change** compares `(label, U, notes)` — a change of source alone is not one; staff prose shows on the
+card as *We have: …* and is replaced only when the customer changes that element (the Note: old prose → new line). Clipped to
+the field's length.
+
+**The EPC lookup (§B9; recon A12).** `config.EPCLIB` (`/SuiteScripts/NuHeat/Quick Quote Tool/epc_lib`, ≥ 1.0.0) is
+required at request time like OPPLIB; missing, too old, or `EPC_BEARER_TOKEN` empty: the `epc` question says *We can't look
+up certificates right now…* and `CDB DESIGNINFO_EPC_UNAVAILABLE` is logged once (never the token). Its own POSTs, each saving
+the step first as a *stay* save would and then **re-rendering step 3** (no redirect):
+- **Find my EPC** — `nav=epc` with `epc_postcode`: `search()`; the address list (`<select name="epc_cert">`, the library's
+  order — newest first — as "address · certificate from dd Mon yyyy");
+- **Use this certificate** — `nav=epc_use` with `epc_cert`: `certificate()`; the summary (rating badge A–G, number, valid
+  until = lodgement + 10 years, floor area, age band) and the pre-fill of `age` (only when unanswered) and the four house
+  cards; `CDB DESIGNINFO_EPC_RAW_KEYS` (debug) logs the certificate's top-level keys, for confirming the windows and mains gas
+  key names in the first Production test.
+
+The certificate rides in hidden `epc_number` / `epc_date` until a save, which writes **`custbody_epc_number`** and
+**`custbody_epc_date`** (empty never overwrites; changes in the Note) and the route as `Find my EPC · EPC <number>, lodged
+<dd/mm/yyyy>` in `custbody_pq_cylinder_location`. **The rating is shown only, never stored** (so Review shows *Certificate
+<no.>, valid until <date>*). No rows (a Scottish postcode), `ok:false`, an exception or a malformed number: the notice
+*No certificate found for that postcode…*, nothing written, `CDB DESIGNINFO_EPC_NONE` (debug, with the status code).
+**Mapping** (`content/epc-element-map.csv`): case-insensitive substrings, the lowest `priority` wins, each `; `-entry mapped
+on its own; entries that disagree, or one that maps to nothing → *Not sure*, with *Your certificate says: …* on the card;
+"average thermal transmittance X" → the exact U (source EPC). Windows: `windowsDescription`, else *Not sure* tagged *Not on
+your EPC: please check*. **Age band:** the start year in `constructionAgeBand` ("1950-1966" → 1950; "before 1900" → 1899;
+"2012 onwards" → 2012); no year → *Not sure*.
+
+**Pictures (§B7).** Picture cards: the image, the radio, the label as visible text and as `alt` (escaped). One
+`search.create({ type: 'file' })` per request for every file ID on the step, the absolute URL from
+`url.resolveDomain({ hostType: APPLICATION })`; a failed search or a file not returned: the card without its image,
+`CDB DESIGNINFO_PICTURE_MISSING` once. The option `id` is the list ID written to `custbody37` / `custbody36`; only an ID in
+the setting is accepted. **The images must be Available Without Login** (the page is). `custbody35` is not written.
+
+**The distance** (`custbody29`) must be a number above 0 (decimals allowed). The registry has no column for that rule, so it
+is `designinfo.NUMBER_QIDS` (`distance`); on a numeric field the number is written as a number.
+
+**How designers edit the presets, the age bands and the EPC map.** The three CSVs live **beside the registry** in the File
+Cabinet (`config.DESIGNINFO_CONTENT`: the registry's own folder, so no folder ID is committed) and are read with `file.load`
+(10 units each) **only when a step needs them** (step 3 GET and save: presets and age bands; a certificate POST: the EPC
+map). Edit them in the repo (`content/`) and upload over the File Cabinet copy, as the registry. **Presets**
+(`element,key,label,u`): keys `a-z0-9_`, unique per element, not a special's key; `u` 0.05–6.0. Renaming a label leaves
+lines already written with the old label as staff-like text (they show as *We have: …* until changed). **Age bands**
+(`key,label,walls,windows,roof,floor`): each element value a preset key of that element or a U-value; the keys must match
+the `age` question's keys (`pre1920 … 2012`); `regs_new` and `regs_ext` are the Building Regulations rows. **EPC map**
+(`element,pattern,preset,priority`): patterns are lower-cased substrings of the RdSAP description; give a longer pattern a
+lower priority than a shorter one it contains (`150 mm loft` 10 beside `50 mm loft` 30). A bad row is rejected and logged
+(`CDB DESIGNINFO_CONTENT_REJECTED_<PRESETS|AGEBANDS|EPCMAP>`); the rest is used. A file that cannot be read: the cards offer
+the specials only and nothing is pre-filled (`CDB DESIGNINFO_CONTENT_UNAVAILABLE`).
+
+**Governance (2.3c, modelled in `test/r2-5.test.js` with NetSuite's documented costs; confirm with `CDB USAGE`):** step 3
+GET 54; a step 3 save with element cards 74; the EPC search POST 64 (with its stay save); the certificate POST 74; step 5
+GET with pictures 44; the request page GET with the facts form 33, *Update and recheck* 46, Send 55.
 
 ### Send delivery link (2.0)
 
@@ -1801,6 +1973,14 @@ Every title starts `CDB `.
 | `CDB DESIGNINFO_STEP_UNKNOWN` (2.4.0) | debug | A `&step=` that is unknown or hidden for this project; the first step is shown | — |
 | `CDB DESIGNINFO_NO_CHANGE` (2.4.1) | debug | A navigation post with no change and no file: nothing written | — |
 | `CDB DESIGNINFO_WRITE_RETRY` (2.3.1) | audit | The one write of the fields and the state failed; the fields were retried alone | Read the details |
+| `CDB DESIGNINFO_EPC_UNAVAILABLE` (2.5.0) | audit | Once per request: the EPC lookup is unavailable — `epc_lib` missing or older than 1.0.0, or `EPC_BEARER_TOKEN` empty (the token is never logged) | Upload `epc_lib.js` / set the token |
+| `CDB DESIGNINFO_EPC_NONE` (2.5.0) | debug | A lookup found no certificate (no rows, `ok:false` with its status code, an exception, a malformed number); nothing written | — |
+| `CDB DESIGNINFO_EPC_RAW_KEYS` (2.5.0) | debug | Once per request, the first certificate's top-level keys | Confirm the windows and mains gas key names (first Production test) |
+| `CDB DESIGNINFO_PICTURE_MISSING` (2.5.0) | audit | Once per request: the picture file search failed, or file IDs were not found; those options show without images | Check the `file` IDs in `DI_PIC_*` and that the files exist |
+| `CDB DESIGNINFO_HEAT26_UNMAPPED` (2.5.0) | debug | `custbody_heat_source_type_26` values `DI_HEAT26_MAP` does not list; ignored | Add them to the map if they mean something |
+| `CDB DESIGNINFO_FILL_INVALID` (2.5.0) | audit | `DI_FILL_REPLACEABLE` is not a JSON object; no field is governed | Fix the JSON |
+| `CDB DESIGNINFO_CONTENT_UNAVAILABLE` / `_CONTENT_REJECTED_<PRESETS\|AGEBANDS\|EPCMAP>` (2.5.0) | audit | A content file beside the registry could not be read (the cards offer the specials only) / rows of it were ignored | Upload the file / fix the rows |
+| `CDB DESIGNINFO_FACTS_UPDATED` / `_FACTS_REFUSED` / `_FACTS_FAILED` / `_FACTS_OPTIONS` (send 1.1.0) | audit / audit / error / audit | *Update and recheck* wrote the facts / a value was not one of the options, nothing written / the write threw / the options could not be read (no form) | Read the details |
 
 ---
 
@@ -1977,6 +2157,45 @@ In order. Nothing changes for customers at any step.
    old link shows the invalid page.
 7. **Then Online-quote part B** can be deployed.
 
+### 8.9c Release 2.3c: the heat loss step, `reveal`, the EPC lookup, the MCS pictures (after 8.9b)
+
+1. **NS-Quick-Estimate first:** upload `epc_lib.js` (1.0.0) to `/SuiteScripts/NuHeat/Quick Quote Tool/`, then its RESTlet
+   1.1.0 (that repo's README). The dashboard requires the library by that absolute path.
+2. **Fields** (Steve; check each exists on the opportunity form, Store Value on): `custbodyopp_build_type` (List),
+   `custbody_epc_number` (Free-Form Text), `custbody_epc_date` (Date); `custbody37` and `custbody36` must be **List** fields
+   (the picture option IDs are written there; a text field shows the question read-only, `CDB DESIGNINFO_FIELD_MISMATCH`);
+   `custbody_heat_source_type_26` (Multiple Select). The four `custbody_new_*_2026` and four `custbody_existing_*_2026`
+   fields exist from 2.3.
+3. **Settings rows** (`customrecord_cdb_setting`; values in Steve's checklist, never in the repo): `DI_HEAT26_MAP`,
+   `DI_BUILD_TYPE_OPTIONS`, `DI_MARKET_OPTIONS`, `DI_FILL_REPLACEABLE`, `DI_PIC_REFLECT`, `DI_PIC_BARRIER`,
+   `EPC_BEARER_TOKEN`. **Set the four options rows before uploading the v3 registry**: an empty `DI_MARKET_OPTIONS` takes
+   most of step 3 with it (section 4, `reveal`).
+4. **Pictures:** the six images in the File Cabinet, **Available Without Login** ticked; their file IDs in `DI_PIC_*`.
+5. **Content:** upload `content/element-presets.csv`, `content/age-bands.csv` and `content/epc-element-map.csv` beside the
+   registry (the folder of `DESIGNINFO_REGISTRY`), then `content/design-info-registry.csv` (v3) over the existing file.
+6. **Code**, overwriting, in this order: `lib/cdb_lib_config.js` 3.5.0 → `lib/cdb_lib_designinfo.js` 1.2.0 →
+   `lib/cdb_lib_data.js` 2.4.0 → `lib/cdb_lib_render.js` 2.5.0 → `cdb_sl_dashboard.js` 2.5.0 → `cdb_sl_send_designinfo.js`
+   1.1.0 → `cdb_mr_digest.js` 2.2.0. The task library, the User Events and the send link Suitelet are unchanged.
+7. Expect `CDB DESIGNINFO_STATE_QID_UNKNOWN` once per request on opportunities that saved 2.3b answers under the removed
+   qids (`build_stage`, `w3w`, `plans_current`, `ins_choice`, `year`, `walls_*`, `hp_*`, `nb_*`, `dhw`, `ground_loop`, …).
+
+**Tests in Production** (an HP Design test opportunity with Heat Source Type set):
+
+1. Request design information: the tick boxes are pre-ticked; untick *Heat loss*; the email lists *Your project, Plans and
+   layout, Heating, Heat pump, Anything else*; the page shows only those steps; the card says "about 10 minutes".
+2. With Heat Source Type and the Sales MI heat source both empty: the request page shows the facts form; Update and recheck
+   sets them and the page redraws without it.
+3. Step 3: choose *Renovation* and *Flat*: the floor question appears (with and without JavaScript). *Typical for the age*
+   with *1950–1975*: the four cards fill (*Typical for 1950 – 1975*); change one; Save: the Note shows each line.
+4. *Find my EPC* with a real postcode, *Use this certificate*: the summary, the cards *From your EPC*; Save: the EPC number and
+   date on the opportunity, the route with "· EPC …". Read `CDB DESIGNINFO_EPC_RAW_KEYS` in the log: confirm the windows and
+   mains gas key names.
+5. A Scottish postcode: *No certificate found…*. Clear `EPC_BEARER_TOKEN`: *We can't look up certificates right now…*.
+6. Step 5 with an ASHP: the two picture questions with their images; choose; Save: `custbody37` / `custbody36` hold the IDs;
+   Review shows the labels.
+7. A property type already set to something other than House: the answer is not written; the Note says "customer says".
+8. A phone: no horizontal scroll on step 3 and step 5; the picture cards wrap.
+
 ### 8.9b Release 2.3b: the stepper (after 8.9; with amendment 1)
 
 1. Upload `content/design-info-registry.csv` (v2, 16 columns) over the existing file in `SuiteScripts/NuHeat/Customer
@@ -2092,6 +2311,15 @@ step columns, the committed v2 file (0 rejected, 45 qids), `unknownStateQids`, t
 `&step=` valid, hidden and unknown, every POST navigation and its redirect, the validation re-render, Review's values
 and flags, Send, view mode, the file control and its cap, the phone CSS, Enter, old qids and the Note and Task titles;
 2.4.1: a navigation with nothing changed writes nothing (next, back, exit, goto, more), Send still writes, Review's header.
+2.3c (`test/r2-5.test.js`, with `test/helpers/v3.js`: the COMMITTED v3 registry and content files, the 2.3c settings and a
+stubbed `epc_lib`): the three headers, the committed v3 file (0 rejected, 86 questions, titles, shorts, minutes), the content
+files, `@setting` and literal keys, `parseReveal` / `revealMap` and the missing-question rule, the heat facts from `_26`,
+`stepsFor` and the visible-step table, element lines, routing and pre-fill, the EPC mapping and age bands, `rq` and old
+states; end to end: reveal on POST and in the no-JS markup, `@setting` writes, the fill rule, the element cards, the EPC
+flow and its failures, pictures, the one list on all five surfaces, the request page's ticks and facts form, the Task's
+extra lines, and the governance model (`test/helpers/netsuite.js` meters each stubbed call at NetSuite's documented cost).
+The 2.3 / 2.3b flow tests now read a frozen copy of the 2.3b registry (`test/fixtures/design-info-registry-2.3b.csv`): they
+test the mechanisms, which v3 keeps.
 Part A (`test/link.test.js`): `linkMatches` (right, wrong customer, wrong version, empty and malformed, extra
 parameters, no crypto); the customer User Event (a match writes nothing, an empty link written once with only
 `custentity_cdb_link`, a version bump, a copied customer, inactive, xedit's one lookup, delete/view ignored,
@@ -2189,6 +2417,53 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
 | 2.0: `form.addButton({ functionName: "window.location.assign('…')" })` | The inline expression runs on click, with no client script attached | Not verified; the brief cites the Send Quote pattern. If NetSuite needs a function name, attach a one-line client script |
 | 2.0: `redirect.toRecord({ parameters })` then `context.request.parameters` in the order's beforeLoad | The parameters arrive on the VIEW request | Not verified |
 | 2.0: `email.send` `relatedRecords.transactionId` = a sales order | The email shows on the order's Communication tab | Documented; not verified here |
+
+### Release 2.3c — unverified in the account (check in Sandbox)
+
+| API / data | What the code assumes | Source |
+|---|---|---|
+| `custbody_heat_source_type_26` | `record.getValue` returns an array of IDs; a search column `"4,10"`; `lookupFields` `[{value, text}, …]`; a posted multi-select joins with `\u0005` | All four shapes are normalised (`designinfo.idsOf`, `data.lookupSelects`) |
+| `url.resolveDomain({ hostType: APPLICATION })` from an Available Without Login Suitelet | The account's application domain, for the images' absolute URLs | Documented; a throw shows the cards without images (logged) |
+| `search.create({ type: 'file', columns: ['url'] })` | The relative media URL per file ID | Documented; the image must be Available Without Login to load for the customer |
+| `custbody37`, `custbody36` | List fields whose values are the `DI_PIC_*` option IDs | The brief; a text field makes the question read-only (logged) |
+| `custbody29` | Text or a numeric field (the distance; a number is written to a numeric field) | 2.3b wrote text there |
+| Serverwidget `MULTISELECT` / `SELECT` with `addSelectOption`, and an INLINEHTML `<input type="submit" name="custpage_recheck">` inside the form | Posts `custpage_recheck` and the selects with the form | Documented pattern; not verified |
+| The EPC API's windows and mains gas keys | `windows[]` or `window`; `sap_energy_source.mains_gas` / `main_gas` | `epc_lib` 1.0.0; `CDB DESIGNINFO_EPC_RAW_KEYS` confirms |
+
+### Release 2.3c — findings, decisions and notes for Steve
+
+1. **`custbody_mis_opp_market` was in `DESIGNINFO_DENY`** (a Sales MI fact source) and the brief has the page write it. It is
+   removed from the deny-list (config 3.5.0) and written under the fill rule only. **`custbody_heat_source_type_26` was NOT
+   in the deny-list** (the brief says "keep"); it is added.
+2. **"designContext / computeFacts"**: the facts function is `designinfo.buildFacts()` (`designContext` is the Suitelet's);
+   the brief's names are read as those.
+3. **A reveal on a Note-only answer needs the answer kept.** `hp_type` (Note) drives the heat pump step's reveals and
+   `extN_age` (Note) the `regs_ext` default, but Note-only answers were not kept (2.3.2). Note-only **choice** answers are now
+   kept in the state; Note-only text answers still are not, so the Task's extension line says *(in the Notes)* for "what is
+   it" unless it was posted in the same request.
+4. **A cascade of rejected rows.** The parse-time rule (a reveal names an earlier question of the section) rejects every row
+   whose controller was itself rejected: with `DI_MARKET_OPTIONS` empty, 45 rows of step 3 go. Set the options rows first.
+5. **"Unticks everything" vs "empty means all".** Both rules are kept by storing `rq` with project and other, so it is never
+   empty once a request is sent through 2.3c.
+6. **Two submits for the EPC.** *Find my EPC* posts `nav=epc`; *Use this certificate* posts **`nav=epc_use`** (with
+   `epc_cert`), not `nav=epc` as the brief says: two buttons in one form both posting `nav=epc` cannot be told apart once
+   the address list is on the page.
+7. **The rating on Review.** The rating is never stored, so Review (a later request) shows *Certificate <no.>, valid until
+   <date>* without it; the rating shows on the step right after *Use this certificate*.
+8. **The cylinder is asked twice for a hybrid.** The heating step's `cylinder` keeps 2.3b's `when` (`heat=boiler,user_hp,other`)
+   and the heat pump step has `cyl_plan`/`cyl` writing the same `custbody_cylinder_location_2026`; with a heat set such as
+   `{nuheat_hp, ashp, boiler}` both show. Not changed (the brief keeps 2.3b's `when`); decide whether `cylinder` should add
+   a heat pump exclusion.
+9. **The request email's subtitle** still says "About 10 minutes" (`DESIGNINFO_EMAIL.SUB`, overridable by the setting); only
+   the card's time is computed, as the brief says.
+10. **The distance rule** is by qid (`designinfo.NUMBER_QIDS`): the registry has no column for a number rule.
+11. **EPC phrases not mapped** (seeded from standard RdSAP wording; the recon's A11 list was not available to this session):
+    walls *System built*, *Cob*, *Park home wall*, cavity *as built, insulated* is mapped to *Modern masonry (1991–2002)*
+    (no closer preset); windows *Partial double glazing*, *Some double glazing*, *Mostly double glazing*, *Partial secondary
+    glazing*; roof *Roof room(s)* (any), *Pitched, insulated (assumed)*, *Pitched, insulated at rafters*, *(another dwelling
+    above)*, *(other premises above)*, *Thatched*; floor *Solid, limited insulation*, *Suspended, limited insulation*,
+    *To external air*, *(another dwelling below)*, *(other premises below)*. Each maps to *Not sure* with the certificate's
+    words shown. Add rows to `content/epc-element-map.csv` as wanted.
 
 ### Release 2.3 — unverified in the account (check in Sandbox)
 

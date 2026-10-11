@@ -1,0 +1,10 @@
+key,label,walls,windows,roof,floor
+pre1920,Before 1920,solid_brick,double_pre02,mm100,solid_unins
+1920,1920 – 1949,solid_brick,double_pre02,mm100,solid_unins
+1950,1950 – 1975,cavity_unfilled_pre76,double_pre02,mm100,solid_unins
+1976,1976 – 1990,cavity_unfilled_76_90,double_pre02,mm100,solid_unins
+1991,1991 – 2002,modern_91_02,double_pre02,mm150,0.45
+2003,2003 – 2011,modern_03_11,double_02,mm270,solid_ins
+2012,2012 or later,modern_12,double_lowe,mm270,0.22
+regs_new,Building Regulations (new home),0.26,1.6,0.16,0.18
+regs_ext,Building Regulations (extension),0.18,1.4,0.15,0.18

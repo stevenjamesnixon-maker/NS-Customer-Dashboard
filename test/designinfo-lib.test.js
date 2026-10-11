@@ -14,7 +14,7 @@ var di = amd.load('lib/cdb_lib_designinfo', {});
 var config = amd.load('lib/cdb_lib_config', {});
 var task = amd.load('lib/cdb_lib_task', {});
 
-var REGISTRY = fs.readFileSync(path.join(__dirname, '..', 'content', 'design-info-registry.csv'), 'utf8');
+var REGISTRY = fs.readFileSync(path.join(__dirname, 'fixtures', 'design-info-registry-2.3b.csv'), 'utf8');
 var ALLOW = config.designInfoAllowList();
 var DENY = config.DESIGNINFO_DENY;
 var HEADER = 'section,section_title,panel,qid,type,label,hint,options,field,required,when,why';
@@ -157,8 +157,9 @@ test('registry: a bad row is rejected and listed, never the file', function () {
 test('registry DENY-LIST (amendment 1 §7): custbody_opp_del_date is in the allow-list but every row writing it is rejected', function () {
     assert.ok(ALLOW.indexOf('custbody_opp_del_date') >= 0, 'FIELDS.OPPORTUNITY.DEL_DATE is in the allow-list');
     assert.ok(ALLOW.indexOf('custbody_build_stage') >= 0 && ALLOW.indexOf('custbody_pq_cylinder_location') >= 0);
+    // 2.3c (config 3.5.0): custbody_mis_opp_market is written now (the fill rule); custbody_heat_source_type_26 is denied.
     ['custbody_opp_del_date', 'custbody_opportunity_sub_status', 'custbody_mi_opp_fc', 'custbody_mi_heat_source',
-        'custbody_mis_opp_market', 'custbody_cad_des_contact', 'custbody_cdb_designinfo_state'].forEach(function (f) {
+        'custbody_heat_source_type_26', 'custbody_cad_des_contact', 'custbody_cdb_designinfo_state'].forEach(function (f) {
         var r = parse(reg(['project,P,main,x,date,X,,,' + f + ',N,,']));
         assert.strictEqual(r.questions.length, 0, f);
         assert.ok(/may never be written from this page/.test(r.rejected[0].reason), f);
@@ -189,11 +190,12 @@ test('buildFacts: each FC_MAP token, pairs, none, hp, unknown and an unlisted ID
 });
 
 test('buildFacts: each HEAT_MAP value, other for unmapped; the service; new build; the warnings', function () {
-    assert.strictEqual(facts({ heatSource: '11' }).heat, 'boiler');
-    assert.strictEqual(facts({ heatSource: '12' }).heat, 'nuheat_hp');
-    assert.strictEqual(facts({ heatSource: '13' }).heat, 'user_hp');
-    assert.strictEqual(facts({ heatSource: '14' }).heat, 'other');
-    assert.strictEqual(facts({ heatSource: '15' }).heat, 'other');
+    // 2.3c (designinfo 1.2.0 §B2): heat is a SET; with custbody_heat_source_type_26 empty it is the Sales MI's one value.
+    assert.deepStrictEqual(facts({ heatSource: '11' }).heat, ['boiler']);
+    assert.deepStrictEqual(facts({ heatSource: '12' }).heat, ['nuheat_hp']);
+    assert.deepStrictEqual(facts({ heatSource: '13' }).heat, ['user_hp']);
+    assert.deepStrictEqual(facts({ heatSource: '14' }).heat, ['other']);
+    assert.deepStrictEqual(facts({ heatSource: '15' }).heat, ['other']);
     assert.ok(facts({ heatSource: '15' }).warnings.some(function (w) { return /Heat source 15 is not in HEAT_MAP/.test(w); }));
     assert.strictEqual(facts({ heatSource: '14' }).warnings.some(function (w) { return /Heat source/.test(w); }), false);
     assert.strictEqual(facts({ valueProposition: '21' }).service, 'ufh');
@@ -212,7 +214,7 @@ test('buildFacts: each HEAT_MAP value, other for unmapped; the service; new buil
         'The heat source is a Nu-Heat heat pump, but the design service is not HP Design.') >= 0);
     // Unknowns are explicit values, never undefined.
     var f = di.buildFacts({}, {});
-    assert.deepStrictEqual([f.service, f.fc, f.heat, f.newbuild], ['unknown', ['unknown'], 'other', false]);
+    assert.deepStrictEqual([f.service, f.fc, f.heat, f.newbuild], ['unknown', ['unknown'], ['other'], false]);
 });
 
 // ---------------------------------------------------------------- whenMatches

@@ -12,7 +12,7 @@ var amd = require('./helpers/amd');
 var di = amd.load('lib/cdb_lib_designinfo', {});
 var config = amd.load('lib/cdb_lib_config', {});
 
-var REGISTRY = fs.readFileSync(path.join(__dirname, '..', 'content', 'design-info-registry.csv'), 'utf8');
+var REGISTRY = fs.readFileSync(path.join(__dirname, 'fixtures', 'design-info-registry-2.3b.csv'), 'utf8');
 var V1 = 'section,section_title,panel,qid,type,label,hint,options,field,required,when,why';
 var V2 = V1 + ',step_intro,step_minutes,image,placeholder';
 

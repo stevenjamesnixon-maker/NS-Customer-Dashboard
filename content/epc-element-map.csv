@@ -1,0 +1,47 @@
+element,pattern,preset,priority
+walls,"cavity wall, filled cavity",cavity_filled,10
+walls,"cavity wall, as built, insulated",modern_91_02,20
+walls,"cavity wall, as built, partial insulation",cavity_unfilled_76_90,20
+walls,"cavity wall, as built, no insulation",cavity_unfilled_pre76,30
+walls,"cavity wall, with internal insulation",solid_ins_50,40
+walls,"cavity wall, with external insulation",solid_ins_50,40
+walls,"solid brick, as built",solid_brick,30
+walls,"solid brick, with internal insulation",solid_ins_50,20
+walls,"solid brick, with external insulation",solid_ins_50,20
+walls,"sandstone",stone,30
+walls,"limestone",stone,30
+walls,"granite",stone,30
+walls,"whinstone",stone,30
+walls,"stone, as built",stone,40
+walls,"timber frame, as built, no insulation",timber_old,20
+walls,"timber frame, as built, partial insulation",timber_old,20
+walls,"timber frame, as built, insulated",modern_91_02,20
+walls,"timber frame, with additional insulation",modern_91_02,20
+windows,"triple glazed",triple,10
+windows,"high performance glazing",double_lowe,10
+windows,"secondary glazing",secondary,20
+windows,"fully double glazed",double_02,30
+windows,"multiple glazing throughout",double_02,30
+windows,"single glazed",single,30
+roof,"pitched, no insulation",none,10
+roof,"400+ mm loft insulation",mm270,10
+roof,"400 mm loft insulation",mm270,10
+roof,"350 mm loft insulation",mm270,10
+roof,"300 mm loft insulation",mm270,10
+roof,"270 mm loft insulation",mm270,10
+roof,"250 mm loft insulation",mm200,10
+roof,"200 mm loft insulation",mm200,10
+roof,"150 mm loft insulation",mm150,10
+roof,"100 mm loft insulation",mm100,10
+roof,"75 mm loft insulation",mm100,20
+roof,"50 mm loft insulation",mm50,30
+roof,"25 mm loft insulation",mm50,30
+roof,"12 mm loft insulation",none,30
+roof,"flat, no insulation",flat_limited,10
+roof,"flat, limited insulation",flat_limited,10
+roof,"flat, insulated",flat_ins,20
+floor,"solid, no insulation",solid_unins,10
+floor,"solid, insulated",solid_ins,10
+floor,"suspended, no insulation",susp_unins,10
+floor,"suspended, insulated",susp_ins,10
+floor,"to unheated space",above_unheated,10
