@@ -1109,7 +1109,8 @@ test('A2. every inline script parses (vm.Script), on every step and Review, for 
         var parsed = 0;
         worlds.forEach(function (wv) {
             var t = v3.setup({ opp: wv[1] });
-            ['project', 'insulation', 'heating', 'heatpump', 'other', 'review'].forEach(function (id) {
+            // Amendment 5: and the thank-you page (Review when nothing was sent; see the A5 tests for a sent one).
+            ['project', 'insulation', 'heating', 'heatpump', 'other', 'review', 'thanks'].forEach(function (id) {
                 var html = v3.step(t, id);
                 scriptsOf(html).forEach(function (body) {
                     assert.doesNotThrow(function () { new vm.Script(body); }, wv[0] + ', ' + id);
@@ -1117,6 +1118,9 @@ test('A2. every inline script parses (vm.Script), on every step and Review, for 
                 });
             });
             scriptsOf(v3.run(t, 'GET', { t: t.tok })).forEach(function (body) { new vm.Script(body); parsed += 1; });
+            // Amendment 5: after a Send, the thank-you page carries no inline script at all.
+            v3.post(t, { step: 'review', send: '1' });
+            assert.strictEqual(scriptsOf(v3.step(t, 'thanks')).length, 0, wv[0] + ', thanks');
         });
         assert.ok(parsed > 20, parsed + ' scripts parsed');
     });
@@ -1495,9 +1499,11 @@ test('A3. no "design call" anywhere: every step, Review, the dashboard card and 
     sendPage(t, 'POST', {});
     var body = t.w.emails[0].body;
     assert.strictEqual(/design call|Before we speak|read it all before|Anything you can.t answer/i.test(body), false);
-    var sent = v3.post(t, { step: 'review', send: '1' });
-    assert.strictEqual(/design call/i.test(sent), false, 'the confirmation');
-    assert.ok(sent.indexOf('Pem will read it all and be in touch.') > 0);
+    v3.post(t, { step: 'review', send: '1' });
+    // Amendment 5: the Send redirects to the thank-you page.
+    var sent = v3.step(t, 'thanks');
+    assert.strictEqual(/design call/i.test(sent), false, 'the thank-you page');
+    assert.ok(sent.indexOf('Pem will look through everything you’ve sent.') > 0);
 });
 
 test('A3. Heat loss: drawings, then the insulation (age only for Typical) and the house cards, then the extensions; the info ' +
@@ -1905,9 +1911,10 @@ test('A4 §8. the PDF: created in the upload folder and attached on every Send (
         // A failure: the Send still succeeds, logged, and the Task says so.
         var f = v3.setup({ registry: MINI });
         f.w.pdfThrows = true;
-        var html = v3.post(f, { step: 'review', send: '1', q_plans_changed: '0' });
+        v3.post(f, { step: 'review', send: '1', q_plans_changed: '0' });
         assert.strictEqual(f.w.tasks.length, 1);
-        assert.ok(html.indexOf('Sent to Pem Engineer.') > 0);
+        // Amendment 5: the Send went through, so the thank-you page.
+        assert.ok(/&step=thanks$/.test(f.redirect), f.redirect);
         assert.strictEqual(v3.logs(f.w, 'DESIGNINFO_PDF_FAILED')[0][0], 'error');
         assert.ok(/Full answers: Note "Design information [^"]+"\. PDF not created; see the Note\.$/.test(f.w.tasks[0].values.message),
             f.w.tasks[0].values.message);
@@ -1974,3 +1981,169 @@ test('A4 §9. text already on the opportunity: shown read-only, the answer appen
         // Choice, list and date fields keep their behaviour (pre-selected, replaced): the market, from the field.
         assert.ok(/name="q_market" value="8" data-key="reno" checked/.test(v3.step(own, 'project')));
     });
+
+// ---------------------------------------------------------------- 2.3c amendment 5: the thank-you page
+
+/** Amendment 5: a GET of the URL a POST redirected to. */
+function followUrl(t) {
+    var q = {};
+    // A GET clears t.redirect: keep the last one, so the page can be opened again (a refresh).
+    t.lastRedirect = t.redirect || t.lastRedirect;
+    t.lastRedirect.split('?')[1].split('&').forEach(function (kv) {
+        var i = kv.indexOf('=');
+        q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+    });
+    return v3.run(t, 'GET', q);
+}
+
+/** The thank-you page's conditional lines (<p class="thx">), as text. */
+function thanksLines(html) {
+    return (html.match(/<p class="thx">[\s\S]*?<\/p>/g) || []).map(function (x) {
+        return x.replace(/<[^>]+>/g, '').replace(/&#39;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&amp;/g, '&');
+    });
+}
+
+test('A5. a Send that went through redirects to step=thanks; refreshing it sends nothing, writes nothing and makes no second Task',
+    function () {
+        var t = v3.setup({ registry: MINI });
+        v3.post(t, { step: 'review', send: '1', q_plans_changed: '0' });
+        assert.ok(/\?t=[^&]+&a=designinfo&opp=20&step=thanks$/.test(t.redirect), 'the same token parameters: ' + t.redirect);
+        assert.strictEqual(t.w.tasks.length, 1);
+        var counts = [t.w.tasks.length, t.w.notes.length, t.w.submits.length, t.w.savedFiles.length, (t.w.pdfs || []).length];
+        var html = followUrl(t);
+        followUrl(t);
+        assert.deepStrictEqual([t.w.tasks.length, t.w.notes.length, t.w.submits.length, t.w.savedFiles.length,
+            (t.w.pdfs || []).length], counts, 'the page writes nothing');
+        assert.ok(html.indexOf('<h1 id="h-thanks">Thank you, Acme Ltd. We’ve got your design information.</h1>') > 0);
+        assert.ok(html.indexOf('<title>Thank you · Tell us about your property | Nu-Heat</title>') > 0);
+        assert.strictEqual(html.indexOf('class="sbar"'), -1, 'no step bar');
+        assert.strictEqual(html.indexOf('<form'), -1, 'no form');
+        assert.strictEqual(scriptsOf(html).length, 0, 'no inline script');
+        // A link without step= after a Send still opens Review (amendment 3).
+        assert.ok(v3.run(t, 'GET', { t: t.tok, a: 'designinfo', opp: '20' }).indexOf('<h1>Review and send</h1>') > 0);
+    });
+
+test('A5. the thank-you page: with none of the conditional lines, the heading, the paragraph, What happens next, the buttons ' +
+    'and the questions line', function () {
+        var t = v3.setup({ registry: MINI });
+        v3.post(t, { step: 'review', send: '1', q_plans_changed: '0' });
+        var html = followUrl(t);
+        assert.deepStrictEqual(thanksLines(html), []);
+        assert.ok(html.indexOf('<p class="lead" style="margin:0">Pem will look through everything you’ve sent. As long as ' +
+            'nothing’s missing, our expert system designers will then get to work on your design.</p></section>') > 0);
+        // What happens next: the email's three steps, the first ticked.
+        assert.deepStrictEqual((html.match(/<li[^>]*><span class="ncirc" aria-hidden="true">[^<]*<\/span><span><strong>[^<]*/g) ||
+            []).map(function (x) { return x.replace(/<[^>]+>/g, '|').replace(/\|+/g, '|'); }),
+        ['|✓|You complete the design survey', '|2|We design your system', '|3|We deliver it']);
+        assert.ok(html.indexOf('<li class="done">') > 0 && html.indexOf('(done)</span>') > 0);
+        assert.ok(html.indexOf('<div class="navrow"><a class="cta" href="https://acct.extforms.netsuite.com/sl?t=' + t.tok +
+            '">Back to your project</a><a class="out" href="https://acct.extforms.netsuite.com/sl?t=' + t.tok + '&amp;' +
+            'a=designinfo&amp;opp=20&amp;step=review">See what you sent</a></div>') > 0);
+        assert.ok(html.indexOf('<p class="stuck">Questions? Email Pem at <a href="mailto:pe@x">pe@x</a>.</p>') > 0);
+        // See what you sent: Review, editable while the design has not started.
+        assert.ok(v3.step(t, 'review').indexOf('name="send" value="1"') > 0);
+    });
+
+test('A5. the thank-you page\'s conditional lines, each only when it applies: a call, steps still to do, a failed upload ' +
+    '(one line per file), big files', function () {
+        // A call.
+        var c = v3.setup({ registry: MINI });
+        v3.post(c, { step: 'review', send: '1', q_plans_changed: '0', call: 'yes', call_when: 'Tues pm' });
+        assert.deepStrictEqual(thanksLines(followUrl(c)), ['You asked for a call. Pem will be in touch to arrange it.']);
+        // Steps still to do: their short names.
+        var d = v3.setup();
+        v3.post(d, { step: 'review', send: '1' });
+        assert.deepStrictEqual(thanksLines(followUrl(d)), ['There are a few things still to tell us: Your project, Heat loss, ' +
+            'Heating, Heat pump. You can add them any time from the link in your email, and Pem will pick them up.']);
+        // Failed uploads, one line each, escaped; and big files (the tick shown and answered).
+        var f = v3.setup({ registry: MINI.replace('Anything else"', 'Anything else"') + 'project,"Your project",plans,bigfiles,' +
+            'yesno,"Some of my files are bigger than 10 MB.",,,state,N,,,,,,,plans_changed=yes,\n' });
+        var bad = upload(f, 'kitchen <b>&.pdf');
+        var bad2 = upload(f, 'lounge.pdf');
+        bad.save = bad2.save = function () { throw new Error('INSUFFICIENT_PERMISSION: folder'); };
+        v3.post(f, { step: 'review', send: '1', q_plans_changed: '2', q_bigfiles: 'yes' },
+            { f_plans_files_1: bad, f_plans_files_2: bad2 });
+        var html = followUrl(f);
+        assert.deepStrictEqual(thanksLines(html), ['One of your files didn’t upload: kitchen <b>&.pdf. Please email it to ' +
+            'Pem at pe@x.', 'One of your files didn’t upload: lounge.pdf. Please email it to Pem at pe@x.',
+        'Pem will send you a secure link for your larger files.']);
+        assert.ok(html.indexOf('kitchen &lt;b&gt;&amp;.pdf') > 0 && html.indexOf('kitchen <b>') < 0, 'escaped');
+        assert.ok(html.indexOf('Please email it to Pem at <a href="mailto:pe@x">pe@x</a>.') > 0);
+        // A later Send with no failure: no upload line (the list is the last Send's).
+        v3.post(f, { step: 'review', send: '1' });
+        assert.strictEqual(thanksLines(followUrl(f)).filter(function (l) { return /didn’t upload/.test(l); }).length, 0);
+        // Big files ticked but hidden (plans not "upload"): no line.
+        var h = v3.setup({ registry: MINI + 'project,"Your project",plans,bigfiles,yesno,"Big?",,,state,N,,,,,,,plans_changed=yes,\n',
+            opp: { custbody_cdb_designinfo_state: stateWith([], { a: { bigfiles: 'yes' } }) } });
+        v3.post(h, { step: 'review', send: '1', q_plans_changed: '0' });
+        assert.deepStrictEqual(thanksLines(followUrl(h)), []);
+    });
+
+test('A5. a Send that fails validation stays on the form with the errors (no redirect, nothing written); a failed Task stays ' +
+    'on Review', function () {
+        var t = v3.setup();
+        var html = v3.post(t, { step: 'review', send: '1', q_ptype: '17' });
+        assert.strictEqual(t.redirect, '', 'no redirect');
+        assert.ok(html.indexOf('Please choose one of the options shown.') > 0, 'the error, on the step that has it');
+        assert.strictEqual(t.w.tasks.length, 0);
+        assert.strictEqual(t.w.submits.length, 0);
+        var f = v3.setup();
+        f.w.taskThrows = true;
+        html = v3.post(f, { step: 'review', send: '1' });
+        assert.strictEqual(f.redirect, '');
+        assert.ok(html.indexOf('<h1>Review and send</h1>') > 0 && html.indexOf('Please press Send again') > 0);
+    });
+
+test('A5. step=thanks without a Send, or in view mode, shows Review', function () {
+    var t = v3.setup();
+    var html = v3.step(t, 'thanks');
+    assert.ok(html.indexOf('<h1>Review and send</h1>') > 0);
+    assert.strictEqual(html.indexOf('h-thanks'), -1);
+    assert.strictEqual(v3.logs(t.w, 'DESIGNINFO_THANKS_REFUSED').length, 1);
+    var v = v3.setup({ opp: { custbody_opportunity_sub_status: '4', custbody_cdb_designinfo_state: stateWith([],
+        { sent: '2026-10-01T10:00Z' }) } });
+    html = v3.step(v, 'thanks');
+    assert.strictEqual(html.indexOf('h-thanks'), -1, 'view mode: Review');
+    assert.strictEqual(v.w.submits.length + v.w.tasks.length + v.w.notes.length, 0);
+});
+
+test('A5. phone width: the buttons stack full width below 600 px; the long email wraps', function () {
+    var t = v3.setup({ registry: MINI });
+    v3.post(t, { step: 'review', send: '1', q_plans_changed: '0' });
+    var html = followUrl(t).replace(/\n/g, '');
+    assert.ok(/@media \(max-width:600px\)\{(?:[^{}]*\{[^{}]*\})*?\.navrow\{flex-direction:column;align-items:stretch\}\.navrow \.cta,\.navrow \.out[^{]*\{width:100%\}/
+        .test(html));
+    assert.ok(html.indexOf('.stuck a{overflow-wrap:anywhere}') > 0);
+    assert.ok(html.indexOf('<meta name="viewport" content="width=device-width, initial-scale=1">') > 0);
+});
+
+var playwright = null;
+try { playwright = require('playwright'); } catch (e) { playwright = null; }
+
+test('A5. phone width (390 px, Chromium): no sideways scroll; the buttons are full width', { skip: playwright ? false :
+    'Playwright is not installed (the CSS is checked above)' }, async function () {
+    var t = v3.setup({ registry: MINI });
+    t.w.employees[77].email = 'a.very.long.address.for.the.project.engineer@nu-heat.example.co.uk';
+    v3.post(t, { step: 'review', send: '1', q_plans_changed: '0', call: 'yes' });
+    var html = followUrl(t);
+    var browser = await playwright.chromium.launch(process.env.PLAYWRIGHT_BROWSERS_PATH ? {} :
+        { executablePath: '/opt/pw-browsers/chromium' });
+    try {
+        var page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+        await page.route('**/*', function (r) { return r.abort(); });
+        await page.setContent(html, { waitUntil: 'domcontentloaded' });
+        var r = await page.evaluate(function () {
+            var row = document.querySelector('.navrow');
+            return { scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth,
+                row: row.getBoundingClientRect().width, buttons: Array.prototype.map.call(row.querySelectorAll('a'), function (a) {
+                    return a.getBoundingClientRect().width;
+                }) };
+        });
+        assert.ok(r.scroll <= r.client, 'no sideways scroll: ' + JSON.stringify(r));
+        assert.strictEqual(r.buttons.length, 2);
+        r.buttons.forEach(function (w) { assert.ok(Math.abs(w - r.row) < 1, 'full width: ' + JSON.stringify(r)); });
+    } finally {
+        await browser.close();
+    }
+});

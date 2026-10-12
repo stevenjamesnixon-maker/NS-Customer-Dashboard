@@ -171,10 +171,15 @@
  * DESIGNINFO_PDF_FAILED; its units in CDB USAGE), and the Task carries key facts only, titled "Design information
  * received: <QR> <surname>".
  *
+ * 2.8.0 (2.3c amendment 5): a Send that went through redirects (POST -> redirect -> GET) to the thank-you page,
+ * step=thanks, so a refresh sends nothing; it shows only in edit mode with a Send in the state, else Review (CDB
+ * DESIGNINFO_THANKS_REFUSED, debug), and writes nothing; the uploads that failed in the Send's post are kept in the
+ * state (uf) for it.
+ *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.7.0
+ * @version 2.8.0
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -183,7 +188,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.7.0';
+    var VERSION = '2.8.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -2008,6 +2013,30 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         return designinfo.completeness(dc.questions.map(function (v) { return v.q; }), answerValues(dc), dc.state);
     }
 
+    /** 2.8.0 (amendment 5): the thank-you page's step id (never a registry section). */
+    var THANKS_STEP = 'thanks';
+
+    /**
+     * 2.8.0 (amendment 5): what the thank-you page shows, from the state alone — the customer's first name, a call asked
+     * for, the steps still to do (short names), the uploads that failed in the Send's post, big files ticked (and shown).
+     */
+    function thanksModel(ctx, dc, steps) {
+        var big = dc.questions.filter(function (v) { return v.q.qid === designinfo.BIG_FILES_QID && v.q.revealed !== false; })[0];
+        return {
+            logoUrl: ctx.cfg.LOGO_URL,
+            recipient: dc.recipient,
+            backUrl: ctx.baseUrl,
+            reviewUrl: stepUrl(ctx, dc, 'review'),
+            thanks: {
+                name: ctx.customer.greetingName || '',
+                call: dc.state.call === 'yes',
+                todo: steps.filter(function (x) { return x.status === 'todo'; }).map(function (x) { return x.short || x.title; }),
+                failed: (dc.state.failedUploads || []).slice(),
+                bigFiles: !!big && dc.state.answers[designinfo.BIG_FILES_QID] === 'yes'
+            }
+        };
+    }
+
     /** 2.4.0: the URL of a step ('review' for the review). */
     function stepUrl(ctx, dc, stepId, extra) {
         return ctx.baseUrl + '&a=designinfo&opp=' + encodeURIComponent(dc.opp.id) + '&step=' + encodeURIComponent(stepId) +
@@ -2127,6 +2156,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             });
         }
         steps = designSteps(ctx, dc);
+        if (e.step === THANKS_STEP) {
+            return render.designInfoThanks(thanksModel(ctx, dc, steps));
+        }
         m = {
             logoUrl: ctx.cfg.LOGO_URL,
             recipient: dc.recipient,
@@ -2243,6 +2275,16 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         var ids;
         if (dc.html) {
             return dc.html;
+        }
+        // 2.8.0 (amendment 5): the thank-you page, only after a Send (the state's sent) and only in edit mode; else Review.
+        // It writes nothing.
+        if (step === THANKS_STEP) {
+            if (dc.mode === 'edit' && dc.state.sent) {
+                return renderDesignInfo(ctx, dc, { step: THANKS_STEP });
+            }
+            log.debug({ title: title('DESIGNINFO_THANKS_REFUSED'), details: 'Opportunity ' + dc.opp.id + ': step=thanks ' +
+                (dc.mode !== 'edit' ? 'in view mode' : 'with nothing sent') + '; Review is shown' });
+            return renderDesignInfo(ctx, dc, { step: 'review' });
         }
         // View mode: Review is the page; a step's URL goes to it.
         if (dc.mode !== 'edit') {
@@ -2654,6 +2696,8 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             }
         });
         if (send) {
+            // 2.8.0 (amendment 5): the files that failed in this Send's post, for the thank-you page.
+            s.failedUploads = (ch.failedUploads || []).slice(0, 5);
             ch.sinceSend = { changed: s.changedSince, newPlans: s.newPlans };
             s.changedSince = [];
             s.newPlans = false;
@@ -2966,6 +3010,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             });
         }
 
+        ch.failedUploads = fileResults.filter(function (r) { return !r.entry; }).map(function (r) {
+            return designinfo.plainValue(r.original, 100);
+        });
         // Step 3: the state (a second write when step 1 could not carry it).
         if (!stateWritten) {
             next = nextState(dc, ch, touched, valuesNow, newFiles, nowIso, send);
@@ -3078,10 +3125,13 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             return { redirect: afterSave(ctx, dc, params, sec, fileResults.some(function (r) { return !r.entry; }) ? 'files' :
                 filesRefused ? 'uploads' : failures.length ? 'partial' : '') };
         }
-        lines = send && !taskFailed ? [render.DESIGN_TEXT.SENT.replace('{name}', dc.recipient.name || 'your Project Engineer'),
-            dc.recipient.firstName ? render.DESIGN_TEXT.SENT_NEXT.replace('{first}', dc.recipient.firstName) :
-                render.DESIGN_TEXT.SENT_NEXT_NO_NAME] :
-            [render.DESIGN_TEXT.SAVED + ' ' + (comp.complete ? render.DESIGN_TEXT.ALL_HERE :
+        // 2.8.0 (amendment 5): a Send that went through: POST -> redirect -> GET of the thank-you page, so a refresh sends
+        // nothing again.
+        if (send && !taskFailed) {
+            return { redirect: stepUrl(ctx, dc, THANKS_STEP) };
+        }
+        // A Send whose Task failed (a Send that went through has redirected above).
+        lines = [render.DESIGN_TEXT.SAVED + ' ' + (comp.complete ? render.DESIGN_TEXT.ALL_HERE :
                 render.DESIGN_TEXT.CARD_TODO.replace('{list}', comp.missing.join(', ')))];
         if (send && taskFailed) {
             lines.push('We couldn’t pass it on just now. Please press Send again in a few minutes.');

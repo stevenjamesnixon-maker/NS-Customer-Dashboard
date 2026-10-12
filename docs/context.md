@@ -193,7 +193,7 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.7.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule; 2.6.0: six steps, the call request, the site address question; 2.7.0: the Task key facts only, the PDF, staff text kept, the EPC notes | Not deployed |
+| Dashboard Suitelet | 2.8.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule; 2.6.0: six steps, the call request, the site address question; 2.7.0: the Task key facts only, the PDF, staff text kept, the EPC notes; 2.8.0: the thank-you page after Send | Not deployed |
 | Digest Map/Reduce | 2.2.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states; 2.2.0: the cards from `stepsFor()`) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
 | Send design information Suitelet (2.3) | 1.3.0 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
@@ -206,8 +206,8 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 | Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
 | Data library | 2.5.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states; 2.5.0: `saveDesignInfoPdf()` | Not deployed |
-| Design information library (2.3) | 1.4.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
-| Render library | 2.7.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email; 2.7.0: the answers PDF as BFO XML | Not deployed |
+| Design information library (2.3) | 1.5.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
+| Render library | 2.8.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email; 2.7.0: the answers PDF as BFO XML; 2.8.0: `designInfoThanks()` | Not deployed |
 | Task library | 1.7.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task; 1.6.0: `topLines` (the call request first); 1.7.0: `buildDesignInfoBrief()` | Not deployed |
 | Question registry (2.3) | 3 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | Element presets (2.3c) | — | `content/element-presets.csv` (uploaded beside the registry) | `element,key,label,u`: the element cards' choices. Designers may edit | New |
@@ -1191,6 +1191,20 @@ from Steve's test of amendment 3 (HP Design, NIBE): what was saved, what the EPC
   what the form wrote is pre-filled and replaced as before. An answer equal to the field's whole text is no change.
   Choice, list and date fields are unchanged; the element cards keep *We have: …*.
 
+**Amendment 5 (12 Oct; dashboard 2.8.0, render 2.8.0, designinfo 1.5.0): a thank-you page after Send.** A Send that went
+through (its Task created) redirects — POST → redirect → GET, so a refresh sends nothing again — to `step=thanks` with the
+usual token parameters. The page (`render.designInfoThanks()`) has the form's header, cards and footer, no step bar, no form
+and no script: *Thank you, {customer first name}. We've got your design information.*, the PE's *will look through
+everything…* paragraph, then only the lines that apply — a call asked for, the steps still to do (short names), each upload
+that failed in the Send's post (kept in the state as `uf`, at most 5, names to 100; never in the URL), big files ticked
+(and shown) — then *What happens next* (the request email's three steps, the first ticked), *Back to your project* (the
+dashboard) and *See what you sent* (Review, editable until the design starts), and *Questions? Email {PE first name} at
+{PE email}.* It is built from the state alone and writes nothing. `step=thanks` with nothing sent, or in view mode, shows
+Review (`CDB DESIGNINFO_THANKS_REFUSED`, debug). A Send that fails validation re-renders with its errors (on the step that
+has the error, as before); a Send whose Task fails stays on Review saying to send again. A link without `step=` after a
+Send still opens Review. Below 600 px the two buttons stack full width (checked at 390 px in Chromium by the tests when
+Playwright is installed).
+
 **The heat facts (§B2).** `heat` is a **set**. First `custbody_heat_source_type_26` (Multiple Select: an array from
 `record.getValue`, a `"4,10"` string from a search, `\u0005`-joined when posted; `designinfo.idsOf()` normalises) through
 `DI_HEAT26_MAP` (`{"<listId>": "ashp|gshp_loop|gshp_bore|user_hp|boiler"}`); any heat pump type also adds `nuheat_hp`;
@@ -2112,6 +2126,7 @@ Every title starts `CDB `.
 | `CDB DESIGNINFO_NO_BUTTON` (2.3) | debug | Why the opportunity shows no *Request design information* button | — |
 | `CDB DESIGNINFO_TASK_CLIPPED` (2.3.1) | audit | The DESIGN INFO Task's snapshot was clipped at 3,900 | — (the Notes hold every change; the record holds every answer) |
 | `CDB DESIGNINFO_STATE_TRIMMED` (2.3.1; 2.3.2) | audit | The state was over 3,500 characters; it kept only its last 5 files (older ones stay on the opportunity and in the Notes) | — |
+| `CDB DESIGNINFO_THANKS_REFUSED` (2.8.0) | debug | `step=thanks` opened with nothing sent, or in view mode: Review is shown instead | — |
 | `CDB DESIGNINFO_PDF` (2.7.0) | audit | On Send: the answers PDF saved (its file ID, name and folder) and attached | — |
 | `CDB DESIGNINFO_PDF_FAILED` (2.7.0) | error | The PDF was not created (render, save or no folder) or not attached; the Send went ahead and the Task says "PDF not created; see the Note" | Check the folder setting and the log's error |
 | `CDB DESIGNINFO_STANDARD_HEIGHTS_INVALID` (2.7.0) | audit | Setting `DI_STANDARD_HEIGHTS` is not valid JSON of heights in metres; the default is used for what is missing or wrong (once per request) | Fix the setting |
@@ -2334,6 +2349,9 @@ In order. Nothing changes for customers at any step.
    settings row `DI_STANDARD_HEIGHTS` (`docs/settings-seed.csv`; empty: 2.4 / 1.1 / 2.1). No new field. Then: Send from a
    test opportunity and check the PDF is in the upload folder and on the opportunity's Files, and read `CDB USAGE` for its
    units; run an EPC lookup and read `CDB DESIGNINFO_EPC_RAW_KEYS`.
+10. **Amendment 5** (overwriting, after the above): `lib/cdb_lib_designinfo.js` 1.5.0 → `lib/cdb_lib_render.js` 2.8.0 →
+   `cdb_sl_dashboard.js` 2.8.0. No field, setting or content change. Then: Send from a test opportunity — the thank-you
+   page; refresh it (no second Task); open `&step=thanks` on an opportunity not sent (Review).
 
 **Tests in Production** (an HP Design test opportunity with Heat Source Type set):
 
@@ -2669,6 +2687,12 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
     only; on Same the card has the title and the tiles.
 26. **Amendment 4: "Updated / uploaded plans" "on this send"** is read as "since the last Send": plans uploaded on a save
     before pressing Send count.
+27. **Amendment 5: a failed validation "stays on Review".** As before, a Send that fails validation re-renders the step that
+    has the error (from Review only a crafted post can fail, since Review posts only the call box). The brief's "as now"
+    is kept.
+28. **Amendment 5: a Send whose field write failed** (the Task created) still goes to the thank-you page; the old Review line
+    "Some answers couldn't be saved… but {PE} has them" is not on it (the brief lists only its four lines). The Note says
+    what was not saved.
 
 ### Release 2.3 — unverified in the account (check in Sandbox)
 

@@ -590,7 +590,8 @@ test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a fail
     // 2.3c amendment 4 §7: the Task's last line says where the answers are — the Note failed, so the PDF.
     assert.ok(/Full answers: the Note could not be created and PDF "Design information QR20 \d{4}-\d\d-\d\d\.pdf"\.$/
         .test(u.w.tasks[0].values.message), u.w.tasks[0].values.message);
-    assert.ok(html.indexOf('Sent to Pem Engineer.') > 0);
+    // 2.3c amendment 5: a Send that went through redirects to the thank-you page.
+    assert.ok(html.indexOf('Thank you, Acme Ltd. We\u2019ve got your design information.') > 0);
 });
 
 test('the Task, only on Send (amendment 4 §7): the title, the assignee, the key facts only; the full answers in the Note', function () {
@@ -633,8 +634,9 @@ test('the Task, only on Send (amendment 4 §7): the title, the assignee, the key
     var st = state(t.w);
     assert.ok(st.sent && st.lastTaskAt === st.sent);
     assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(st.sent), 'to the minute');
-    // 2.3c amendment 3 §4: no design call assumed.
-    assert.ok(html.indexOf('<p>Sent to Pem Engineer.</p><p>Pem will read it all and be in touch.</p>') > 0);
+    // 2.3c amendment 5: the thank-you page (POST -> redirect -> GET).
+    assert.ok(/&step=thanks$/.test(t.redirect), t.redirect);
+    assert.ok(html.indexOf('Pem will look through everything you\u2019ve sent.') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_SAVED')[1][2].indexOf('send yes, Task 555') > 0);
     // A re-send says what changed since the last Send.
     post(t, { send: '1', q_other: 'Zoning please' });
@@ -1163,7 +1165,9 @@ test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never
     var u = setup();
     post(u, { step: 'plans', q_unheated: 'Garage\u0007 only' });
     assert.ok(u.w.notes[0].values.note.indexOf('Garage only') > 0);
-    // Every HTML surface still escapes: Review after the Send, and the step.
+    // Every HTML surface still escapes: Review after the Send (amendment 5: Send redirects to the thank-you page, so Review
+    // is opened from its link), and the step.
+    html = getStep(t, 'review');
     assert.ok(html.indexOf('<dd>Don&#39;t &amp; &quot;quote&quot; &lt;b&gt;</dd>') > 0);
     assert.strictEqual(html.indexOf('Don\'t & "quote" <b>'), -1);
     html = getStep(t, 'plans');
@@ -1469,17 +1473,15 @@ test('2.4.0 Review: values, files by name, Yes/No, clipped at 200, "Given", chip
     assert.strictEqual(getStep(t, 'plans').indexOf('example.com/drawings'), -1, 'on Review only');
 });
 
-test('2.4.0 Send from Review: today\'s Send — the Task, then Review with the confirmation (no redirect)', function () {
+test('2.4.0 Send from Review: today\'s Send — the Task, then (amendment 5) a redirect to the thank-you page', function () {
     var t = setup();
     var html = post(t, { step: 'review', send: '1' });
-    assert.strictEqual(t.redirect, '', 'Send renders, it does not redirect');
+    // 2.3c amendment 5: POST -> redirect -> GET, so a refresh sends nothing again.
+    assert.ok(/&a=designinfo&opp=20&step=thanks$/.test(t.redirect), t.redirect);
     assert.strictEqual(t.w.tasks.length, 1);
     assert.strictEqual(t.w.notes.length, 1);
     assert.ok(t.w.notes[0].values.note.indexOf('Sent to PE: yes') > 0);
-    // 2.3c amendment 3 §4: no design call assumed.
-    assert.ok(html.indexOf('<div class="donep" role="status"><p>Sent to Pem Engineer.</p><p>Pem will read it all and be in ' +
-        'touch.</p></div>') > 0);
-    assert.ok(html.indexOf('<h1>Review and send</h1>') > 0);
+    assert.ok(html.indexOf('<h1 id="h-thanks">Thank you, Acme Ltd. We\u2019ve got your design information.</h1>') > 0);
     assert.ok(state(t.w).sent, 'sent');
 });
 

@@ -63,15 +63,18 @@
  * dayMonth() for staff text in free-text fields; the state's w (the form's writes) and eu (the EPC's unmatched
  * elements).
  *
+ * 1.5.0 (2.3c amendment 5): the state's uf — the files that failed in the last Send's post (at most 5, names to 100),
+ * for the thank-you page.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.4.0
+ * @version 1.5.0
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.4.0';
+    var VERSION = '1.5.0';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -198,6 +201,10 @@ define([], function () {
     var STATE_TEXT_MAX = 200;
     /** 1.3.0: the call request's "Best time and number to call". */
     var CALL_WHEN_MAX = 100;
+
+    /** 1.5.0 (amendment 5): the failed uploads the state keeps for the thank-you page — at most 5, each name to 100. */
+    var FAILED_UPLOADS_MAX = 5;
+    var FAILED_UPLOAD_NAME = 100;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -1201,7 +1208,7 @@ define([], function () {
 
     function emptyState() {
         return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '',
-            rq: [], call: '', callWhen: '', marks: {}, epcUnmatched: [], changedSince: [], newPlans: false };
+            rq: [], call: '', callWhen: '', marks: {}, epcUnmatched: [], changedSince: [], newPlans: false, failedUploads: [] };
     }
 
     /**
@@ -1329,6 +1336,9 @@ define([], function () {
             return typeof x === 'string' && /^[a-z0-9_]+$/.test(x);
         });
         s.newPlans = v.np === 1;
+        // 1.5.0: the files that failed to upload in the last Send's post (uf), for the thank-you page.
+        s.failedUploads = (Array.isArray(v.uf) ? v.uf : []).filter(function (x) { return typeof x === 'string' && x; })
+            .slice(0, FAILED_UPLOADS_MAX).map(function (x) { return x.slice(0, FAILED_UPLOAD_NAME); });
         // 1.2.0: the steps the last request asked about (optional; none: every step).
         s.rq = (Array.isArray(v.rq) ? v.rq : []).filter(function (x) { return typeof x === 'string' && /^[a-z0-9_]+$/.test(x); });
         return { state: s, status: 'ok', detail: '' };
@@ -1396,6 +1406,9 @@ define([], function () {
         }
         if (st.newPlans) {
             out.np = 1;
+        }
+        if ((st.failedUploads || []).length) {
+            out.uf = st.failedUploads.slice(0, FAILED_UPLOADS_MAX).map(function (x) { return String(x).slice(0, FAILED_UPLOAD_NAME); });
         }
         return JSON.stringify(out);
     }

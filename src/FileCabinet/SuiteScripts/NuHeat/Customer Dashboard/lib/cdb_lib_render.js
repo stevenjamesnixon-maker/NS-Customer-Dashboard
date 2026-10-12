@@ -105,13 +105,17 @@
  * U-value and notes on Different), its other questions in a card above; "What we have so far" above a free-text box
  * holding staff text; designInfoPdfXml() and pdfEsc() — the answers as BFO XML for N/render, every value escaped.
  *
- * @version 2.7.0
+ * 2.8.0 (2.3c amendment 5): designInfoThanks() — the thank-you page: the heading and the lead, the lines that apply (a
+ * call, steps still to do, failed uploads, big files), What happens next (the email's three steps, the first ticked),
+ * Back to your project and See what you sent, the questions line; no step bar, no form, no script.
+ *
+ * @version 2.8.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.7.0';
+    var VERSION = '2.8.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -2952,6 +2956,26 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '{name}.',
         STUCK_NO_EMAIL: 'Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you send.',
         REVIEW_TITLE: 'Review and send',
+        // 2.8.0 (amendment 5): the thank-you page after a Send (Steve may adjust). {name}: the customer's first name;
+        // {first}: the PE's (or AM's) first name; {email}: their email (a mailto link); {list}: short step names.
+        THANKS_TITLE: 'Thank you',
+        THANKS_HEADING: 'Thank you, {name}. We\u2019ve got your design information.',
+        THANKS_HEADING_NO_NAME: 'Thank you. We\u2019ve got your design information.',
+        THANKS_LEAD: '{first} will look through everything you\u2019ve sent. As long as nothing\u2019s missing, our expert ' +
+            'system designers will then get to work on your design.',
+        THANKS_CALL: 'You asked for a call. {first} will be in touch to arrange it.',
+        THANKS_TODO: 'There are a few things still to tell us: {list}. You can add them any time from the link in your email, ' +
+            'and {first} will pick them up.',
+        THANKS_UPLOAD: 'One of your files didn\u2019t upload: {file}. Please email it to {first} at {email}.',
+        THANKS_UPLOAD_NO_EMAIL: 'One of your files didn\u2019t upload: {file}. Please email it to {first}.',
+        THANKS_BIG: '{first} will send you a secure link for your larger files.',
+        THANKS_NEXT: 'What happens next',
+        THANKS_DONE: 'done',
+        THANKS_BACK: 'Back to your project',
+        THANKS_REVIEW: 'See what you sent',
+        THANKS_QUESTIONS: 'Questions? Email {first} at {email}.',
+        THANKS_QUESTIONS_NO_EMAIL: 'Questions? Email {first}.',
+        THANKS_PE_FALLBACK: 'Your Project Engineer',
         REVIEW_INTRO: 'Here’s everything you’ve told us. Check it, change anything with Edit, then send it.',
         NEARLY_ONE: 'Nearly there. One step still needs you: {title}.',
         NEARLY_MANY: 'Nearly there. {n} steps still need you: {list}.',
@@ -3372,6 +3396,72 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }).join('') + '</section>';
     }
 
+    /**
+     * 2.8.0 (amendment 5): the thank-you page after a Send — the same header, cards and footer as the form, no step bar, no
+     * form and no script. The heading and the lead, then only the lines that apply (a call asked for, steps still to do, an
+     * upload that failed — one line per file — big files), What happens next (the request email's three steps, the first
+     * ticked), Back to your project and See what you sent, and the questions line. Every value escaped.
+     * @param {Object} m - { logoUrl, recipient, backUrl, reviewUrl, thanks: { name, call, todo: [short], failed: [file name],
+     *   bigFiles } }
+     */
+    function designInfoThanks(m) {
+        var t = STEP_TEXT;
+        var r = m.recipient || {};
+        var th = m.thanks || {};
+        var first = r.firstName || r.name || t.THANKS_PE_FALLBACK;
+        var email = r.email ? '<a href="mailto:' + esc(r.email) + '">' + esc(r.email) + '</a>' : '';
+        var lines = [];
+        var body;
+        // The email link goes in after escaping, through a marker no value can hold (file names are plain text: control
+        // characters stripped).
+        function withEmail(text, vals) {
+            var v = { email: '\u0001' };
+            Object.keys(vals).forEach(function (k) { v[k] = String(vals[k]).replace(/\u0001/g, ''); });
+            return esc(fill(text, v)).replace('\u0001', email);
+        }
+        if (th.call) {
+            lines.push(esc(fill(t.THANKS_CALL, { first: first })));
+        }
+        if ((th.todo || []).length) {
+            lines.push(esc(fill(t.THANKS_TODO, { list: th.todo.join(', '), first: first })));
+        }
+        (th.failed || []).forEach(function (f) {
+            lines.push(withEmail(email ? t.THANKS_UPLOAD : t.THANKS_UPLOAD_NO_EMAIL, { file: f, first: first }));
+        });
+        if (th.bigFiles) {
+            lines.push(esc(fill(t.THANKS_BIG, { first: first })));
+        }
+        body = '<section class="card" aria-labelledby="h-thanks"><h1 id="h-thanks">' + esc(th.name ? fill(t.THANKS_HEADING,
+            { name: th.name }) : t.THANKS_HEADING_NO_NAME) + '</h1><p class="lead" style="margin:0">' +
+            esc(fill(t.THANKS_LEAD, { first: first })) + '</p>' + lines.map(function (l) { return '<p class="thx">' + l + '</p>'; })
+            .join('') + '</section>' +
+            '<section class="card" aria-labelledby="h-next"><h2 id="h-next">' + esc(t.THANKS_NEXT) + '</h2><ol class="nextsteps">' +
+            ((config.DESIGNINFO_EMAIL || {}).TIPS || []).map(function (tip, i) {
+                return '<li' + (i === 0 ? ' class="done"' : '') + '><span class="ncirc" aria-hidden="true">' + (i === 0 ? '\u2713' :
+                    String(i + 1)) + '</span><span><strong>' + esc(tip[0]) + '</strong>' + (i === 0 ? '<span class="sr" ' +
+                    'style="position:absolute"> (' + esc(t.THANKS_DONE) + ')</span>' : '') + '</span></li>';
+            }).join('') + '</ol></section>' +
+            '<div class="navrow"><a class="cta" href="' + esc(m.backUrl) + '">' + esc(t.THANKS_BACK) + '</a><a class="out" href="' +
+            esc(m.reviewUrl) + '">' + esc(t.THANKS_REVIEW) + '</a></div>' +
+            '<p class="stuck">' + withEmail(email ? t.THANKS_QUESTIONS : t.THANKS_QUESTIONS_NO_EMAIL, { first: first }) + '</p>';
+        return page({ title: t.THANKS_TITLE + ' \u00b7 ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design',
+            width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + thanksCss() });
+    }
+
+    /** 2.8.0: the thank-you page's own rules — the three steps with their circles, the first ticked. */
+    function thanksCss() {
+        var c = COLORS;
+        return [
+            '.thx{margin:0}',
+            '.nextsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}',
+            '.nextsteps li{display:flex;align-items:center;gap:12px;min-width:0}',
+            '.ncirc{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;' +
+                'justify-content:center;font-weight:700;border:2px solid ' + c.BORDER + ';color:' + c.MUTED + '}',
+            '.nextsteps li.done .ncirc{background:' + c.PURPLE + ';border-color:' + c.PURPLE + ';color:#fff}',
+            '.stuck a{overflow-wrap:anywhere}'
+        ].join('\n');
+    }
+
     /** A files question in the stepper: label, why, hint, then the file control. */
     function designFileQuestion(qm, m, off) {
         var q = qm.q;
@@ -3760,6 +3850,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         designInfoRequestEmail: designInfoRequestEmail,
         // 2.7.0
         pdfEsc: pdfEsc,
-        designInfoPdfXml: designInfoPdfXml
+        designInfoPdfXml: designInfoPdfXml,
+        // 2.8.0
+        designInfoThanks: designInfoThanks
     };
 });
