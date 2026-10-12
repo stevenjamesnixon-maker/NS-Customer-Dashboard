@@ -127,17 +127,20 @@
  *
  * 2.4.1 (2.3c amendment 3): the file-size error names the tick as it now reads ("Some of my files are bigger than 10 MB").
  *
+ * 2.5.0 (2.3c amendment 4): saveDesignInfoPdf() (N/render xmlToPdf, saved in the upload folder; attached with
+ * attachUpload()); getCustomer() gives surname (a company: its name) for the Task's title.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.4.1
+ * @version 2.5.0
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config', './cdb_lib_dates',
-    './cdb_lib_designinfo'],
-    function (search, record, format, log, file, config, dates, designinfo) {
+    './cdb_lib_designinfo', 'N/render'],
+    function (search, record, format, log, file, config, dates, designinfo, nrender) {
 
     'use strict';
 
-    var VERSION = '2.4.1';
+    var VERSION = '2.5.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -1361,6 +1364,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             id: String(customerId),
             name: name || trim(r.entityid),
             greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
+            // 2.5.0 (2.3c amendment 4 §7): the Task title's surname (a company: its name).
+            surname: (isTicked(r.isperson) ? trim(r.lastname) : '') || name || trim(r.entityid),
             email: trim(r.email),
             phone: trim(r.phone),
             salesRep: lookupSelect(r.salesrep).value,
@@ -2852,6 +2857,19 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
     }
 
     /**
+     * 2.5.0 (2.3c amendment 4 §8): the design information PDF — N/render's xmlToPdf (BFO XML, every value escaped by the
+     * caller; ~10 units), saved into the upload folder (20), not available without login. Returns the file's ID; the caller
+     * attaches it with attachUpload() (10). Throws whatever NetSuite throws.
+     */
+    function saveDesignInfoPdf(xml, name, folderId) {
+        var pdf = nrender.xmlToPdf({ xmlString: xml });
+        pdf.name = name;
+        pdf.folder = parseInt(folderId, 10);
+        pdf.isOnline = false;
+        return String(pdf.save());
+    }
+
+    /**
      * 2.3.0 (brief §6): the card states' extras for opportunities ALREADY FOUND, in one separate search — the
      * getOrderExtras() pattern. FAIL-SAFE: any error logs CDB OPP_EXTRAS_FAILED once and gives {}, so the page and
      * the digest show "needs information" cards. Never add these columns to getOpportunities().
@@ -3149,6 +3167,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         writeDesignInfo: writeDesignInfo,
         saveUpload: saveUpload,
         attachUpload: attachUpload,
+        saveDesignInfoPdf: saveDesignInfoPdf,
         getOpportunityExtras: getOpportunityExtras,
         decorateDesign: decorateDesign,
         designInfoRequest: designInfoRequest,

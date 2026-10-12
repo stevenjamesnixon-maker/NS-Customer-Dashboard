@@ -161,10 +161,20 @@
  * like a call to talk through my design" (the state's call; the Task's and the Note's first line); saved steps and rq
  * entries the registry no longer has (plans) are logged with the unknown qids.
  *
+ * 2.7.0 (2.3c amendment 4): the EPC cards read the certificate itself (designinfo.epcEntries(): any shape, else
+ * epc_lib's mapped text), take the first description that maps and put the certificate's words in the notes; the house
+ * elements the EPC left unmatched are kept in the state (eu) for the Task; the drawings question's "No, please use
+ * standard heights" writes the ceiling heights and window sizes from DI_STANDARD_HEIGHTS (else config.STANDARD_HEIGHTS);
+ * a free-text field holding staff text shows it ("What we have so far") and the customer's answer is appended as
+ * "Customer (d MMM): …", replacing only the form's own earlier line (its hash in the state, w); on Send the Note carries
+ * the full answers, a PDF of them is saved in the upload folder and attached (CDB DESIGNINFO_PDF /
+ * DESIGNINFO_PDF_FAILED; its units in CDB USAGE), and the Task carries key facts only, titled "Design information
+ * received: <QR> <surname>".
+ *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 2.6.0
+ * @version 2.7.0
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -173,7 +183,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.6.0';
+    var VERSION = '2.7.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1396,6 +1406,56 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
     /** 2.6.0: the corrected site address (Your project; kept in the state, never written to the address). */
     var SITE_QID = 'site_new';
 
+    /** 2.7.0 (amendment 4 §4): the drawings question, and its "No, please use standard heights" key. */
+    var DRAWINGS_QID = 'drawings';
+    var STANDARD_KEY = 'standard';
+
+    /**
+     * 2.7.0 (amendment 4 §9): a free-text question — a `long` or `text` written to a custbody field. Staff text already in
+     * the field is kept: shown read-only above the box, the customer's answer appended as "Customer (d MMM): …".
+     */
+    function isFreeText(q) {
+        return (q.type === 'long' || q.type === 'text') && q.store === STORE.FIELD && /^custbody/.test(String(q.field || ''));
+    }
+
+    /** 2.7.0: a free-text field split into the staff's text and the customer's (designinfo.freeTextParts()). */
+    function freeParts(dc, q) {
+        return designinfo.freeTextParts(dc.rec.values.hasOwnProperty(q.qid) ? dc.rec.values[q.qid] : '',
+            (dc.state.marks || {})[q.qid]);
+    }
+
+    /** 2.7.0 (amendment 4 §4): the standard heights (setting DI_STANDARD_HEIGHTS, else the code default), logged once if bad. */
+    function standardHeights(dc) {
+        var r = designinfo.standardHeights(dc.cfg.DI_STANDARD_HEIGHTS, config.STANDARD_HEIGHTS);
+        if (r.invalid) {
+            dc.once('DESIGNINFO_STANDARD_HEIGHTS_INVALID', 'Setting DI_STANDARD_HEIGHTS is not valid JSON {"ceiling", "window", ' +
+                '"door"} of heights in metres; the default is used for what is missing or wrong');
+        }
+        return r.heights;
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §4): when this post answers the drawings question "No, please use standard heights", the ceiling
+     * heights and window sizes fields take the standard wording (qid -> text), written as any answer would be.
+     */
+    function standardOverride(dc, values) {
+        var out = {};
+        var d = dc.questions.filter(function (v) { return v.q.qid === DRAWINGS_QID && v.q.revealed !== false; })[0];
+        var h;
+        if (!d || !values.hasOwnProperty(DRAWINGS_QID) || designinfo.keyOfValue(d.q, values[DRAWINGS_QID]) !== STANDARD_KEY) {
+            return out;
+        }
+        h = standardHeights(dc);
+        dc.questions.forEach(function (v) {
+            if (v.q.field === OPPF.CEILING_HEIGHTS && !v.readOnly) {
+                out[v.q.qid] = designinfo.fillText(config.STANDARD_TEXT.CEILINGS, h);
+            } else if (v.q.field === OPPF.WINDOW_SIZES && !v.readOnly) {
+                out[v.q.qid] = designinfo.fillText(config.STANDARD_TEXT.WINDOWS, h);
+            }
+        });
+        return out;
+    }
+
     /** 2.5.0: the EPC certificate number's shape (epc_lib's validCertificateNumber, checked here before any call). */
     var EPC_NUMBER_RE = /^\d{4}-\d{4}-\d{4}-\d{4}-\d{4}$/;
 
@@ -1626,6 +1686,15 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             });
             v.value = literalIndex(q, v.value);
         }
+        // 2.7.0 (amendment 4 §4): "No, please use standard heights" shows the heights it assumes.
+        if (q.qid === DRAWINGS_QID && v.options) {
+            v.options = v.options.map(function (o) {
+                return o.key === STANDARD_KEY ? { value: o.value, text: o.text, key: o.key,
+                    sub: designinfo.fillText(config.STANDARD_TEXT.SUB, standardHeights(dc)) } : o;
+            });
+        }
+        // 2.7.0 (amendment 4 §9): staff text in a free-text field, shown read-only above the (empty) box.
+        v.staffText = isFreeText(q) && !v.readOnly ? designinfo.clipValue(freeParts(dc, q).staff, designinfo.ELEMENT_NOTES_MAX) : '';
         if (q.type === 'files') {
             v.uploaded = dc.state.files.filter(function (f) { return f.qid === q.qid; }).map(function (f) {
                 return { name: f.name, dateText: isoSlash(f.at) };
@@ -1658,6 +1727,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         if (q.store === STORE.FIELD) {
             if (dc.fill.hasOwnProperty(q.field) && dc.state.answers.hasOwnProperty(q.qid) && dc.state.answers[q.qid] !== '') {
                 return String(dc.state.answers[q.qid]);
+            }
+            // 2.7.0 (amendment 4 §9): a free-text field's answer is the customer's own part of it.
+            if (isFreeText(q)) {
+                return freeParts(dc, q).mine;
             }
             return dc.rec.values.hasOwnProperty(q.qid) ? dc.rec.values[q.qid] : '';
         }
@@ -1845,10 +1918,16 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         }
         fill = epcFill ? { kind: 'epc', key: epcFill.key, u: epcFill.u } : prefillFor(dc, v, market, dc.marketParams);
         card = designinfo.fillPrefill(card, fill);
+        // 2.7.0 (amendment 4 §5): an EPC fill puts the certificate's own words in the notes ("EPC: …"; "Not on your EPC."),
+        // where the customer can edit them; never over a card the customer chose.
+        if (epcFill && designinfo.cardSource(card) === 'epc') {
+            card.notes = epcFill.notes || card.notes;
+        }
         v.card = card;
         v.prose = prose;
         v.tag = designinfo.sourceTag(card, ctxC.band);
-        v.epcSays = epcFill && epcFill.text && (epcFill.mixed || card.key === 'unsure') ? epcFill.text : '';
+        // 2.7.0: the notes hold the certificate's words now, so the separate "Your certificate says" line is not shown.
+        v.epcSays = '';
         v.epcMissing = !!(epcFill && epcFill.missing) && designinfo.cardSource(card) !== 'you';
         // 2.5.2 (amendment 2, Steve to confirm): the presets, then Not sure and I'll describe it; Built to current Building
         // Regulations only on an extension's card (there is no route question for it); Typical for the age never offered.
@@ -2272,22 +2351,26 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
      */
     function designChanges(dc, values, params) {
         var out = { fields: {}, fieldItems: [], items: [], answers: {}, noted: [], posted: {}, goods: null, notSaved: [],
-            clipped: [], declined: [], extraNow: {} };
+            clipped: [], declined: [], extraNow: {}, marks: {}, written: {} };
+        // 2.7.0 (amendment 4 §4): "standard heights" answers the ceiling heights and window sizes (hidden by it).
+        var std = standardOverride(dc, values);
+        var dayText = designinfo.dayMonth(dates.londonTodayKey(Date.now()));
         var p = params || {};
         var epcNumber = EPC_NUMBER_RE.test(String(p.epc_number || '')) ? String(p.epc_number) : '';
         var epcDate = epcNumber && /^\d{4}-\d{2}-\d{2}$/.test(String(p.epc_date || '')) ? String(p.epc_date) : '';
         var epcShown = dc.questions.some(function (v) { return v.q.type === 'epc' && v.q.revealed !== false; });
         dc.questions.forEach(function (v) {
             var q = v.q;
-            var nv = values[q.qid];
+            var nv = std.hasOwnProperty(q.qid) ? std[q.qid] : values[q.qid];
             var cur;
             var write;
             var meta;
             var item;
             var held;
             var num;
+            var ft;
             if (v.readOnly || q.type === 'info' || q.type === 'files' || q.type === 'element' || q.type === 'epc' ||
-                    q.revealed === false || nv === undefined || nv === '' || nv === null) {
+                    (q.revealed === false && !std.hasOwnProperty(q.qid)) || nv === undefined || nv === '' || nv === null) {
                 return;
             }
             // 2.5.0: the insulation route records the EPC it used.
@@ -2309,6 +2392,11 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 if (designinfo.sameText(nv, cur)) {
                     return;
                 }
+            }
+            // 2.7.0 (amendment 4 §9): a free-text answer equal to what the field already holds (all of it) is no change —
+            // never appended as a duplicate "Customer (…)" line.
+            if (isFreeText(q) && designinfo.sameText(nv, dc.rec.values[q.qid])) {
+                return;
             }
             item = { qid: q.qid, section: q.section, sectionTitle: q.sectionTitle, label: itemLabel(q),
                 oldText: q.type === 'choice' && !q.optionsFromField && !q.optionsFromSetting ? cur : answerText(v, cur),
@@ -2363,6 +2451,25 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 write = meta.type === 'CHECKBOX' ? nv === 'yes' : (nv === 'yes' ? 'Yes' : 'No');
             } else if (designinfo.isNumberQuestion(q) && ['FLOAT', 'INTEGER', 'CURRENCY', 'PERCENT'].indexOf(meta.type) >= 0) {
                 write = meta.type === 'INTEGER' ? Math.round(parseFloat(nv)) : parseFloat(nv);
+            } else if (isFreeText(q) && meta.type !== 'EMAIL' && meta.type !== 'URL' && meta.type !== 'PHONE') {
+                // 2.7.0 (amendment 4 §9): staff text is kept; the customer's answer replaces only their own earlier line.
+                ft = designinfo.freeTextWrite(freeParts(dc, q), String(nv), dayText, meta.limit || 0);
+                if (ft.value === '') {
+                    out.notSaved.push(q.qid + ' (no room in the field after the text already there)');
+                    item.newText += ' (NOT saved to the record: no room after the text already there)';
+                    return;
+                }
+                write = ft.value;
+                out.marks[q.qid] = ft.mark;
+                // The field's whole text as written (staff text and all), for the page and the progress after the save.
+                out.written[q.qid] = write;
+                if (ft.clipped) {
+                    out.clipped.push(q.qid + ' (to ' + meta.limit + ' characters)');
+                    item.newText += ' (clipped to ' + meta.limit + ' characters on the record)';
+                }
+                if (/\S/.test(freeParts(dc, q).staff)) {
+                    item.newText += ' (added after the text already there)';
+                }
             } else {
                 write = String(nv);
                 if (!data.fitsSpecialType(meta.type, write)) {
@@ -2380,6 +2487,18 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             out.fieldItems.push(item);
         });
         elementChanges(dc, values, params, out);
+        // 2.7.0 (amendment 4 §7): the house cards posted as the EPC left them with nothing matched (Not sure, no U-value):
+        // element -> true; matched or the customer's own: false. The state keeps the list for the Task's "Needs a look".
+        out.epcUnmatched = {};
+        dc.questions.forEach(function (v) {
+            var c = values[v.q.qid];
+            // Only a card posted in this request (a Send from Review posts none: the list is kept).
+            if (v.q.type === 'element' && !v.q.ext && v.q.revealed !== false && c && typeof c === 'object' &&
+                    p.hasOwnProperty('q_' + v.q.qid + '_src')) {
+                out.epcUnmatched[v.q.element] = designinfo.cardSource(c) === 'epc' && (!c.key || c.key === 'unsure') &&
+                    String(c.u || '') === '';
+            }
+        });
         if (epcShown && epcNumber) {
             epcChanges(dc, epcNumber, epcDate, out);
         }
@@ -2510,12 +2629,34 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         }
         ch.noted.forEach(function (qid) { s.noted[qid] = true; });
         s.files = s.files.concat(newFiles);
+        // 2.7.0: the free-text fields' marks (what the form wrote) and the EPC's unmatched house elements.
+        for (k in (ch.marks || {})) {
+            if (ch.marks.hasOwnProperty(k)) {
+                s.marks[k] = ch.marks[k];
+            }
+        }
+        s.epcUnmatched = designinfo.ELEMENTS.filter(function (el) {
+            return (ch.epcUnmatched || {}).hasOwnProperty(el) ? ch.epcUnmatched[el] : (s.epcUnmatched || []).indexOf(el) >= 0;
+        });
+        // 2.7.0 (amendment 4 §7): the steps changed since the last Send (answers or files) and new plans uploaded since it;
+        // a Send hands them to its Task (ch.sinceSend) and starts again.
+        s.changedSince = (s.changedSince || []).slice();
+        designinfo.sectionsOf(qs).forEach(function (sec) {
+            if (s.changedSince.indexOf(sec.id) < 0 && (ch.items.some(function (c) { return c.section === sec.id; }) ||
+                    newFiles.some(function (f) { return qs.some(function (q) { return q.qid === f.qid && q.section === sec.id; }); }))) {
+                s.changedSince.push(sec.id);
+            }
+        });
+        s.newPlans = !!s.newPlans || newFiles.some(function (f) { return f.qid === PLANS_FILES_QID; });
         designinfo.sectionsOf(qs).forEach(function (sec) {
             if (touched.indexOf(sec.id) >= 0) {
                 s.sections[sec.id] = { saved: nowIso, status: designinfo.sectionStatus(sec.questions, valuesNow, s) };
             }
         });
         if (send) {
+            ch.sinceSend = { changed: s.changedSince, newPlans: s.newPlans };
+            s.changedSince = [];
+            s.newPlans = false;
             s.sent = nowIso;
             s.lastTaskAt = nowIso;
             // 2.6.0: the call request on Review, as sent.
@@ -2528,9 +2669,14 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
     }
 
     /** The state as it was before a Send whose Task failed: sent and the Task's time back. */
-    function unsend(s, before) {
+    function unsend(s, before, ch) {
         s.sent = before.sent;
         s.lastTaskAt = before.lastTaskAt;
+        // 2.7.0: the next Send still reports what changed.
+        if (ch && ch.sinceSend) {
+            s.changedSince = ch.sinceSend.changed;
+            s.newPlans = ch.sinceSend.newPlans;
+        }
         return s;
     }
 
@@ -2626,7 +2772,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         values = answerValues(dc);
         if (written) {
             ch.fieldItems.forEach(function (c) {
-                if (!c.extra && check.values.hasOwnProperty(c.qid)) {
+                // 2.7.0: what was written (a free-text field's whole text; the standard heights).
+                if (!c.extra && ch.written.hasOwnProperty(c.qid)) {
+                    values[c.qid] = ch.written[c.qid];
+                } else if (!c.extra && check.values.hasOwnProperty(c.qid)) {
                     values[c.qid] = check.values[c.qid];
                 }
             });
@@ -2679,6 +2828,12 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         var k;
         var lines;
         var hasElements;
+        // 2.7.0 (amendment 4): the Send's full answers, its Note title, its PDF; today (London).
+        var fullSections = [];
+        var fullFacts = [];
+        var noteTitle;
+        var pdf = { name: '', id: '' };
+        var todayKey = dates.londonTodayKey(Date.now());
 
         if (dc.html) {
             return dc.html;
@@ -2771,7 +2926,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                     data.writeDesignInfo(dc.opp.id, ch.fields);
                 }
                 ch.fieldItems.forEach(function (c) {
-                    if (!c.extra && check.values.hasOwnProperty(c.qid)) {
+                    if (!c.extra && ch.written.hasOwnProperty(c.qid)) {
+                        dc.rec.values[c.qid] = ch.written[c.qid];
+                    } else if (!c.extra && check.values.hasOwnProperty(c.qid)) {
                         dc.rec.values[c.qid] = check.values[c.qid];
                     }
                 });
@@ -2820,8 +2977,18 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         s = next;
         dc.state = s;
 
+        // 2.7.0 (amendment 4 §7, §8): on Send the Note also carries the full answers (as the PDF does).
+        if (send) {
+            comp = completenessOf(dc);
+            fullSections = answerSections(dc, s, ch, comp);
+            fullFacts = answerFacts(dc, s, ch);
+        }
+
         // Step 4: the Note, every save.
         noteResult = task.buildDesignInfoNote({
+            fullAnswers: send ? { sections: fullSections.map(function (sec) {
+                return { title: sec.title, status: sec.status, lines: sec.rows.map(function (r) { return r.label + ': ' + r.value; }) };
+            }), facts: fullFacts } : null,
             topLines: callLines(ch.call),
             sectionsSaved: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).filter(function (x) {
                 return touched.indexOf(x.id) >= 0;
@@ -2849,8 +3016,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             log.audit({ title: title('DESIGNINFO_NOTE_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Note was clipped to ' +
                 task.NOTE_MAX + ' characters' });
         }
+        noteTitle = send ? task.buildDesignInfoSendNoteTitle(designinfo.dayMonth(todayKey, true)) :
+            task.buildDesignInfoNoteTitle(designinfo.londonTime(now.getTime()).text);
         try {
-            task.createNote({ title: task.buildDesignInfoNoteTitle(designinfo.londonTime(now.getTime()).text), note: noteResult.body,
+            task.createNote({ title: noteTitle, note: noteResult.body,
                 opportunityId: dc.opp.id, authorId: dc.recipient.id, noteTypeId: cfg.NOTE_TYPE });
         } catch (e3) {
             noteFailed = true;
@@ -2860,16 +3029,19 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
         comp = completenessOf(dc);
 
-        // Step 5: the Task, only on Send. 2.3.1: clipped as the Note is (Task.message holds 4,000 characters).
+        // Step 5: the Task, only on Send. 2.3.1: clipped as the Note is (Task.message holds 4,000 characters). 2.7.0: the
+        // PDF first (its failure never stops the Send), then the Task — key facts only.
         if (send) {
-            taskBody = task.clipBody(designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, cfg.DESIGNINFO_FOLDER));
+            pdf = makePdf(ctx, dc, answerSections(dc, s, ch, comp, PDF_VALUE_MAX), fullFacts, s, todayKey);
+            taskBody = task.clipBody(designTaskBrief(dc, s, before, comp, ch, fileResults, noteFailed ? '' : noteTitle, pdf,
+                todayKey));
             if (taskBody.clipped) {
                 log.audit({ title: title('DESIGNINFO_TASK_CLIPPED'), details: 'Opportunity ' + dc.opp.id + ': the Task message was ' +
                     'clipped to ' + task.NOTE_MAX + ' characters (the Notes hold every change)' });
             }
             try {
                 taskId = task.createTask({
-                    title: task.buildDesignInfoTitle(dc.rec.info.title || dc.opp.title, dc.rec.info.tranId || dc.opp.tranId),
+                    title: task.buildDesignInfoReceivedTitle(dc.rec.info.tranId || dc.opp.tranId, ctx.customer.surname),
                     assigneeId: dc.recipient.id,
                     customerId: ctx.customer.id,
                     opportunityId: dc.opp.id,
@@ -2885,7 +3057,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             }
             if (taskFailed && !stateFailed) {
                 // Not sent after all: the state goes back, keeping the change list for the next Send.
-                s = unsend(s, before);
+                s = unsend(s, before, ch);
                 dc.state = s;
                 writeState(dc, s);
             }
@@ -3027,8 +3199,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             if (v.q.type !== 'element' || v.q.ext) {
                 return;
             }
-            text = { walls: d.wallsDescription, windows: d.windowsDescription, roof: d.roofDescription,
-                floor: d.floorDescription }[v.q.element];
+            // 2.7.0 (amendment 4): the descriptions read from the certificate itself (r.raw), in any shape it comes in,
+            // else epc_lib's mapped text; the first that maps sets the card, and the notes carry the certificate's words.
+            text = designinfo.epcEntries(r.raw, d, v.q.element);
             extra.epcFill[v.q.qid] = designinfo.epcElement(text, content(dc, 'epcMap'), v.q.element);
         });
         return renderDesignInfo(ctx, dc, extra);
@@ -3052,7 +3225,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
      * earlier says so. '' when there is none. Plain text, clipped at 200. 2.5.0: an element's line, the EPC, a declined
      * answer ("customer says"), an @setting choice's label; a question hidden by its reveal has none.
      */
-    function snapshotValue(dc, v, s, ch) {
+    function snapshotValue(dc, v, s, ch, max) {
         var q = v.q;
         var value;
         if (q.type === 'info' || q.revealed === false) {
@@ -3080,7 +3253,8 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         } else {
             value = s.noted[q.qid] ? '(given earlier: in the Notes)' : '';
         }
-        return designinfo.plainValue(value, 200);
+        // 2.7.0: the Note clips at 200; the PDF takes the whole answer (max).
+        return designinfo.plainValue(value, max || 200);
     }
 
     /**
@@ -3132,49 +3306,151 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         return out;
     }
 
+    /** 2.7.0 (amendment 4 §7): the plans questions — new plans uploaded since the last Send make the Task's plans block. */
+    var PLANS_CHANGED_QID = 'plans_changed';
+    var PLANS_FILES_QID = 'plans_files';
+    /** 2.7.0: an answer's length in the PDF (the Note's is 200: it holds 4,000 characters in all). */
+    var PDF_VALUE_MAX = 4000;
+
     /**
-     * The DESIGN INFO Task's message (brief §5.5; amendments 1 §1 and 3): a snapshot of every shown section, the pointer
-     * to the Notes for the changes since the last send, the files since the last Send. 2.5.0: revealed questions only;
-     * the extra lines (taskExtraLines()); the heat warnings (facts.warnings).
+     * 2.7.0 (amendment 4 §7): the full answers, for the Note and the PDF — every shown step with its status and its rows
+     * ({ label, value }: the record's or the state's answer, element lines, the EPC, file names; revealed questions only).
      */
-    function designTaskMessage(dc, s, before, comp, failures, noteFailed, ch, folderId) {
-        var since = before.lastTaskAt || '';
+    function answerSections(dc, s, ch, comp, max) {
         var statusOf = {};
+        comp.sections.forEach(function (x) { statusOf[x.id] = x.status; });
+        return designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (sec) {
+            return {
+                id: sec.id,
+                title: sec.title,
+                short: sec.short || sec.title,
+                status: statusOf[sec.id] || '',
+                rows: dc.questions.filter(function (v) { return v.q.section === sec.id; }).map(function (v) {
+                    return { label: itemLabel(v.q), value: snapshotValue(dc, v, s, ch, max) };
+                }).filter(function (r) { return !!r.value; })
+            };
+        });
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §7): the facts that left the Task for the Note and the PDF — the goods date, the fill rule's
+     * "customer says", the extensions, the address, the EPC used, big files, the heat warnings, what was not saved.
+     */
+    function answerFacts(dc, s, ch) {
         var goods = s.answers[designinfo.GOODS_DATE_QID] && s.answers[designinfo.GOODS_DATE_QID] !== dc.rec.info.delDateKey ?
             'Customer says goods are needed by ' + designinfo.slashDate(s.answers[designinfo.GOODS_DATE_QID]) + ' (we hold ' +
             (designinfo.slashDate(dc.rec.info.delDateKey) || 'no date') + '). Check and update the opportunity date yourself; the ' +
             'dashboard did not change it.' : '';
-        var extraLines = taskExtraLines(dc, s, ch);
-        comp.sections.forEach(function (x) { statusOf[x.id] = x.status; });
-        return task.buildDesignInfoMessage({
-            topLines: callLines(ch.call || (s.call === 'yes' ? { want: true, when: s.callWhen } : null)),
-            complete: comp.complete,
-            missing: comp.missing,
-            sections: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (sec) {
-                return {
-                    title: sec.title,
-                    status: statusOf[sec.id] || '',
-                    lines: dc.questions.filter(function (v) { return v.q.section === sec.id; }).map(function (v) {
-                        var value = snapshotValue(dc, v, s, ch);
-                        return value ? itemLabel(v.q) + ': ' + value : '';
-                    }).filter(function (l) { return !!l; })
-                };
-            }),
-            sinceText: londonText(before.sent) || londonText(before.requested),
-            serviceText: designinfo.plainValue(dc.rec.info.valuePropositionText),
-            files: s.files.filter(function (f) { return !since || f.at > since; }).map(function (f) {
-                return { name: designinfo.plainValue(f.name), label: f.qid,
-                    attachNote: f.attached === false ? '(NOT attached: in the folder only)' : '' };
-            }),
-            folderText: 'File Cabinet folder ' + folderId + ', attached to this opportunity unless marked',
-            goodsLine: [goods].concat(extraLines).filter(function (x) { return !!x; }).join('\n'),
-            bigFiles: s.answers[designinfo.BIG_FILES_QID] === 'yes',
-            warnings: dc.facts.warnings,
-            notSaved: dc.notSaved.concat(ch.notSaved),
-            failures: failures,
-            noteFailed: noteFailed
+        return [goods].concat(taskExtraLines(dc, s, ch))
+            .concat(s.answers[designinfo.BIG_FILES_QID] === 'yes' ? ['LARGE FILES: the customer has files over 10 MB. Send a ' +
+                'Mimecast large-file request.'] : [])
+            .concat((dc.facts.warnings || []).map(function (w) { return 'Check: ' + w; }))
+            .concat(dc.notSaved.concat(ch.notSaved).length ? ['Not saved to the record: ' + dc.notSaved.concat(ch.notSaved)
+                .join('; ') + '.'] : [])
+            .filter(function (x) { return !!x; });
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §7): the Task's "Needs a look" — uploads that failed in this post, required answers still blank
+     * (by question label), and the house elements the EPC matched to nothing. Nothing else.
+     */
+    function needsALook(dc, s, fileResults) {
+        var values = answerValues(dc);
+        var blank = dc.questions.filter(function (v) {
+            return v.q.required && !v.q.unavailable && v.q.revealed !== false && v.q.type !== 'info' &&
+                !designinfo.hasAnswer(v.q, values, s);
+        }).map(function (v) { return itemLabel(v.q); });
+        var shownEls = dc.questions.filter(function (v) {
+            return v.q.type === 'element' && !v.q.ext && v.q.revealed !== false;
+        }).map(function (v) { return v.q.element; });
+        return fileResults.filter(function (r) { return !r.entry; }).map(function (r) {
+            return 'Upload failed: ' + designinfo.plainValue(r.original, 200) + '. Ask the customer to resend.';
+        }).concat(blank.length ? ['Needed but left blank: ' + blank.join(', ')] : [])
+            .concat((s.epcUnmatched || []).filter(function (el) { return shownEls.indexOf(el) >= 0; }).map(function (el) {
+                return 'EPC ' + el + ' not matched: see the Note';
+            }));
+    }
+
+    /** 2.7.0 (amendment 4 §8): "Design information <QR ref> <yyyy-mm-dd>.pdf". */
+    function pdfName(dc, todayKey) {
+        return 'Design information ' + (dc.rec.info.tranId || dc.opp.tranId || dc.opp.id) + ' ' + todayKey + '.pdf';
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §8): the PDF of the full answers, saved in the upload folder and attached to the opportunity. Never
+     * throws: a failure logs CDB DESIGNINFO_PDF_FAILED and gives { name: '' } (the Task says "PDF not created"). Its units
+     * go into the request's CDB USAGE line.
+     */
+    function makePdf(ctx, dc, sections, facts, s, todayKey) {
+        var name = pdfName(dc, todayKey);
+        var before = runtime.getCurrentScript().getRemainingUsage();
+        var id;
+        var xml;
+        if (!dc.cfg.DESIGNINFO_FOLDER) {
+            log.error({ title: title('DESIGNINFO_PDF_FAILED'), details: 'Opportunity ' + dc.opp.id + ': setting DESIGNINFO_FOLDER ' +
+                'is empty, so the PDF was not created' });
+            return { name: '', id: '' };
+        }
+        try {
+            xml = render.designInfoPdfXml({
+                heading: 'Design information ' + (dc.rec.info.tranId || dc.opp.tranId || ''),
+                lines: [ctx.customer.name, dc.rec.info.title || dc.opp.title, data.siteAddressLine(dc.rec.info.siteAddress),
+                    'Sent ' + designinfo.dayMonth(todayKey, true) + ' to ' + (dc.recipient.name || 'the Project Engineer')]
+                    .filter(function (x) { return !!x; }),
+                call: callLines(s.call === 'yes' ? { want: true, when: s.callWhen } : null)[0] || '',
+                sections: sections,
+                facts: facts,
+                footer: 'From the customer dashboard (v' + VERSION + ').'
+            });
+            id = data.saveDesignInfoPdf(xml, name, dc.cfg.DESIGNINFO_FOLDER);
+        } catch (e) {
+            log.error({ title: title('DESIGNINFO_PDF_FAILED'), details: 'Opportunity ' + dc.opp.id + ': the PDF was NOT created (' +
+                errorText(e) + '). The Send went ahead; the Note holds the answers.' });
+            return { name: '', id: '' };
+        }
+        try {
+            data.attachUpload(id, dc.opp.id);
+        } catch (e2) {
+            log.error({ title: title('DESIGNINFO_PDF_FAILED'), details: 'Opportunity ' + dc.opp.id + ': PDF ' + id + ' "' + name +
+                '" saved but NOT attached (' + errorText(e2) + '): it is in the folder only' });
+        }
+        usageExtra = '; the PDF ' + (before - runtime.getCurrentScript().getRemainingUsage()) + ' units';
+        log.audit({ title: title('DESIGNINFO_PDF'), details: 'Opportunity ' + dc.opp.id + ': PDF ' + id + ' "' + name + '" in ' +
+            'folder ' + dc.cfg.DESIGNINFO_FOLDER });
+        return { name: name, id: id };
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §7): the DESIGN INFO Task's message — key facts only: the call, sent / updated with the steps,
+     * new plans, "Needs a look", and where the full answers are.
+     */
+    function designTaskBrief(dc, s, before, comp, ch, fileResults, noteTitle, pdf, todayKey) {
+        var shortOf = {};
+        var plans = dc.questions.filter(function (v) { return v.q.qid === PLANS_CHANGED_QID && v.q.revealed !== false; })[0];
+        designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).forEach(function (sec) {
+            shortOf[sec.id] = sec.short || sec.title;
+        });
+        return task.buildDesignInfoBrief({
+            call: ch.call ? (ch.call.want ? { when: ch.call.when } : null) : s.call === 'yes' ? { when: s.callWhen } : null,
+            dateText: designinfo.dayMonth(todayKey, true),
+            resend: !!before.sent,
+            // The steps changed (answers or files) since the last Send, this post included (the state's cs).
+            changed: comp.sections.filter(function (x) {
+                return ((ch.sinceSend || {}).changed || []).indexOf(x.id) >= 0;
+            }).map(function (x) { return shortOf[x.id]; }),
+            complete: comp.sections.filter(function (x) { return x.status !== 'todo'; }).map(function (x) { return shortOf[x.id]; }),
+            todo: comp.sections.filter(function (x) { return x.status === 'todo'; }).map(function (x) { return shortOf[x.id]; }),
+            // New plans: "Yes, I'll upload them here" and at least one plan saved since the last Send (the state's np).
+            plansNew: !!plans && designinfo.keyOfValue(plans.q, s.answers[PLANS_CHANGED_QID]) === 'yes' &&
+                !!(ch.sinceSend || {}).newPlans,
+            needs: needsALook(dc, s, fileResults),
+            noteTitle: noteTitle,
+            pdfName: pdf.name
         });
     }
+
+    /** 2.7.0: what the CDB USAGE line adds for this request (the PDF's units). */
+    var usageExtra = '';
 
     /**
      * @param {Object} context - Suitelet context
@@ -3189,6 +3465,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         var html;
         var action = String(params.a || '');
 
+        usageExtra = '';
         try {
             cfg = config.load(log);
         } catch (e) {
@@ -3250,7 +3527,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             log.audit({
                 title: title('USAGE'),
                 details: request.method + ' a=' + (action || 'dashboard') + ': ' +
-                    runtime.getCurrentScript().getRemainingUsage() + ' units remaining (v' + VERSION + ')'
+                    runtime.getCurrentScript().getRemainingUsage() + ' units remaining' + usageExtra + ' (v' + VERSION + ')'
             });
         }
     }

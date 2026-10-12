@@ -93,13 +93,16 @@
  * {n}) and how to talk it through (TALK_PHONE with {phone} / TALK_NO_PHONE); NOTE and FACT_CALL are retired; TIPS are the
  * three steps without timeframes (survey, design, delivery).
  *
- * @version 3.6.0
+ * 3.7.0 (2.3c amendment 4): DI_STANDARD_HEIGHTS (record only, the dashboard) with its code default STANDARD_HEIGHTS
+ * (2.4, 1.1, 2.1 m), and STANDARD_TEXT, the wording written for the standard heights.
+ *
+ * @version 3.7.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.6.0';
+    var VERSION = '3.7.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -881,7 +884,22 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // Empty: no field is governed (each is written as any other).
         DI_FILL_REPLACEABLE: { kind: 'text', empty: 'none', ids: {} },
         // The GOV.UK EPC API bearer token (a secret: NEVER logged). Empty: the EPC lookup is unavailable.
-        EPC_BEARER_TOKEN: { kind: 'text', empty: 'none', ids: {} }
+        EPC_BEARER_TOKEN: { kind: 'text', empty: 'none', ids: {} },
+        // 3.7.0 (2.3c amendment 4). JSON {"ceiling": "2.4", "window": "1.1", "door": "2.1"} in metres: the heights the
+        // drawings question's "No, please use standard heights" assumes. Empty, invalid or a key missing: STANDARD_HEIGHTS.
+        DI_STANDARD_HEIGHTS: { kind: 'text', empty: 'none', ids: {} }
+    };
+
+    /**
+     * 3.7.0 (2.3c amendment 4): the standard heights' code default (metres, as text), and the wording written to the
+     * ceiling heights and window sizes fields when the customer chooses them. {ceiling}, {window}, {door}: the heights.
+     */
+    var STANDARD_HEIGHTS = { ceiling: '2.4', window: '1.1', door: '2.1' };
+    var STANDARD_TEXT = {
+        CEILINGS: 'Standard assumed: {ceiling} m ceilings throughout (no section drawings).',
+        WINDOWS: 'Standard assumed: windows {window} m high, external doors {door} m high (no elevation drawings). Widths ' +
+            'from the floor plans.',
+        SUB: 'Ceilings {ceiling} m, windows {window} m high, external doors {door} m high'
     };
 
     /**
@@ -925,6 +943,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
     // every script parses the same registry). EPC_BEARER_TOKEN and DI_FILL_REPLACEABLE: the dashboard only.
     SCRIPT_KEYS[SCRIPTS.SUITELET] = SCRIPT_KEYS[SCRIPTS.SUITELET].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS,
         ['DI_FILL_REPLACEABLE', 'EPC_BEARER_TOKEN']);
+    // 3.7.0 (2.3c amendment 4): the standard heights, the dashboard only.
+    SCRIPT_KEYS[SCRIPTS.SUITELET] = SCRIPT_KEYS[SCRIPTS.SUITELET].concat(['DI_STANDARD_HEIGHTS']);
     SCRIPT_KEYS[SCRIPTS.DIGEST] = SCRIPT_KEYS[SCRIPTS.DIGEST].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS);
     SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO] = SCRIPT_KEYS[SCRIPTS.SEND_DESIGNINFO].concat(['DI_HEAT26_MAP'], DI_OPTION_SETTINGS);
 
@@ -1553,6 +1573,8 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         EPCLIB: EPCLIB,
         DESIGNINFO_CONTENT: DESIGNINFO_CONTENT,
         DI_OPTION_SETTINGS: DI_OPTION_SETTINGS,
+        STANDARD_HEIGHTS: STANDARD_HEIGHTS,
+        STANDARD_TEXT: STANDARD_TEXT,
         DESIGNINFO_EMAIL: DESIGNINFO_EMAIL,
         DESIGNINFO_BANNERS: DESIGNINFO_BANNERS,
         parseDesignInfoEmail: parseDesignInfoEmail,

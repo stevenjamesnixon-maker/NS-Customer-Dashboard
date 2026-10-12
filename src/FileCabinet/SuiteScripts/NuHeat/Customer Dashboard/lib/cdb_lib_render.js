@@ -101,13 +101,17 @@
  * ([qid, keys, true|false]); the element card's select and exact U-value on one row; picture cards of one height; a
  * hint's {first} is the PE's or AM's first name.
  *
- * @version 2.6.0
+ * 2.7.0 (2.3c amendment 4): an extension's elements as a 2 x 2 grid of cards (Same / Different at the top, the select,
+ * U-value and notes on Different), its other questions in a card above; "What we have so far" above a free-text box
+ * holding staff text; designInfoPdfXml() and pdfEsc() — the answers as BFO XML for N/render, every value escaped.
+ *
+ * @version 2.7.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.6.0';
+    var VERSION = '2.7.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -2523,6 +2527,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         WHY: '? Why',
         READ_ONLY: '(your Project Engineer will check this with you)',
         GOODS_HAVE: 'We currently have: {date}',
+        // 2.7.0 (amendment 4 §9): staff text already in a free-text field (clipped at 300).
+        HAVE_SO_FAR: 'What we have so far: {text}',
         GOODS_ASK: 'Has this changed? Tell us the new date',
         NOTED: 'You sent us this on {date}. Anything new? Add it here.',
         NOTED_NO_DATE: 'You’ve sent us this already. Anything new? Add it here.',
@@ -2717,6 +2723,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             html += '<p style="margin:0">' + esc(fill(t.GOODS_HAVE, { date: qm.goodsHave })) + '</p>' +
                 '<p class="hint" style="margin:0">' + esc(t.GOODS_ASK) + '</p>';
         }
+        if (qm.staffText) {
+            html += '<p class="hint have" style="margin:0">' + esc(fill(t.HAVE_SO_FAR, { text: qm.staffText })) + '</p>';
+        }
         if (qm.notedText) {
             html += '<p class="hint" style="margin:0">' + esc(qm.notedText) + '</p>';
         }
@@ -2756,7 +2765,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      * pre-fill that could not decide shows the certificate's words. data-fill carries the house card's route pre-fills.
      * qm: { q, card: { key, u, notes, src }, elementOptions, tag, prose, epcSays, epcMissing, fillData }
      */
-    function elementQuestion(qm, m) {
+    function elementQuestion(qm, m, inCard) {
         var q = qm.q;
         var t = STEP_TEXT;
         var e = m.errors || {};
@@ -2768,8 +2777,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var tag = qm.epcMissing ? t.EL_EPC_MISSING : (qm.tag || '');
         // 2.5.1 (amendment 2): a card titled by its element, the source tag as a chip under the title, then the select
         // (labelled by the row's hint, else "Which is closest?"), the exact U-value and the notes.
-        return '<div class="dq el" id="q-' + esc(q.qid) + '"' + (qm.fillData ? ' data-fill="' + esc(JSON.stringify(qm.fillData)) +
-            '"' : '') + '><fieldset><legend class="eltitle">' + esc(q.label) + (q.required ? '<span class="req">' +
+        // 2.7.0 (amendment 4 §6): inside an extension's card (inCard) the card's Same / Different carries the title; the
+        // element's own legend stays for screen readers.
+        return '<div class="dq el' + (inCard ? ' elbody' : '') + '" id="q-' + esc(q.qid) + '"' + (qm.fillData ? ' data-fill="' +
+            esc(JSON.stringify(qm.fillData)) + '"' : '') + '><fieldset><legend class="' + (inCard ? 'sr' : 'eltitle') + '"' +
+            (inCard ? ' style="position:absolute"' : '') + '>' + esc(q.label) + (q.required ? '<span class="req">' +
             esc(DESIGN_TEXT.REQUIRED) + '</span>' : '') + '</legend>' +
             '<span class="chip chip-optional eltag" aria-live="polite"' + (tag ? '' : ' hidden') + '>' + esc(tag) + '</span>' +
             whyToggle(q) + fieldError(e, q.qid) +
@@ -3056,6 +3068,14 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '.eltag[hidden]{display:none}',
             '.elgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}',
             '.elgrid > .rvp{border-top:0;padding-top:0}',
+            // 2.7.0 (amendment 4 §6): an extension's element cards — Same / Different as two small tiles at the top.
+            '.extcard{border:1px solid ' + c.BORDER + ';border-radius:10px;padding:14px 16px;background:#fff;display:flex;' +
+                'flex-direction:column;gap:8px}',
+            '.extcard > .dq{border-top:0;padding-top:0}',
+            '.extcard > .dq legend{font-size:17px;font-weight:700}',
+            '.extcard .opts{grid-template-columns:1fr 1fr;gap:8px}',
+            '.extcard .optc{padding:8px 10px;font-size:15px}',
+            '.extcard .el.elbody,.extcard .rvp > .dq.el{border:0;padding:0;border-top:0}',
             '[data-role=route] .opts{grid-template-columns:1fr 1fr}',
             '@media (max-width:700px){.elgrid{grid-template-columns:minmax(0,1fr)}}',
             '@media (max-width:600px){[data-role=route] .opts{grid-template-columns:minmax(0,1fr)}}',
@@ -3274,6 +3294,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         panels.forEach(function (p) {
             // 2.5.1: a panel of element cards is a 2 x 2 grid (one column below 700 px).
             var grid = byPanel[p].every(function (qm) { return qm.q.type === 'element'; });
+            // 2.7.0 (amendment 4 §6): an extension's panel — its other questions in one card, then its elements as a grid of
+            // cards, each with Same / Different at the top and, on Different, the select, U-value and notes.
+            var pairs = extPairs(byPanel[p]);
+            if (pairs.cards.length) {
+                body += questionsCard(pairs.rest, m, off, false) + questionsCard(pairs.cards, m, off, true);
+                return;
+            }
             // 2.6.0: every question hidden by its reveal -> the card is hidden (rvhide: with script only, so a script-off page
             // still shows it with its "If you chose …" headings); the first visible question has no divider (.first). The
             // page's script keeps both right as the answers change.
@@ -3298,6 +3325,51 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(), script: STEPPER_SCRIPT +
                 (st.questions.some(function (qm) { return qm.revealSpec || qm.q.type === 'element'; }) ? REVEAL_SCRIPT : ''),
             headerExtra: saveExit(m) });
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §6): an extension panel's questions split into its element cards (each "<ext>_<element>_same"
+     * choice with its "<ext>_<element>" element question) and the rest, in order. { cards: [{ same, el }], rest: [qm] }.
+     */
+    function extPairs(list) {
+        var byQid = {};
+        var used = {};
+        var cards = [];
+        list.forEach(function (qm) { byQid[qm.q.qid] = qm; });
+        list.forEach(function (qm) {
+            var el = /_same$/.test(qm.q.qid) && qm.q.type === 'choice' ? byQid[qm.q.qid.replace(/_same$/, '')] : null;
+            if (el && el.q.type === 'element' && el.q.ext) {
+                cards.push({ same: qm, el: el });
+                used[qm.q.qid] = true;
+                used[el.q.qid] = true;
+            }
+        });
+        return { cards: cards, rest: list.filter(function (qm) { return !used[qm.q.qid]; }) };
+    }
+
+    /**
+     * 2.6.0 / 2.7.0: one card of questions (rvhide when every one is hidden by its reveal; the first shown one .first), or
+     * (grid) a 2 x 2 grid of extension element cards.
+     */
+    function questionsCard(list, m, off, grid) {
+        var shown;
+        var html;
+        if (!list.length) {
+            return '';
+        }
+        if (grid) {
+            shown = list.filter(function (c) { return c.same.q.revealed !== false; });
+            return '<section class="card elgrid extgrid' + (shown.length ? '' : ' rvhide') + '">' + list.map(function (c) {
+                html = revealPanel(c.same, '<div class="extcard">' + designQuestion(c.same, m) +
+                    revealPanel(c.el, elementQuestion(c.el, m, true)) + '</div>');
+                return c === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+            }).join('') + '</section>';
+        }
+        shown = list.filter(function (qm) { return qm.q.revealed !== false; });
+        return '<section class="card' + (shown.length ? '' : ' rvhide') + '">' + list.map(function (qm) {
+            html = revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
+            return qm === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+        }).join('') + '</section>';
     }
 
     /** A files question in the stepper: label, why, hint, then the file control. */
@@ -3576,6 +3648,59 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         });
     }
 
+
+    // ---------------------------------------------------------------- 2.7.0 (2.3c amendment 4 §8): the answers as a PDF
+
+    /**
+     * Pure: a value for BFO XML — control characters (not allowed in XML 1.0) dropped, the five XML characters escaped,
+     * line breaks as <br/>.
+     */
+    function pdfEsc(value) {
+        return String(value === null || value === undefined ? '' : value)
+            .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+            .replace(/\r\n?|\n/g, '<br/>');
+    }
+
+    /**
+     * Pure (amendment 4 §8): the design information PDF as BFO XML (N/render xmlToPdf) — laid out like Review: a heading,
+     * the project lines, the call request, then a heading per step with its question and answer rows (the EPC, the element
+     * lines and the file names are rows like any other), then the other facts. No pictures, no script. Every value escaped.
+     * @param {Object} m - { heading, lines: [text], call: '' | text, sections: [{ title, status, rows: [{ label, value }] }],
+     *   facts: [text], footer }
+     * @returns {string}
+     */
+    function designInfoPdfXml(m) {
+        var x = '<?xml version="1.0"?>\n<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">\n<pdf><head>' +
+            '<style type="text/css">body{font-family:Helvetica,sans-serif;font-size:10pt;color:#1f2933}' +
+            'h1{font-size:16pt;margin:0 0 6pt 0}h2{font-size:12pt;margin:14pt 0 4pt 0}' +
+            'td{padding:3pt 4pt;vertical-align:top;border-bottom:0.5pt solid #d9dee3}td.l{width:40%;color:#52606d}' +
+            'p{margin:0 0 3pt 0}p.call{font-weight:bold;margin:6pt 0}p.m{color:#52606d}</style></head><body>';
+        x += '<h1>' + pdfEsc(m.heading) + '</h1>';
+        (m.lines || []).forEach(function (l) { x += '<p class="m">' + pdfEsc(l) + '</p>'; });
+        if (m.call) {
+            x += '<p class="call">' + pdfEsc(m.call) + '</p>';
+        }
+        (m.sections || []).forEach(function (sec) {
+            x += '<h2>' + pdfEsc(sec.title) + (sec.status ? ' (' + pdfEsc(sec.status === 'done' ? 'done' : sec.status === 'todo' ?
+                'to do' : 'optional') + ')' : '') + '</h2>';
+            if (!(sec.rows || []).length) {
+                x += '<p class="m">' + pdfEsc(STEP_TEXT.NOTHING_YET) + '</p>';
+                return;
+            }
+            x += '<table width="100%">' + sec.rows.map(function (r) {
+                return '<tr><td class="l">' + pdfEsc(r.label) + '</td><td>' + pdfEsc(r.value) + '</td></tr>';
+            }).join('') + '</table>';
+        });
+        if ((m.facts || []).length) {
+            x += '<h2>' + pdfEsc('Also') + '</h2>' + m.facts.map(function (l) { return '<p>' + pdfEsc(l) + '</p>'; }).join('');
+        }
+        if (m.footer) {
+            x += '<p class="m" style="margin-top:14pt">' + pdfEsc(m.footer) + '</p>';
+        }
+        return x + '</body></pdf>';
+    }
+
     return {
         VERSION: VERSION,
         COLORS: COLORS,
@@ -3632,6 +3757,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         designInfoMessagePage: designInfoMessagePage,
         designCardLines: designCardLines,
         designInfoRequestSubject: designInfoRequestSubject,
-        designInfoRequestEmail: designInfoRequestEmail
+        designInfoRequestEmail: designInfoRequestEmail,
+        // 2.7.0
+        pdfEsc: pdfEsc,
+        designInfoPdfXml: designInfoPdfXml
     };
 });

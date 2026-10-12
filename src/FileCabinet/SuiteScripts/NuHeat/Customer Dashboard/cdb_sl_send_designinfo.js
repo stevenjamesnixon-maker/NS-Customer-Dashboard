@@ -55,10 +55,13 @@
  * 1.2.0 (2.3c amendment 3): six steps (the tick boxes are Heat loss, Heating and Heat pump); the email's intro names the
  * system in plain words (designinfo.systemWords(), lower-case; none: "heating system") and assumes no design call.
  *
+ * 1.3.0 (2.3c amendment 4): the email's {system} always ends "system" (designinfo.systemWords().system), and its You're
+ * having row is the card's plain words.
+ *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- * @version 1.2.0
+ * @version 1.3.0
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -66,7 +69,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 
@@ -385,7 +388,8 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
                 greetingName: p.customer.greetingName,
                 logoUrl: cfg.LOGO_URL,
                 opp: { tranId: p.opp.tranId, title: p.opp.title, siteAddress: p.opp.siteAddress },
-                havingText: [p.opp.fcText, p.opp.heatSourceText].filter(function (x) { return !!x; }).join(' · '),
+                // 1.3.0 (amendment 4): the card's plain words (none: the row is left out).
+                havingText: designinfo.systemWords(p.facts).text,
                 callKey: p.opp.nextContactKey && p.opp.nextContactKey >= todayKey ? p.opp.nextContactKey : '',
                 goodsKey: p.opp.delDateKey,
                 link: token.buildLink(p.opp.customerId, { a: 'designinfo', opp: p.opp.id }),
@@ -397,8 +401,8 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
                 askList: asked.map(function (st) { return st.title; }),
                 // 1.1.1: the subtitle's time, the same sum as the card's ("about N minutes"; 0: no time).
                 minutes: designinfo.stepsMinutes(asked),
-                // 1.2.0 (amendment 3): "your {system}" in the intro.
-                system: designinfo.systemWords(p.facts).lower
+                // 1.2.0 (amendment 3): "your {system}" in the intro. 1.3.0: always "… system".
+                system: designinfo.systemWords(p.facts).system
             });
             email.send({
                 author: parseInt(emp.id, 10),

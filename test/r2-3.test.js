@@ -129,6 +129,16 @@ function state(w) {
     return di.parseState(raw).state;
 }
 
+/** 2.3c amendment 4 §7: the Send's Note (the last one), which carries the full answers. */
+function sendNote(t) {
+    return t.w.notes[t.w.notes.length - 1].values.note;
+}
+
+/** 2.3c amendment 4 §8: the files saved that are not the Send's PDF. */
+function uploads(t) {
+    return t.w.savedFiles.filter(function (f) { return !f.pdf; });
+}
+
 function nothingWritten(t, why) {
     assert.strictEqual(t.w.submits.length, 0, why + ': no submitFields');
     assert.strictEqual(t.w.notes.length, 0, why + ': no Note');
@@ -169,9 +179,11 @@ test('GET (2.4.0): a step per screen — the step bar, the intro card, one multi
     // 2.3c amendment 3 §6: Yes/No are choice tiles with their radio circles.
     assert.ok(/<div class="opts opts2"><label class="optc"><input type="radio" name="q_plans_current" value="yes" data-key="yes"/
         .test(html), 'yesno');
+    // 2.3c amendment 4 §9: text already on the opportunity (not written by this form) is shown above the box, which is empty.
+    assert.ok(html.indexOf('<p class="hint have" style="margin:0">What we have so far: All 2.4 m</p>') > 0);
     assert.ok(html.indexOf('<textarea class="inp" id="di-ceilings" name="q_ceilings" maxlength="4000" placeholder="e.g. sections ' +
-        'on the plans.') > 0, 'pre-filled from the opportunity, with its placeholder');
-    assert.ok(html.indexOf('>All 2.4 m</textarea>') > 0);
+        'on the plans.') > 0, 'with its placeholder');
+    assert.strictEqual(html.indexOf('>All 2.4 m</textarea>'), -1, 'not pre-filled');
     assert.ok(html.indexOf('accept=".pdf,.dwg,.dxf,.jpg,.jpeg,.png,.gif,.zip,.doc,.docx,.xls,.xlsx,.tif,.tiff,image/*"') > 0);
     // The navigation row and the reassurance line.
     assert.ok(html.indexOf('<button type="submit" class="out" name="nav" value="back">← Back: Your project</button>') > 0);
@@ -373,8 +385,10 @@ test('the goods date (amendment 1 §1): never custbody_opp_del_date — the stat
     assert.strictEqual(t.w.opps[20].custbody_opp_del_date, '2026-11-14', 'unchanged');
     assert.strictEqual(state(t.w).answers.goods_date, key);
     assert.ok(t.w.notes[0].values.note.indexOf(' Goods needed: 14/11/2026 \u2192 customer says ' + slash) > 0);
-    assert.ok(t.w.tasks[0].values.message.indexOf('Customer says goods are needed by ' + slash + ' (we hold 14/11/2026). Check ' +
+    // 2.3c amendment 4 §7: the goods date line is in the Note (and the PDF), not the Task.
+    assert.ok(sendNote(t).indexOf('Customer says goods are needed by ' + slash + ' (we hold 14/11/2026). Check ' +
         'and update the opportunity date yourself; the dashboard did not change it.') > 0);
+    assert.strictEqual(t.w.tasks[0].values.message.indexOf('goods'), -1);
     // A bad date: the update page's rule and message.
     var u = setup();
     assert.ok(post(u, { step: 'project', q_goods_date: '2020-01-01' }).indexOf('Please choose a date from today onwards, within ' +
@@ -405,7 +419,7 @@ test('yesno: a checkbox field gets a boolean, a text field "Yes"', function () {
     assert.strictEqual(oppWrites(u.w)[0].values.custbody28, 'Yes');
 });
 
-test('a missing field: the question is omitted, logged once, and listed in the Task as not saved', function () {
+test('a missing field: the question is omitted, logged once, and listed in the Note as not saved', function () {
     var t = setup();
     t.w.missingOppFields = ['custbody17'];
     var html = get(t);
@@ -413,11 +427,11 @@ test('a missing field: the question is omitted, logged once, and listed in the T
     assert.strictEqual(logs(t.w, 'DESIGNINFO_FIELD_MISSING').length, 1);
     assert.ok(logs(t.w, 'DESIGNINFO_FIELD_MISSING')[0][2].indexOf('coverings') > 0);
     post(t, { send: '1' });
-    assert.ok(t.w.tasks[0].values.message.indexOf('Not saved to the record (the customer was told we\u2019ll cover it on the ' +
-        'call): coverings (field missing).') > 0);
+    // 2.3c amendment 4 §7: in the Note's full answers, not the Task.
+    assert.ok(sendNote(t).indexOf('- Not saved to the record: coverings (field missing).') > 0);
 });
 
-test('a mismatched field: shown read-only, never written even when posted, listed in the Note and the Task', function () {
+test('a mismatched field: shown read-only, never written even when posted, listed in the Note', function () {
     var t = setup();
     t.w.oppFieldTypes.custbody15 = 'select';
     t.w.opps[20].custbody15_text = '1930s';
@@ -427,7 +441,8 @@ test('a mismatched field: shown read-only, never written even when posted, liste
     post(t, { step: 'insulation', q_year: '1990', send: '1' });
     oppWrites(t.w).forEach(function (o) { assert.strictEqual(o.values.hasOwnProperty('custbody15'), false); });
     assert.ok(t.w.notes[0].values.note.indexOf('Not saved to the record: year (type mismatch: custbody15 is SELECT)') > 0);
-    assert.ok(t.w.tasks[0].values.message.indexOf('year (type mismatch: custbody15 is SELECT)') > 0);
+    // 2.3c amendment 4 §7: not in the Task.
+    assert.strictEqual(t.w.tasks[0].values.message.indexOf('type mismatch'), -1);
 });
 
 test('a PHONE field that cannot take the text: not written, kept in the Note, listed as not saved', function () {
@@ -529,11 +544,12 @@ test('files: a failed attach keeps the file and says so; a failed save says so; 
     var t = setup();
     t.w.attachThrows = true;
     post(t, { step: 'plans', send: '1' }, { f_plans_files_1: part(t, 'a.pdf') });
-    assert.strictEqual(t.w.savedFiles.length, 1, 'the file stays in the folder');
+    assert.strictEqual(uploads(t).length, 1, 'the file stays in the folder');
     assert.strictEqual(state(t.w).files[0].attached, false);
     assert.ok(logs(t.w, 'DESIGNINFO_FILE')[0][2].indexOf('NOT attached to the opportunity') > 0);
     assert.ok(t.w.notes[0].values.note.indexOf('NOT attached to the opportunity') > 0);
-    assert.ok(t.w.tasks[0].values.message.indexOf('(NOT attached: in the folder only)') > 0);
+    // 2.3c amendment 4 §7: the files list left the Task (the file is attached-or-not, as the Note says).
+    assert.strictEqual(t.w.tasks[0].values.message.indexOf('NOT attached'), -1);
 
     var u = setup();
     u.w.fileSaveThrows = true;
@@ -571,47 +587,62 @@ test('the Note on every save, clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED); a fail
     var html = post(u, { step: 'plans', q_windows: 'Lots', send: '1' });
     assert.strictEqual(oppWrites(u.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots');
     assert.strictEqual(logs(u.w, 'DESIGNINFO_NOTE_FAILED')[0][0], 'error');
-    assert.ok(u.w.tasks[0].values.message.indexOf('Audit note NOT created') > 0);
+    // 2.3c amendment 4 §7: the Task's last line says where the answers are — the Note failed, so the PDF.
+    assert.ok(/Full answers: the Note could not be created and PDF "Design information QR20 \d{4}-\d\d-\d\d\.pdf"\.$/
+        .test(u.w.tasks[0].values.message), u.w.tasks[0].values.message);
     assert.ok(html.indexOf('Sent to Pem Engineer.') > 0);
 });
 
-test('the Task, only on Send: title, assignee, what is missing, a snapshot of the answers, the Mimecast line', function () {
+test('the Task, only on Send (amendment 4 §7): the title, the assignee, the key facts only; the full answers in the Note', function () {
     var t = setup();
     post(t, { step: 'plans', q_windows: 'First' });
     assert.strictEqual(t.w.tasks.length, 0);
     var html = post(t, { send: '1', q_bigfiles: 'yes', q_unheated: 'Garage' });
     assert.strictEqual(t.w.tasks.length, 1);
     var v = t.w.tasks[0].values;
-    assert.strictEqual(v.title, 'DESIGN INFO \u2013 Barn conversion');
+    // 2.3c amendment 4 §7: "Design information received: <QR ref> <customer surname>" (a company: its name).
+    assert.strictEqual(v.title, 'Design information received: QR20 Acme Ltd');
     assert.strictEqual(v.assigned, '77');
     assert.strictEqual(v.company, '42');
     assert.strictEqual(v.transaction, '20');
     assert.strictEqual(v.priority, 'MEDIUM');
-    assert.ok(v.message.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0);
-    // Amendment 3: a snapshot of every shown section's current answers (the earlier save included).
-    assert.ok(v.message.indexOf('Your plans (to do)\n- Are the plans we hold still the current ones?: \u2014') < 0);
-    assert.ok(v.message.indexOf('- Ceiling heights: All 2.4 m\n- Windows and external doors: First\n') > 0, v.message);
-    // Amendment 2 §5: the Task is plain text — never an HTML entity.
-    assert.strictEqual(v.message.indexOf('&#39;'), -1);
-    assert.ok(v.message.indexOf('- Anywhere we shouldn\'t heat?: Garage') > 0);
-    assert.ok(v.message.indexOf('- I have files bigger than 10 MB: Yes') > 0);
-    assert.ok(v.message.indexOf('How well insulated is it? (to do)\n(nothing yet)') > 0);
-    assert.strictEqual(v.message.indexOf('Changes since the last send'), -1, 'no earlier send, no request: no pointer');
-    assert.ok(v.message.indexOf('LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.') > 0);
-    assert.ok(t.w.notes[1].values.note.indexOf('Sent to PE: yes') > 0);
-    assert.ok(t.w.notes[1].values.note.indexOf('Large files: customer has files over 10 MB') > 0);
+    var d = amd.load('lib/cdb_lib_dates');
+    var di = amd.load('lib/cdb_lib_designinfo', {});
+    var today = d.londonTodayKey(Date.now());
+    var lines = v.message.split('\n');
+    assert.strictEqual(lines[0], 'Sent ' + di.dayMonth(today, true) + '. Complete: Your project, Anything else for your ' +
+        'Project Engineer?. Still to do: Your plans, How well insulated is it?, Heating and controls, Your heat pump.');
+    assert.deepStrictEqual([lines[1], lines[2], lines[4]], ['', 'Needs a look', '']);
+    // Required answers still blank, by question label, on one line.
+    assert.ok(/^- Needed but left blank: Are the plans we hold still the current ones\?, Pick whichever is easiest, .*, Bedrooms$/
+        .test(lines[3]), lines[3]);
+    assert.strictEqual(lines[5], 'Full answers: Note "Design information ' + di.dayMonth(today, true) + '" and PDF "Design ' +
+        'information QR20 ' + today + '.pdf".');
+    assert.strictEqual(lines.length, 6, 'nothing else');
+    // The full answers are in the Send's Note (and the PDF): every shown step, then the facts that left the Task.
+    var note = sendNote(t);
+    assert.strictEqual(t.w.notes[1].values.title, 'Design information ' + di.dayMonth(today, true));
+    assert.ok(note.indexOf('FULL ANSWERS') > 0);
+    assert.ok(note.indexOf('- Ceiling heights: All 2.4 m\n- Windows and external doors: First\n') > 0, note);
+    assert.strictEqual(note.indexOf('&#39;'), -1);
+    assert.ok(note.indexOf('- Anywhere we shouldn\'t heat?: Garage') > 0);
+    assert.ok(note.indexOf('How well insulated is it? (to do)\n(nothing yet)') > 0);
+    assert.ok(note.indexOf('- LARGE FILES: the customer has files over 10 MB. Send a Mimecast large-file request.') > 0);
+    assert.ok(note.indexOf('Sent to PE: yes') > 0);
+    assert.strictEqual(v.message.indexOf('LARGE FILES'), -1, 'big files: the Note only');
     var st = state(t.w);
     assert.ok(st.sent && st.lastTaskAt === st.sent);
     assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(st.sent), 'to the minute');
     // 2.3c amendment 3 §4: no design call assumed.
     assert.ok(html.indexOf('<p>Sent to Pem Engineer.</p><p>Pem will read it all and be in touch.</p>') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_SAVED')[1][2].indexOf('send yes, Task 555') > 0);
-    // The next Send is a snapshot again, and points to the Notes after the previous send.
+    // A re-send says what changed since the last Send.
     post(t, { send: '1', q_other: 'Zoning please' });
     var m2 = t.w.tasks[1].values.message;
-    assert.ok(m2.indexOf('- Windows and external doors: First') > 0, 'the whole picture');
-    assert.ok(m2.indexOf('- Anything else: Zoning please') > 0);
-    assert.ok(/Changes since the last send are in the opportunity\u2019s Notes dated after \d\d\/\d\d\/\d{4} \d\d:\d\d\./.test(m2));
+    assert.ok(m2.indexOf('Updated ' + di.dayMonth(today, true) + '. Changed since last send: Anything else for your Project ' +
+        'Engineer?. Complete:') === 0, m2);
+    assert.ok(sendNote(t).indexOf('- Anything else: Zoning please') > 0);
+    assert.ok(sendNote(t).indexOf('- Windows and external doors: First') > 0, 'the whole picture');
 });
 
 test('a failed Task puts the state back (not sent) and the page says to send again', function () {
@@ -625,29 +656,31 @@ test('a failed Task puts the state back (not sent) and the page says to send aga
     assert.ok(html.indexOf('We couldn\u2019t pass it on just now. Please press Send again in a few minutes.') > 0);
 });
 
-test('a failed field write still saves the state and the Note, and the Task says what was NOT saved', function () {
+test('a failed field write still saves the state and the Note, and the Note says what was NOT saved', function () {
     var t = setup();
     t.w.submitThrows = function (o) { return o.values.hasOwnProperty('custbody_elevations_window_sizes_2026'); };
     post(t, { send: '1', q_windows: 'Lots' });
     assert.strictEqual(logs(t.w, 'DESIGNINFO_WRITE_FAILED')[0][0], 'error');
     assert.deepStrictEqual(Object.keys(oppWrites(t.w)[0].values), ['custbody_cdb_designinfo_state'], 'the state on its own');
-    assert.ok(t.w.notes[0].values.note.indexOf('NOT saved: the answers for the Project Specification tab') > 0);
-    assert.ok(t.w.tasks[0].values.message.indexOf('NOT SAVED (please enter by hand):\n- the answers for the Project Specification ' +
-        'tab (USER_ERROR: submitFields refused): Windows and external doors') > 0);
+    assert.ok(t.w.notes[0].values.note.indexOf('NOT saved: the answers for the Project Specification tab (USER_ERROR: ' +
+        'submitFields refused): Windows and external doors') > 0);
+    // 2.3c amendment 4 §7: "Needs a look" lists failed uploads, blank required answers and unmatched EPC elements only — a
+    // failed field write is in the Note (reported to Steve as a decision to confirm).
+    assert.strictEqual(t.w.tasks[0].values.message.indexOf('NOT SAVED'), -1);
 });
 
-test('fact warnings reach the Task: an unknown service, an HP Design with a boiler', function () {
+test('fact warnings reach the Note (amendment 4 §7: not the Task): an unknown service, an HP Design with a boiler', function () {
     var t = setup();
     t.w.opps[20].custbody_mi_heat_source = '4';
     post(t, { send: '1' });
-    assert.ok(t.w.tasks[0].values.message.indexOf('- The design service is HP Design, but the heat source is not a Nu-Heat heat ' +
+    assert.ok(sendNote(t).indexOf('- Check: The design service is HP Design, but the heat source is not a Nu-Heat heat ' +
         'pump.') > 0);
     var u = setup();
     u.w.opps[20].custbody_value_proposition = '99';
     assert.ok(get(u).indexOf('name="goto" value="insulation" aria-label="Step 3 of 7: How well insulated is it?"') > 0,
         'unknown: the UFH Design + set');
     post(u, { send: '1' });
-    assert.ok(u.w.tasks[0].values.message.indexOf('Design service unknown: value proposition 99 is not in VP_MAP') > 0);
+    assert.ok(sendNote(u).indexOf('Design service unknown: value proposition 99 is not in VP_MAP') > 0);
 });
 
 test('state merges: requested and earlier answers survive a save (a version 1 state migrated); unparsable is replaced', function () {
@@ -950,10 +983,13 @@ test('the email: band, personal paragraph (PE), facts rows present and omitted, 
     // 2.3c amendment 1: the subtitle's time is the asked steps' minutes summed (the 2.3b registry: 1 + 2 + 2 + 2 + 4 + 1).
     assert.ok(b.indexOf('Your plans and a few details are all we need to begin. About 12 minutes.') > 0);
     // 2.3c amendment 3 §10: the intro — the sender as the main contact, the survey's minutes, the sender's phone.
+    // 2.3c amendment 4 §1: "… system" on every form.
     assert.ok(b.indexOf('I\u2019m Pem, your Project Engineer. I\u2019ll be your main contact for your underfloor heating and ' +
-        'heat pump all the way through design and delivery.') > 0);
+        'heat pump system all the way through design and delivery.') > 0);
     assert.ok(b.indexOf('QR20 \u00b7 Plot 4, Village') > 0);
-    assert.ok(b.indexOf('In floor, solid + joisted \u00b7 Nu-Heat heat pump') > 0);
+    // 2.3c amendment 4 §1: You're having in the card's plain words.
+    assert.ok(b.indexOf('<b>Underfloor heating and a heat pump</b>') > 0);
+    assert.strictEqual(b.indexOf('In floor, solid + joisted'), -1);
     assert.strictEqual(b.indexOf('>Design call</font>'), -1, 'amendment 3 §10: no design call row');
     assert.ok(b.indexOf('>Goods needed</font>') > 0);
     assert.ok(b.indexOf('<b>TELL US ABOUT YOUR PROPERTY</b>') > 0);
@@ -985,7 +1021,7 @@ test('the email: the account manager variant — UFH Design, a boiler: no step 2
     assert.strictEqual(r.w.emails[0].author, 88, 'not a PE case: the sales rep');
     // 2.3c amendment 3 §10: the PE named as the Project Engineer for the system (UFH Design, a boiler: underfloor heating).
     assert.ok(b.indexOf('I\u2019m Ray, your account manager. Pem Engineer will be your Project Engineer for your underfloor ' +
-        'heating, all the way through design and delivery.') > 0);
+        'heating system, all the way through design and delivery.') > 0);
     assert.ok(b.indexOf('<b>YOUR ACCOUNT MANAGER</b>') > 0);
     // 2.3c (§B3): UFH Design with a boiler — the steps stepsFor() gives, renumbered: no insulation, no heat pump.
     assert.strictEqual(b.indexOf('<b>How well insulated is it?</b>'), -1);
@@ -1059,7 +1095,8 @@ function longAnswers(tag) {
     return p;
 }
 
-test('A3. the Task snapshot is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); long values at 200; the Send still succeeds', function () {
+test('A3/A4. long answers: the Send\'s Note is clipped at 3,900 (DESIGNINFO_NOTE_CLIPPED), values at 200; the Task stays short; ' +
+    'the PDF has every answer whole; the Send still succeeds', function () {
     var t = setup();
     var p = longAnswers('a');
     var files = {};
@@ -1071,11 +1108,17 @@ test('A3. the Task snapshot is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); long 
     p.send = '1';
     post(t, p, files);
     assert.strictEqual(t.w.tasks.length, 1, 'the Send succeeds');
-    var m = t.w.tasks[0].values.message;
-    assert.strictEqual(m.length, 3900);
-    assert.ok(/\n\(truncated\)$/.test(m));
-    assert.ok(m.indexOf('- Windows and external doors: a' + Array(199).join('z') + '\u2026\n') > 0, 'clipped at 200');
-    assert.strictEqual(logs(t.w, 'DESIGNINFO_TASK_CLIPPED').length, 1);
+    // 2.3c amendment 4 §7: the Task carries key facts only, so it is never near the limit.
+    assert.ok(t.w.tasks[0].values.message.length < 1000);
+    assert.strictEqual(logs(t.w, 'DESIGNINFO_TASK_CLIPPED').length, 0);
+    var n = sendNote(t);
+    assert.strictEqual(n.length, 3900);
+    assert.ok(/\n\(truncated\)$/.test(n));
+    assert.ok(n.indexOf(' Windows and external doors: \u2014 \u2192 a' + Array(299).join('z') + '\u2026\n') > 0,
+        'the change lines clipped at 300, as every Note');
+    assert.ok(logs(t.w, 'DESIGNINFO_NOTE_CLIPPED').length >= 1);
+    // The PDF holds each answer whole.
+    assert.ok(t.w.pdfs[0].indexOf('<td>a' + Array(3000).join('z') + '</td>') > 0);
     assert.ok(t.w.opps[20].custbody_cdb_designinfo_state.length <= 3500, 'and the state still fits');
 });
 
@@ -1111,8 +1154,11 @@ test('A2. the Note and the Task are plain text: Don\'t & "quote" verbatim, never
     var note = t.w.notes[0].values.note;
     var msg = t.w.tasks[0].values.message;
     assert.ok(note.indexOf(' Anywhere we shouldn\'t heat?: — → Don\'t & "quote" <b>') > 0, note);
-    assert.ok(msg.indexOf('- Anywhere we shouldn\'t heat?: Don\'t & "quote" <b>') > 0, msg);
+    // 2.3c amendment 4 §7: the answer is in the Note's full answers (not the Task); the PDF (XML) escapes it.
+    assert.ok(note.indexOf('- Anywhere we shouldn\'t heat?: Don\'t & "quote" <b>') > 0, note);
     [note, msg].forEach(function (x) { assert.ok(!/&(amp|quot|#39|lt|gt);/.test(x)); });
+    assert.ok(t.w.pdfs[0].indexOf('<td>Don&#39;t &amp; &quot;quote&quot; &lt;b&gt;</td>') > 0);
+    assert.strictEqual(t.w.pdfs[0].indexOf('Don\'t & "quote" <b>'), -1);
     // Control characters are stripped from the plain text.
     var u = setup();
     post(u, { step: 'plans', q_unheated: 'Garage\u0007 only' });
@@ -1503,15 +1549,17 @@ test('2.4.0 old qids in the state are ignored, logged once per request (DESIGNIN
     assert.strictEqual(t.w.notes[0].values.note.indexOf('mcs_'), -1, 'never in the Note');
 });
 
-test('2.4.0 the Note and the Task: "Sections saved" names the step; the snapshot follows step order; "Still missing" the titles', function () {
+test('2.4.0 the Note and the Task: "Sections saved" names the step; the full answers follow step order (amendment 4: in the ' +
+    'Note); the Task says what is still to do', function () {
     var t = setup();
     postNav(t, { step: 'heating', nav: 'next', q_manifolds: 'Utility' });
     assert.ok(t.w.notes[0].values.note.indexOf('Sections saved: Heating and controls\n') === 0);
     post(t, { step: 'review', send: '1' });
-    var msg = t.w.tasks[0].values.message;
+    var msg = sendNote(t);
     var order = ['Your project (', 'Your plans (', 'How well insulated is it? (', 'Heating and controls (', 'Your heat pump (',
         'Anything else for your Project Engineer? ('].map(function (x) { return msg.indexOf('\n' + x); });
     order.forEach(function (i) { assert.ok(i > 0); });
     assert.deepStrictEqual(order.slice().sort(function (a, b) { return a - b; }), order, 'step order');
-    assert.ok(msg.indexOf('Still missing: Your plans, How well insulated is it?, Heating and controls, Your heat pump.') > 0, msg);
+    assert.ok(t.w.tasks[0].values.message.indexOf('Still to do: Your plans, How well insulated is it?, Heating and controls, ' +
+        'Your heat pump.') > 0);
 });

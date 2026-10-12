@@ -359,25 +359,27 @@ test('pre-fill: typical per age band; regs_new; regs_ext; the EPC; never over th
 
 // ---------------------------------------------------------------- EPC mapping (§B9)
 
-test('EPC mapping: per element; disagreeing entries -> unsure with the text; the U-value; windows absent; the age band year',
-    function () {
+test('EPC mapping: per element; several entries -> the first that maps (amendment 4), the notes all of them; the U-value; ' +
+    'windows absent; the age band year', function () {
         assert.deepStrictEqual(di.epcElement('Cavity wall, filled cavity', EPCMAP, 'walls'),
-            { key: 'cavity_filled', u: '', text: 'Cavity wall, filled cavity', missing: false, mixed: false });
+            { key: 'cavity_filled', u: '', text: 'Cavity wall, filled cavity', notes: 'EPC: Cavity wall, filled cavity',
+                missing: false, mixed: false, matched: true });
         assert.strictEqual(di.epcElement('Solid brick, as built, no insulation (assumed)', EPCMAP, 'walls').key, 'solid_brick');
         assert.strictEqual(di.epcElement('Fully double glazed', EPCMAP, 'windows').key, 'double_02');
         assert.strictEqual(di.epcElement('Pitched, 150 mm loft insulation', EPCMAP, 'roof').key, 'mm150', 'not "50 mm"');
         assert.strictEqual(di.epcElement('Pitched, 250 mm loft insulation', EPCMAP, 'roof').key, 'mm200');
         assert.strictEqual(di.epcElement('Suspended, no insulation (assumed)', EPCMAP, 'floor').key, 'susp_unins');
         var mixed = di.epcElement('Cavity wall, filled cavity; Timber frame, as built, no insulation (assumed)', EPCMAP, 'walls');
-        assert.deepStrictEqual([mixed.key, mixed.mixed], ['unsure', true]);
+        // Amendment 4 §5: the first entry (the main building) sets the card, not Not sure.
+        assert.deepStrictEqual([mixed.key, mixed.mixed], ['cavity_filled', true]);
         assert.ok(mixed.text.indexOf('Timber frame') > 0);
         var same = di.epcElement('Solid, no insulation (assumed); Solid, no insulation (assumed)', EPCMAP, 'floor');
         assert.strictEqual(same.key, 'solid_unins', 'agreeing entries');
         var u = di.epcElement('Average thermal transmittance 0.28 W/m²K', EPCMAP, 'walls');
-        assert.deepStrictEqual([u.key, u.u, u.mixed], ['unsure', '0.28', false]);
+        assert.deepStrictEqual([u.key, u.u, u.mixed, u.matched], ['unsure', '0.28', false, true]);
         assert.strictEqual(di.uFromEpcText('Average thermal transmittance 9 W/m2K'), '', 'out of range');
-        assert.deepStrictEqual(di.epcElement(null, EPCMAP, 'windows'), { key: 'unsure', u: '', text: '', missing: true,
-            mixed: false });
+        assert.deepStrictEqual(di.epcElement(null, EPCMAP, 'windows'), { key: 'unsure', u: '', text: '',
+            notes: 'Not on your EPC.', missing: true, mixed: false, matched: false });
         assert.strictEqual(di.epcElement('Roof room(s), insulated (assumed)', EPCMAP, 'roof').key, 'unsure', 'not mapped');
         assert.strictEqual(di.ageBandKey('England and Wales: 1950-1966'), '1950');
         assert.strictEqual(di.ageBandKey('England and Wales: 1967-1975'), '1950');
@@ -416,7 +418,7 @@ test('state: rq is read, written, merged and kept by stateTextGuarded; a v2 stat
 
 // ---------------------------------------------------------------- the flow (the dashboard Suitelet)
 
-var INS = { step: 'insulation', nav: 'stay', q_ptype: '2', q_market: '8', q_age: '2', q_has_ext: 'no', q_drawings: 'yes',
+var INS = { step: 'insulation', nav: 'stay', q_ptype: '2', q_market: '8', q_age: '2', q_has_ext: 'no', q_drawings: '0',
     q_ins_route_reno: '2' };
 
 function merge(a, b) {
@@ -427,6 +429,18 @@ function merge(a, b) {
 }
 
 /** The selected option and the src of an element card in a page. */
+/** Amendment 4: an element card's notes box in a page (unescaped). */
+function notesIn(html, qid) {
+    var m = new RegExp('name="q_' + qid + '_notes" value="([^"]*)"').exec(html);
+    return m ? m[1].replace(/&#39;/g, '\'').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&') : null;
+}
+
+/** Amendment 4 §7: the last Note (on a Send, the one with the full answers). */
+function lastNote(t) {
+    return t.w.notes[t.w.notes.length - 1].values.note;
+}
+
 function cardIn(html, qid) {
     var seg = html.slice(html.indexOf('id="q-' + qid + '"'));
     seg = seg.slice(0, seg.indexOf('</fieldset>'));
@@ -439,7 +453,7 @@ test('POST with reveal: a hidden question\'s answer is ignored (not validated, w
     var t = v3.setup();
     // market new: age, has_ext and the renovation route are hidden; crafted answers to them are ignored, even invalid ones.
     v3.post(t, { step: 'insulation', nav: 'stay', q_market: '9', q_age: '99', q_ins_route_reno: '1', q_has_ext: 'maybe',
-        q_ext1_what: 'Kitchen', q_ins_route_new: '1', q_drawings: 'no', q_ceilings: '2.4 m', q_windows: 'Standard' });
+        q_ext1_what: 'Kitchen', q_ins_route_new: '1', q_drawings: '1', q_ceilings: '2.4 m', q_windows: 'Standard' });
     assert.ok(/saved=1/.test(t.redirect), 'no validation error for the hidden answers: ' + t.redirect);
     var vals = v3.oppWrites(t.w)[0].values;
     assert.strictEqual(vals.custbody_mis_opp_market, undefined, 'market 8 is held and kept (DI_FILL_REPLACEABLE lists none)');
@@ -454,7 +468,7 @@ test('POST with reveal: a hidden question\'s answer is ignored (not validated, w
     // Required only when revealed: the insulation step is 'todo' — the new-build route answered, the element cards not yet.
     assert.strictEqual(st.sections.insulation.status, 'todo');
     var ok = v3.setup({ opp: { custbody_mis_opp_market: '' } });
-    v3.post(ok, { step: 'insulation', nav: 'stay', q_ptype: '1', q_market: '9', q_drawings: 'yes', q_ins_route_new: '0' });
+    v3.post(ok, { step: 'insulation', nav: 'stay', q_ptype: '1', q_market: '9', q_drawings: '0', q_ins_route_new: '0' });
     // ptype, market, drawings, the route answered; sap_files (revealed by sap) is still needed.
     assert.strictEqual(v3.state(ok.w).sections.insulation.status, 'todo');
     var page = v3.step(ok, 'review');
@@ -514,7 +528,8 @@ test('the fill rule (DI_FILL_REPLACEABLE): an empty field is written; a replacea
     // Amendment 3: the property type is on Your project.
     assert.ok(/value="2" data-key="semi" checked/.test(v3.step(held, 'project')), 'the page shows the customer\'s answer');
     v3.post(held, { step: 'review', send: '1' });
-    var msg = held.w.tasks[0].values.message;
+    // Amendment 4 §7: the fill rule's line is in the Note (and the PDF), not the Task.
+    var msg = lastNote(held);
     assert.ok(msg.indexOf('Customer says Semi-detached (What type of property is it?); the opportunity holds Detached house. ' +
         'Not changed') > 0, msg);
     // Market: no replaceable value — kept once set.
@@ -625,10 +640,13 @@ test('EPC: Find my EPC saves the step, then lists the addresses (newest first); 
     assert.deepStrictEqual(cardIn(html, 'el_walls'), { key: 'cavity_filled', src: 'epc:cavity_filled:', tag: 'From your EPC', u: '' });
     assert.deepStrictEqual(cardIn(html, 'el_roof').key, 'mm270');
     var floor = cardIn(html, 'el_floor');
-    assert.deepStrictEqual([floor.key, floor.tag], ['unsure', 'From your EPC'], 'two entries that disagree');
-    assert.ok(html.indexOf('Your certificate says: Solid, no insulation (assumed); Suspended, no insulation (assumed)') > 0);
+    // Amendment 4 §5: two entries that disagree — the first (the main building) sets the card; the notes hold both.
+    assert.deepStrictEqual([floor.key, floor.tag], ['solid_unins', 'From your EPC'], 'the first entry');
+    assert.strictEqual(notesIn(html, 'el_floor'), 'EPC: Solid, no insulation (assumed); Suspended, no insulation (assumed)');
+    assert.strictEqual(html.indexOf('Your certificate says'), -1, 'the notes say it');
     assert.deepStrictEqual([cardIn(html, 'el_windows').key, cardIn(html, 'el_windows').tag], ['unsure',
         'Not on your EPC: please check']);
+    assert.strictEqual(notesIn(html, 'el_windows'), 'Not on your EPC.');
     assert.deepStrictEqual(v3.logs(t.w, 'DESIGNINFO_EPC_RAW_KEYS').map(function (l) { return [l[0], l[2]]; }),
         [['debug', 'Opportunity 20, certificate 1111-2222-3333-4444-5555: floors, walls, window']]);
     // Nothing written by the certificate POST itself (nothing changed in the step).
@@ -910,12 +928,14 @@ test('the Task: the extension line, the EPC used, the heat warnings; revealed an
         q_ext1_marked: 'yes', q_ext1_where: 'Should be ignored: hidden', q_ext1_walls_same: '0' }));
     assert.strictEqual(t.w.notes[0].values.note.indexOf('Should be ignored'), -1);
     v3.post(t, { step: 'review', send: '1' });
-    var msg = t.w.tasks[0].values.message;
+    // Amendment 4 §7: these lines moved from the Task to the Send's Note (and the PDF).
+    var msg = lastNote(t);
+    assert.strictEqual(t.w.tasks[0].values.message.indexOf('Extension 1: Kitchen extension'), -1);
     // Amendment 1: "what is it" is kept in the state, so the line always has it.
     assert.ok(msg.indexOf('Extension 1: Kitchen extension, Being built now, marked on plans') > 0, msg);
     assert.ok(msg.indexOf('EPC used: certificate 1111-2222-3333-4444-5555, lodged 19/11/2021, valid until 19/11/2031.') > 0);
-    assert.ok(msg.indexOf('- HP Design but no heat pump in Heat Source Type.') > 0);
-    assert.ok(msg.indexOf('- The design service is HP Design, but the heat source is not a Nu-Heat heat pump.') > 0);
+    assert.ok(msg.indexOf('- Check: HP Design but no heat pump in Heat Source Type.') > 0);
+    assert.ok(msg.indexOf('- Check: The design service is HP Design, but the heat source is not a Nu-Heat heat pump.') > 0);
     assert.strictEqual(msg.indexOf('Where is it, and which rooms'), -1, 'hidden: not in the snapshot');
     assert.ok(msg.indexOf('Extension 1 walls: Same as the main house') > 0);
 });
@@ -1041,7 +1061,8 @@ test('A1. another home above or below: presets of U 0 ("U 0.00"), mapped from th
             label: 'Another home above (no heat loss through it)', u: '0' });
         assert.strictEqual(di.presetOf(PRESETS, 'floor', 'dwelling_below').u, '0');
         ['Pitched, 100 mm loft insulation; (another dwelling above)', '(other premises above)'].forEach(function (x, i) {
-            assert.strictEqual(di.epcElement(x, EPCMAP, 'roof').key, i ? 'dwelling_above' : 'unsure', x);
+            // Amendment 4 §5: the first entry that maps.
+            assert.strictEqual(di.epcElement(x, EPCMAP, 'roof').key, i ? 'dwelling_above' : 'mm100', x);
         });
         assert.strictEqual(di.epcElement('(another dwelling above)', EPCMAP, 'roof').key, 'dwelling_above');
         assert.strictEqual(di.epcElement('(another dwelling below)', EPCMAP, 'floor').key, 'dwelling_below');
@@ -1126,7 +1147,7 @@ function tinyDom(html) {
     var listeners = [];
     var form = { addEventListener: function (type, fn) { if (type === 'change') { listeners.push(fn); } } };
     var inputs = (html.match(/<input [^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
-    var panels = (html.match(/<div class="rvp"[^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
+    var panels = (html.match(/<div class="(?:first )?rvp"[^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
     inputs.concat(panels).forEach(function (x) { x.parentNode = form; });
     // The sections, and their direct-child divs (a panel is the same object as in panels).
     var sections = (html.match(/<section [^>]*>[\s\S]*?<\/section>/g) || []).map(function (sec) {
@@ -1344,9 +1365,11 @@ test('A3. the first visit (no step=) opens Your project; once sent, Review', fun
 test('A3. the card: You\'re having in plain words (four variants), the address on its own lines, no design call row; the ' +
     'email\'s {system}', function () {
         var cases = [
-            [{}, 'Underfloor heating and a heat pump', 'underfloor heating and heat pump'],
-            [{ custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }, 'Underfloor heating', 'underfloor heating'],
-            [{ custbody_mi_opp_fc: '6' }, 'A heat pump', 'heat pump'],
+            // Amendment 4 §1: "{system}" always ends in " system".
+            [{}, 'Underfloor heating and a heat pump', 'underfloor heating and heat pump system'],
+            [{ custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }, 'Underfloor heating',
+                'underfloor heating system'],
+            [{ custbody_mi_opp_fc: '6' }, 'A heat pump', 'heat pump system'],
             [{ custbody_mi_opp_fc: '6', custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }, '', 'heating system']
         ];
         cases.forEach(function (c) {
@@ -1378,7 +1401,9 @@ test('A3. "Is this the right address?" — No reveals the address; it goes to th
         assert.ok(t.w.notes[0].values.note.indexOf('Customer says the site address is: Plot 5, Other Lane, Village, AB1 2CD') >= 0,
             t.w.notes[0].values.note);
         v3.post(t, { step: 'review', send: '1' });
-        assert.ok(t.w.tasks[0].values.message.indexOf('Customer says the site address is: Plot 5, Other Lane, Village, AB1 2CD.') >= 0);
+        // Amendment 4 §7: the address line is in the Note (and the PDF), not the Task.
+        assert.ok(lastNote(t).indexOf('Customer says the site address is: Plot 5, Other Lane, Village, AB1 2CD.') >= 0);
+        assert.strictEqual(t.w.tasks[0].values.message.indexOf('site address'), -1);
         t.w.submits.forEach(function (o) {
             assert.strictEqual(o.values.custbody_opp_site_adress, undefined, 'the address field is never written');
         });
@@ -1439,7 +1464,8 @@ test('A3. the call: ticked, the Task\'s and the Note\'s first line and the state
         assert.ok(rv.indexOf('You can send now and finish the rest later.') > 0);
         v3.post(t, { step: 'review', send: '1', call: 'yes', call_when: 'Weekday mornings, 07700 900123' });
         var msg = t.w.tasks[0].values.message;
-        assert.strictEqual(msg.split('\n')[0], 'Customer would like a call: Weekday mornings, 07700 900123', msg);
+        // Amendment 4 §7: the Task's first line, in its words.
+        assert.strictEqual(msg.split('\n')[0], 'CALL REQUESTED: best time Weekday mornings, 07700 900123', msg);
         var note = t.w.notes[t.w.notes.length - 1].values.note;
         assert.strictEqual(note.split('\n')[0], 'Customer would like a call: Weekday mornings, 07700 900123', note);
         var st = v3.state(t.w);
@@ -1449,11 +1475,11 @@ test('A3. the call: ticked, the Task\'s and the Note\'s first line and the state
         // Ticked, no time.
         var b = v3.setup();
         v3.post(b, { step: 'review', send: '1', call: 'yes' });
-        assert.strictEqual(b.w.tasks[0].values.message.split('\n')[0], 'Customer would like a call.');
+        assert.strictEqual(b.w.tasks[0].values.message.split('\n')[0], 'CALL REQUESTED');
         // Unticked: no line, nothing in the state.
         var u = v3.setup();
         v3.post(u, { step: 'review', send: '1', call_when: 'ignored' });
-        assert.strictEqual(u.w.tasks[0].values.message.indexOf('would like a call'), -1);
+        assert.strictEqual(u.w.tasks[0].values.message.indexOf('CALL REQUESTED'), -1);
         assert.strictEqual(u.w.notes[u.w.notes.length - 1].values.note.indexOf('would like a call'), -1);
         assert.strictEqual(JSON.parse(u.w.opps[20].custbody_cdb_designinfo_state).c, undefined);
     });
@@ -1575,7 +1601,7 @@ test('A3. the request email: the intro (with and without a phone), three steps w
     var b = t.w.emails[0].body;
     assert.ok(/Hi [^,<]+,/.test(b), 'Hi {first name},');
     assert.ok(b.indexOf('I’m Pem, your Project Engineer. I’ll be your main contact for your underfloor heating and heat pump ' +
-        'all the way through design and delivery.') > 0);
+        'system all the way through design and delivery.') > 0);
     assert.ok(/It takes about \d+ minutes, and you can save it and come back at any time\./.test(b));
     assert.ok(b.indexOf('just give me a call on 0101 or reply to this email') > 0);
     ['You complete the design survey', 'Tell us about your property and heating system.', 'We design your system',
@@ -1597,3 +1623,354 @@ test('A3. the request email: the intro (with and without a phone), three steps w
     sendPage(m, 'POST', {});
     assert.ok(m.w.emails[0].body.indexOf('just give me a call on 07700 900456') > 0);
 });
+
+// ---------------------------------------------------------------- 2.3c amendment 4
+
+/** An uploaded part, as request.files gives one (saving it records it in w.savedFiles). */
+function upload(t, name, size) {
+    var f = { name: name, size: size === undefined ? 1000 : size };
+    f.save = function () {
+        if (t.w.fileSaveThrows) { throw new Error('INSUFFICIENT_PERMISSION: folder'); }
+        t.w.savedFiles.push({ name: f.name, folder: f.folder, isOnline: f.isOnline });
+        return 900 + t.w.savedFiles.length;
+    };
+    return f;
+}
+
+/** A small registry for the Task's blocks: an optional contact, plans changed (state) with its upload, Anything else. */
+var MINI = [V3,
+    'project,"Your project",main,contact,text,"Who should we talk to?",,,state,N,,,"Intro",1,,,,"Your project"',
+    'project,"Your project",plans,plans_changed,choice,"Have your plans changed?",,"no=No|sent=Sent|yes=Yes, I\'ll upload them",' +
+    'state,Y,,,,,,,,',
+    'project,"Your project",plans,plans_files,files,"Your new plans",,,note,N,,,,,,,plans_changed=yes,',
+    'other,"Anything else",main,other,long,"Anything else?",,,note,N,,,,1,,,,"Anything else"'].join('\n') + '\n';
+
+test('A4 §1. the email: "{system}" ends in "system" on all four forms; the You\'re having row in the card\'s plain words',
+    function () {
+        [[{}, 'underfloor heating and heat pump system', 'Underfloor heating and a heat pump'],
+            [{ custbody_heat_source_type_26: ['10'], custbody_mi_heat_source: '4' }, 'underfloor heating system',
+                'Underfloor heating'],
+            [{ custbody_mi_opp_fc: '6' }, 'heat pump system', 'A heat pump'],
+            [{ custbody_mi_opp_fc: '6', custbody_heat_source_type_26: ['10'], custbody_mi_heat_source: '4' }, 'heating system', '']
+        ].forEach(function (c) {
+            var t = v3.setup({ opp: c[0] });
+            sendPage(t, 'POST', {});
+            var b = t.w.emails[0].body;
+            assert.ok(b.indexOf('your main contact for your ' + c[1] + ' all the way through design and delivery.') > 0, c[1]);
+            if (c[2]) {
+                assert.ok(b.indexOf('<b>' + c[2] + '</b>') > 0, c[2]);
+            } else {
+                assert.strictEqual(b.indexOf('>You’re having</font>'), -1, 'neither: the row is left out');
+            }
+            assert.strictEqual(b.indexOf('In floor, solid + joisted'), -1, 'never the opportunity\'s own wording');
+        });
+    });
+
+test('A4 §4. drawings: three choices, the standard heights with their sub-line; standard writes both fields from the setting; ' +
+    'an old "no" still reveals the boxes', function () {
+        var t = v3.setup({ settings: { DI_STANDARD_HEIGHTS: '{"ceiling": "2.5", "window": "1.2", "door": "2.0"}' } });
+        var html = v3.step(t, 'insulation');
+        var seg = html.slice(html.indexOf('id="q-drawings"'), html.indexOf('</fieldset>', html.indexOf('id="q-drawings"')));
+        assert.deepStrictEqual(seg.match(/data-key="[a-z]+"/g), ['data-key="yes"', 'data-key="no"', 'data-key="standard"']);
+        assert.ok(seg.indexOf('<span class="ot">No, please use standard heights</span><span class="os">Ceilings 2.5 m, windows ' +
+            '1.2 m high, external doors 2.0 m high</span>') > 0);
+        var dom = runPage(html);
+        dom.choose('q_drawings', '1');
+        assert.deepStrictEqual([dom.panel('ceilings').hidden, dom.panel('windows').hidden], [false, false], 'no: the boxes');
+        dom.choose('q_drawings', '2');
+        assert.deepStrictEqual([dom.panel('ceilings').hidden, dom.panel('windows').hidden], [true, true], 'standard: none');
+        v3.post(t, { step: 'insulation', nav: 'stay', q_drawings: '2' });
+        var vals = v3.oppWrites(t.w)[0].values;
+        assert.strictEqual(vals.custbody_sections_ceiling_heights_2026, 'Standard assumed: 2.5 m ceilings throughout (no section ' +
+            'drawings).');
+        assert.strictEqual(vals.custbody_elevations_window_sizes_2026, 'Standard assumed: windows 1.2 m high, external doors 2.0 m ' +
+            'high (no elevation drawings). Widths from the floor plans.');
+        assert.ok(t.w.notes[0].values.note.indexOf('Ceiling heights, room by room: — → Standard assumed: 2.5 m') > 0);
+        // No setting: the code default.
+        var d = v3.setup();
+        v3.post(d, { step: 'insulation', nav: 'stay', q_drawings: '2' });
+        assert.strictEqual(v3.oppWrites(d.w)[0].values.custbody_sections_ceiling_heights_2026, 'Standard assumed: 2.4 m ceilings ' +
+            'throughout (no section drawings).');
+        assert.ok(v3.oppWrites(d.w)[0].values.custbody_elevations_window_sizes_2026.indexOf('windows 1.1 m high, external doors ' +
+            '2.1 m high') > 0);
+        // A bad setting: the default, logged once.
+        var b = v3.setup({ settings: { DI_STANDARD_HEIGHTS: '{"ceiling": "tall"}' } });
+        assert.ok(v3.step(b, 'insulation').indexOf('Ceilings 2.4 m, windows 1.1 m high') > 0);
+        assert.strictEqual(v3.logs(b.w, 'DESIGNINFO_STANDARD_HEIGHTS_INVALID').length, 1);
+        // An old yes/no answer ("no", from the 2.3c yes/no question) still reads as No and reveals the boxes.
+        var o = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith([], { a: { drawings: 'no' } }) } });
+        var oh = v3.step(o, 'insulation');
+        assert.ok(/name="q_drawings" value="1" data-key="no" checked/.test(oh));
+        var od = runPage(oh);
+        assert.strictEqual(od.panel('ceilings').hidden, false);
+    });
+
+/** A certificate shaped like the GOV.UK API's body (epc_lib certificate().raw), and epc_lib's mapping of it. */
+var RAW_CERT = {
+    certificate_number: '1111-2222-3333-4444-5555', registration_date: '2021-11-19', current_energy_efficiency_band: 'D',
+    walls: [{ description: 'Cavity wall, as built, insulated (assumed)', energy_efficiency_rating: 4 },
+        { description: 'Cavity wall, as built, insulated (assumed)', energy_efficiency_rating: 4 },
+        { description: 'Timber frame, as built, no insulation (assumed)', energy_efficiency_rating: 1 }],
+    roofs: [{ description: 'Roof room(s), insulated (assumed)', energy_efficiency_rating: 3 }],
+    floors: [{ description: 'SOLID,  no insulation (ASSUMED)', energy_efficiency_rating: 0 }],
+    window: { description: 'Fully double glazed', energy_efficiency_rating: 3 },
+    sap_building_parts: [{ construction_age_band: 'England and Wales: 1950-1966' }]
+};
+var MAPPED_CERT = { certificateNumber: '1111-2222-3333-4444-5555', lodgementDate: '2021-11-19', currentEnergyRating: 'D',
+    constructionAgeBand: 'England and Wales: 1950-1966', wallsDescription: 'Cavity wall, as built, insulated (assumed); ' +
+        'Cavity wall, as built, insulated (assumed); Timber frame, as built, no insulation (assumed)',
+    roofDescription: 'Roof room(s), insulated (assumed)', floorDescription: 'SOLID,  no insulation (ASSUMED)',
+    windowsDescription: 'Fully double glazed', rawKeys: ['floors', 'roofs', 'walls', 'window'] };
+
+test('A4 §5. EPC entries: the real field names (arrays, the single window object), the flat hyphen / underscore / camel keys, ' +
+    '"|" and ";" joins, ratings', function () {
+        assert.deepStrictEqual(di.epcEntries(RAW_CERT, null, 'walls'), [
+            { text: 'Cavity wall, as built, insulated (assumed)', rating: 'Good' },
+            { text: 'Timber frame, as built, no insulation (assumed)', rating: 'Very poor' }], 'a repeat kept once');
+        assert.deepStrictEqual(di.epcEntries(RAW_CERT, null, 'windows'), [{ text: 'Fully double glazed', rating: 'Average' }]);
+        assert.deepStrictEqual(di.epcEntries(RAW_CERT, null, 'floor'), [{ text: 'SOLID,  no insulation (ASSUMED)', rating: '' }],
+            'a 0 rating is none');
+        // The older shape: "walls-description", sometimes joined with "|" across the main building and an extension.
+        var flat = { 'walls-description': 'Cavity wall, filled cavity|Solid brick, as built, no insulation (assumed)',
+            'walls-energy-eff': 'Good|Very Poor', 'roof-description': 'Pitched, 270 mm loft insulation', 'roof-energy-eff': 'Good',
+            windows_description: 'Single glazed', floorDescription: 'Suspended, no insulation (assumed)' };
+        assert.deepStrictEqual(di.epcEntries(flat, null, 'walls'), [{ text: 'Cavity wall, filled cavity', rating: 'Good' },
+            { text: 'Solid brick, as built, no insulation (assumed)', rating: 'Very poor' }]);
+        assert.deepStrictEqual(di.epcEntries(flat, null, 'roof'), [{ text: 'Pitched, 270 mm loft insulation', rating: 'Good' }]);
+        assert.deepStrictEqual(di.epcEntries(flat, null, 'windows'), [{ text: 'Single glazed', rating: '' }]);
+        assert.deepStrictEqual(di.epcEntries(flat, null, 'floor'), [{ text: 'Suspended, no insulation (assumed)', rating: '' }]);
+        // Neither: epc_lib's mapped text ("; "-joined).
+        assert.deepStrictEqual(di.epcEntries(null, MAPPED_CERT, 'walls').map(function (x) { return x.text; }),
+            ['Cavity wall, as built, insulated (assumed)', 'Timber frame, as built, no insulation (assumed)']);
+        assert.deepStrictEqual(di.epcEntries({}, {}, 'walls'), []);
+    });
+
+test('A4 §5. EPC cards: several descriptions -> the first\'s preset, the notes all of them with ratings; unmapped -> Not sure ' +
+    'with the notes; case and punctuation ignored; no windows -> "Not on your EPC."', function () {
+        var walls = di.epcElement(di.epcEntries(RAW_CERT, null, 'walls'), EPCMAP, 'walls');
+        assert.deepStrictEqual([walls.key, walls.mixed, walls.matched], ['modern_91_02', true, true]);
+        assert.strictEqual(walls.notes, 'EPC: Cavity wall, as built, insulated (assumed) (Good); Timber frame, as built, no ' +
+            'insulation (assumed) (Very poor)');
+        var roof = di.epcElement(di.epcEntries(RAW_CERT, null, 'roof'), EPCMAP, 'roof');
+        assert.deepStrictEqual([roof.key, roof.matched, roof.notes], ['unsure', false, 'EPC: Roof room(s), insulated ' +
+            '(assumed) (Average)']);
+        assert.strictEqual(di.epcElement(di.epcEntries(RAW_CERT, null, 'floor'), EPCMAP, 'floor').key, 'solid_unins',
+            'SOLID,  no insulation: case, punctuation and spaces ignored');
+        assert.strictEqual(di.epcElement('cavity wall FILLED cavity!!', EPCMAP, 'walls').key, 'cavity_filled');
+        assert.strictEqual(di.epcElement('Pitched, 150 mm loft insulation', EPCMAP, 'roof').key, 'mm150', 'whole words');
+        // The second entry maps when the first does not.
+        assert.strictEqual(di.epcElement('System built, as built; Cavity wall, filled cavity', EPCMAP, 'walls').key,
+            'cavity_filled');
+        assert.strictEqual(di.epcElement(di.epcEntries({}, {}, 'windows'), EPCMAP, 'windows').notes, 'Not on your EPC.');
+        assert.strictEqual(di.epcNorm('Cavity-wall,  FILLED (cavity)'), ' cavity wall filled cavity ');
+        var long = di.epcElement([{ text: Array(400).join('x'), rating: '' }], EPCMAP, 'walls');
+        assert.strictEqual(long.notes.length, 300, 'clipped at 300');
+    });
+
+test('A4 §5. the EPC lookup with a real-shaped certificate: the cards, the notes (editable, saved as notes), the From your EPC ' +
+    'tag; an unmatched element in the Task', function () {
+        var t = v3.setup();
+        t.epc.certResult = { ok: true, raw: RAW_CERT, data: MAPPED_CERT, statusCode: 200 };
+        var html = v3.post(t, { step: 'insulation', nav: 'epc_use', epc_cert: '1111-2222-3333-4444-5555', q_ins_route_reno: '1' });
+        var walls = cardIn(html, 'el_walls');
+        assert.deepStrictEqual([walls.key, walls.tag], ['modern_91_02', 'From your EPC']);
+        assert.strictEqual(notesIn(html, 'el_walls'), 'EPC: Cavity wall, as built, insulated (assumed) (Good); Timber frame, as ' +
+            'built, no insulation (assumed) (Very poor)');
+        assert.deepStrictEqual([cardIn(html, 'el_roof').key, cardIn(html, 'el_roof').tag], ['unsure', 'From your EPC']);
+        assert.strictEqual(notesIn(html, 'el_roof'), 'EPC: Roof room(s), insulated (assumed) (Average)');
+        assert.strictEqual(cardIn(html, 'el_windows').key, 'double_02');
+        assert.strictEqual(notesIn(html, 'el_windows'), 'EPC: Fully double glazed (Average)');
+        assert.strictEqual(cardIn(html, 'el_floor').key, 'solid_unins');
+        // Saved as the page posts it: the notes as they stand (the customer may edit them), written like any note.
+        v3.post(t, { step: 'insulation', nav: 'stay', epc_number: '1111-2222-3333-4444-5555', epc_date: '2021-11-19',
+            q_ins_route_reno: '1', q_el_walls: 'modern_91_02', q_el_walls_src: 'epc:modern_91_02:',
+            q_el_walls_notes: notesIn(html, 'el_walls'), q_el_roof: 'unsure', q_el_roof_src: 'epc:unsure:',
+            q_el_roof_notes: notesIn(html, 'el_roof'), q_el_windows: 'double_02', q_el_windows_src: 'epc:double_02:',
+            q_el_windows_notes: 'EPC: Fully double glazed (Average). New doors in 2020', q_el_floor: 'solid_unins',
+            q_el_floor_src: 'epc:solid_unins:' });
+        var vals = v3.oppWrites(t.w).slice(-1)[0].values;
+        assert.ok(vals.custbody_existing_walls_2026.indexOf('notes: EPC: Cavity wall, as built, insulated (assumed) (Good); ' +
+            'Timber frame') > 0, vals.custbody_existing_walls_2026);
+        assert.ok(vals.custbody_existing_roofs_2026.indexOf('Not sure · notes: EPC: Roof room(s), insulated (assumed) (Average)') ===
+            0, vals.custbody_existing_roofs_2026);
+        assert.ok(vals.custbody_existing_windows_2026.indexOf('notes: EPC: Fully double glazed (Average). New doors in 2020') > 0);
+        assert.deepStrictEqual(v3.state(t.w).epcUnmatched, ['roof']);
+        v3.post(t, { step: 'review', send: '1' });
+        assert.ok(t.w.tasks[0].values.message.indexOf('\n- EPC roof not matched: see the Note\n') > 0, t.w.tasks[0].values.message);
+        assert.ok(lastNote(t).indexOf('Not sure · notes: EPC: Roof room(s), insulated (assumed) (Average)') > 0);
+        // The customer then chooses a preset for the roof: no longer unmatched.
+        v3.post(t, { step: 'insulation', nav: 'stay', q_ins_route_reno: '1', q_el_roof: 'mm270', q_el_roof_src: 'epc:unsure:',
+            q_el_roof_notes: notesIn(html, 'el_roof') });
+        assert.deepStrictEqual(v3.state(t.w).epcUnmatched, []);
+    });
+
+test('A4 §6. extension cards: a 2 x 2 grid after the extension\'s other questions; Same / Different inside each card; the ' +
+    'reveal works', function () {
+        var t = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith([], { a: { has_ext: 'yes' } }) } });
+        var html = v3.step(t, 'insulation');
+        var a = html.indexOf('id="rp-ext1_sap_files"');
+        var grid = html.indexOf('<section class="card elgrid extgrid">');
+        assert.ok(a > 0 && grid > a, 'the other questions (with the drawings upload) above the grid');
+        assert.ok(html.indexOf('id="rp-ext1_where"') < grid && html.indexOf('id="rp-ext1_what"') < grid);
+        var g = html.slice(grid, html.indexOf('</section>', grid));
+        ['walls', 'windows', 'roof', 'floor'].forEach(function (el) {
+            var card = g.indexOf('id="rp-ext1_' + el + '_same"');
+            assert.ok(card >= 0, el);
+            // In the card: the Same / Different tiles, then the element's select, U-value and notes in its reveal panel.
+            var seg = g.slice(card, g.indexOf('id="rp-ext1_' + el + '_same"') + 4000);
+            assert.ok(/^id="rp-ext1_[a-z]+_same"[^>]*><p class="rvif">[^<]*<\/p><div class="extcard"><div class="dq" id="q-ext1_[a-z]+_same">/
+                .test(seg), seg.slice(0, 300));
+            assert.ok(seg.indexOf('id="rp-ext1_' + el + '"') > 0 && seg.indexOf('class="dq el elbody" id="q-ext1_' + el + '"') > 0);
+            assert.ok(seg.indexOf('name="q_ext1_' + el + '_u"') > 0 && seg.indexOf('name="q_ext1_' + el + '_notes"') > 0);
+        });
+        assert.ok(html.indexOf('.extcard .opts{grid-template-columns:1fr 1fr;gap:8px}') > 0, 'two small tiles');
+        assert.ok(html.indexOf('@media (max-width:700px){.elgrid{grid-template-columns:minmax(0,1fr)}}') > 0, 'one column on a phone');
+        var dom = runPage(html);
+        assert.strictEqual(dom.panel('ext1_walls_same').hidden, false);
+        assert.strictEqual(dom.panel('ext1_walls').hidden, true, 'not until Different');
+        dom.choose('q_ext1_walls_same', '1');
+        assert.strictEqual(dom.panel('ext1_walls').hidden, false, 'Different: the select, U-value and notes');
+        dom.choose('q_ext1_walls_same', '0');
+        assert.strictEqual(dom.panel('ext1_walls').hidden, true);
+        dom.choose('q_has_ext', 'no');
+        assert.ok(/\brvhide\b/.test(dom.section('rp-ext1_walls_same').className), 'no extension: the grid card goes');
+        // Every inline script still parses.
+        scriptsOf(html).forEach(function (body) { new vm.Script(body); });
+    });
+
+test('A4 §7. the Task: the call first; the Sent line; empty blocks left out; the plans block only on new uploads; Needs a ' +
+    'look; a re-send says what changed; the full answers in the Note', function () {
+        var d = amd.load('lib/cdb_lib_dates');
+        var today = d.londonTodayKey(Date.now());
+        var day = di.dayMonth(today, true);
+        var t = v3.setup({ registry: MINI });
+        v3.post(t, { step: 'project', nav: 'stay', q_plans_changed: '0' });
+        v3.post(t, { step: 'review', send: '1' });
+        var m = t.w.tasks[0].values.message;
+        assert.strictEqual(m, 'Sent ' + day + '. Complete: Your project, Anything else. Still to do: none.\n\nFull answers: ' +
+            'Note "Design information ' + day + '" and PDF "Design information QR20 ' + today + '.pdf".', 'nothing else');
+        assert.strictEqual(t.w.tasks[0].values.title, 'Design information received: QR20 Acme Ltd');
+        assert.ok(lastNote(t).indexOf('FULL ANSWERS') > 0 && lastNote(t).indexOf('- Have your plans changed?: No') > 0);
+        // A re-send with new plans uploaded, a failed upload and a call: the call first, then the blocks in order.
+        v3.post(t, { step: 'project', nav: 'stay', q_plans_changed: '2', q_contact: 'Dave' },
+            { f_plans_files_1: upload(t, 'ground.pdf') });
+        var bad = upload(t, 'kitchen.pdf');
+        bad.save = function () { throw new Error('INSUFFICIENT_PERMISSION: folder'); };
+        v3.post(t, { step: 'review', send: '1', call: 'yes', call_when: 'Tues pm, 07700 900123' },
+            { f_plans_files_2: bad });
+        m = t.w.tasks[1].values.message;
+        assert.strictEqual(m, 'CALL REQUESTED: best time Tues pm, 07700 900123\n\nUpdated ' + day + '. Changed since last ' +
+            'send: Your project. Complete: Your project, Anything else. Still to do: none.\n\nUpdated / uploaded plans\nNew plans ' +
+            'submitted: see the Files section.\n\nNeeds a look\n- Upload failed: kitchen.pdf. Ask the customer to resend.\n\n' +
+            'Full answers: Note "Design information ' + day + '" and PDF "Design information QR20 ' + today + '.pdf".');
+        assert.ok(lastNote(t).indexOf('- Who should we talk to?: Dave') > 0, 'the detail in the Note');
+        // A third Send: no new plans since the last one — no plans block, nothing changed.
+        v3.post(t, { step: 'review', send: '1' });
+        m = t.w.tasks[2].values.message;
+        assert.strictEqual(m.indexOf('Updated / uploaded plans'), -1);
+        assert.ok(m.indexOf('Changed since last send: none.') > 0);
+        // Plans "sent" (not uploaded): no plans block either.
+        var s = v3.setup({ registry: MINI });
+        v3.post(s, { step: 'review', send: '1', q_plans_changed: '1' });
+        assert.strictEqual(s.w.tasks[0].values.message.indexOf('Updated / uploaded plans'), -1);
+        // A required answer still blank: by its label.
+        var b = v3.setup({ registry: MINI });
+        v3.post(b, { step: 'review', send: '1' });
+        assert.ok(b.w.tasks[0].values.message.indexOf('\nNeeds a look\n- Needed but left blank: Have your plans changed?\n') > 0);
+    });
+
+test('A4 §8. the PDF: created in the upload folder and attached on every Send (the old ones stay); escaped; a failure still ' +
+    'sends; its usage in CDB USAGE', function () {
+        var d = amd.load('lib/cdb_lib_dates');
+        var today = d.londonTodayKey(Date.now());
+        var t = v3.setup({ registry: MINI });
+        v3.post(t, { step: 'review', send: '1', q_contact: '<script>alert("x")</script> & Sons', q_plans_changed: '0' });
+        var pdf = t.w.savedFiles.filter(function (f) { return f.pdf; });
+        assert.strictEqual(pdf.length, 1);
+        assert.deepStrictEqual([pdf[0].name, pdf[0].folder, pdf[0].isOnline], ['Design information QR20 ' + today + '.pdf', 555,
+            false]);
+        assert.ok(t.w.attaches.some(function (a) { return a.record.type === 'file' && a.to.id === 20; }), 'attached');
+        var xml = t.w.pdfs[0];
+        assert.ok(/^<\?xml version="1.0"\?>\n<!DOCTYPE pdf PUBLIC "-\/\/big.faceless.org\/\/report" "report-1.1.dtd">\n<pdf>/.test(xml));
+        assert.ok(xml.indexOf('<h2>Your project (done)</h2>') > 0 && xml.indexOf('<td class="l">Have your plans changed?</td>' +
+            '<td>No</td>') > 0, 'laid out like Review');
+        assert.ok(xml.indexOf('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; Sons') > 0);
+        assert.strictEqual(xml.indexOf('<script>'), -1);
+        assert.strictEqual(xml.indexOf('<img'), -1, 'no pictures');
+        assert.ok(v3.logs(t.w, 'USAGE')[0][2].indexOf('; the PDF 40 units (v') > 0, v3.logs(t.w, 'USAGE')[0][2]);
+        assert.strictEqual(v3.logs(t.w, 'DESIGNINFO_PDF').length, 1);
+        // Each Send makes a new PDF; the old one stays.
+        v3.post(t, { step: 'review', send: '1' });
+        assert.strictEqual(t.w.savedFiles.filter(function (f) { return f.pdf; }).length, 2);
+        // A failure: the Send still succeeds, logged, and the Task says so.
+        var f = v3.setup({ registry: MINI });
+        f.w.pdfThrows = true;
+        var html = v3.post(f, { step: 'review', send: '1', q_plans_changed: '0' });
+        assert.strictEqual(f.w.tasks.length, 1);
+        assert.ok(html.indexOf('Sent to Pem Engineer.') > 0);
+        assert.strictEqual(v3.logs(f.w, 'DESIGNINFO_PDF_FAILED')[0][0], 'error');
+        assert.ok(/Full answers: Note "Design information [^"]+"\. PDF not created; see the Note\.$/.test(f.w.tasks[0].values.message),
+            f.w.tasks[0].values.message);
+        assert.ok(v3.state(f.w).sent, 'sent');
+        // No folder: no PDF, the same message.
+        var n = v3.setup({ registry: MINI, settings: { DESIGNINFO_FOLDER: null } });
+        v3.post(n, { step: 'review', send: '1' });
+        assert.ok(/PDF not created; see the Note\.$/.test(n.w.tasks[0].values.message));
+        // A save that is not a Send makes no PDF.
+        var s = v3.setup({ registry: MINI });
+        v3.post(s, { step: 'project', nav: 'stay', q_contact: 'Dave' });
+        assert.strictEqual((s.w.pdfs || []).length, 0);
+    });
+
+test('A4 §8. the PDF XML: every value escaped, control characters dropped, line breaks kept', function () {
+    var render = amd.load('lib/cdb_lib_render', {});
+    var x = render.designInfoPdfXml({ heading: 'A & B', lines: ['<b>'], call: 'Call "me"', sections: [{ title: 'S\'s', status: 'todo',
+        rows: [{ label: 'L<', value: 'one\ntwo\u0007' }] }, { title: 'Empty', rows: [] }], facts: ['x > y'], footer: 'f' });
+    assert.ok(x.indexOf('<h1>A &amp; B</h1>') > 0 && x.indexOf('<p class="m">&lt;b&gt;</p>') > 0);
+    assert.ok(x.indexOf('<p class="call">Call &quot;me&quot;</p>') > 0);
+    assert.ok(x.indexOf('<h2>S&#39;s (to do)</h2>') > 0);
+    assert.ok(x.indexOf('<td class="l">L&lt;</td><td>one<br/>two</td>') > 0);
+    assert.ok(x.indexOf('<h2>Empty</h2><p class="m">Nothing added.</p>') > 0);
+    assert.ok(x.indexOf('<p>x &gt; y</p>') > 0);
+});
+
+test('A4 §9. text already on the opportunity: shown read-only, the answer appended as "Customer (d MMM): …"; a second save ' +
+    'replaces only the customer\'s line; the staff text is kept; a field holding only the form\'s text is replaced', function () {
+        var d = amd.load('lib/cdb_lib_dates');
+        var dm = di.dayMonth(d.londonTodayKey(Date.now()));
+        var staff = 'PE note: vaulted ceiling in the lounge, 3.2 m at the ridge.';
+        var t = v3.setup({ opp: { custbody_sections_ceiling_heights_2026: staff } });
+        var html = v3.step(t, 'insulation');
+        assert.ok(html.indexOf('<p class="hint have" style="margin:0">What we have so far: ' + staff.replace(/,/g, ',') + '</p>') > 0);
+        assert.ok(/<textarea class="inp" id="di-ceilings" name="q_ceilings"[^>]*><\/textarea>/.test(html), 'the box is empty');
+        v3.post(t, { step: 'insulation', nav: 'stay', q_drawings: '1', q_ceilings: 'All 2.4 m' });
+        var field = t.w.opps[20].custbody_sections_ceiling_heights_2026;
+        assert.strictEqual(field, staff + '\nCustomer (' + dm + '): All 2.4 m');
+        // The page: the staff text above, the customer's own answer in the box.
+        html = v3.step(t, 'insulation');
+        assert.ok(html.indexOf('What we have so far: ' + staff + '</p>') > 0);
+        assert.ok(html.indexOf('>All 2.4 m</textarea>') > 0);
+        // A second save replaces only the customer's line.
+        t.w.opps[20].custbody_sections_ceiling_heights_2026 = field + '\nSales: check the loft hatch.';
+        v3.post(t, { step: 'insulation', nav: 'stay', q_ceilings: 'All 2.5 m' });
+        assert.strictEqual(t.w.opps[20].custbody_sections_ceiling_heights_2026, staff + '\nSales: check the loft hatch.\n' +
+            'Customer (' + dm + '): All 2.5 m');
+        // The same answer again: no change, nothing written.
+        var n = v3.oppWrites(t.w).length;
+        v3.post(t, { step: 'insulation', nav: 'stay', q_ceilings: 'All 2.5 m' });
+        assert.strictEqual(v3.oppWrites(t.w).length, n);
+        // Staff text a long way over: clipped at 300 with "…".
+        var long = v3.setup({ opp: { custbody_sections_ceiling_heights_2026: Array(500).join('s') } });
+        assert.ok(v3.step(long, 'insulation').indexOf('What we have so far: ' + Array(300).join('s') + '…</p>') > 0);
+        // A field holding only what this form wrote: pre-filled, and replaced on save.
+        var own = v3.setup();
+        v3.post(own, { step: 'insulation', nav: 'stay', q_drawings: '1', q_windows: 'Bifolds 2.1 m' });
+        assert.strictEqual(own.w.opps[20].custbody_elevations_window_sizes_2026, 'Bifolds 2.1 m');
+        var oh = v3.step(own, 'insulation');
+        assert.ok(oh.indexOf('>Bifolds 2.1 m</textarea>') > 0);
+        assert.ok(!/What we have so far: Bifolds/.test(oh));
+        v3.post(own, { step: 'insulation', nav: 'stay', q_windows: 'Bifolds 2.2 m' });
+        assert.strictEqual(own.w.opps[20].custbody_elevations_window_sizes_2026, 'Bifolds 2.2 m');
+        // Choice, list and date fields keep their behaviour (pre-selected, replaced): the market, from the field.
+        assert.ok(/name="q_market" value="8" data-key="reno" checked/.test(v3.step(own, 'project')));
+    });

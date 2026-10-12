@@ -66,7 +66,7 @@ function findClause(expr, field) {
  * Task saves as transactions do (10), lookupFields 1, a search run 10, file.load 10, a file save 20, email.send 20, https 10.
  */
 var UNITS = { lookupFields: 1, search: 10, fileLoad: 10, recordLoad: 10, submitFields: 10, recordSave: 10, attach: 10,
-    fileSave: 20, email: 20, https: 10 };
+    fileSave: 20, email: 20, https: 10, xmlToPdf: 10 };
 
 function stubs(w) {
     function meter(kind) { w.units = (w.units || 0) + UNITS[kind]; w.unitLog = (w.unitLog || []).concat([kind]); }
@@ -402,7 +402,7 @@ function stubs(w) {
             // Per-test overrides on top of the defaults (1.2).
             Object.keys(w.paramOverrides || {}).forEach(function (k) { p[k] = w.paramOverrides[k]; });
             return { id: w.scriptId || 'customscript_cdb_sl_dashboard', getParameter: function (o) { return p[o.name]; },
-                getRemainingUsage: function () { return 900; } };
+                getRemainingUsage: function () { return 1000 - (w.units || 0); } };
         },
         // 2.0: only the login-required Send delivery link Suitelet reads it, for its log.
         getCurrentUser: function () { return w.user; },
@@ -448,6 +448,17 @@ function stubs(w) {
             },
             create: function (o) {
                 var f = { name: o.name, folder: o.folder, isOnline: o.isOnline, contents: o.contents };
+                f.save = function () { meter('fileSave'); w.savedFiles.push(f); return 900 + w.savedFiles.length; };
+                return f;
+            }
+        },
+        // 2.3c amendment 4: N/render's xmlToPdf — the XML in w.pdfs; the file saves into w.savedFiles; w.pdfThrows fails it.
+        'N/render': {
+            xmlToPdf: function (o) {
+                meter('xmlToPdf');
+                if (w.pdfThrows) { throw new Error('USER_ERROR: Error Parsing XML'); }
+                w.pdfs = (w.pdfs || []).concat([o.xmlString]);
+                var f = { pdf: true, xml: o.xmlString };
                 f.save = function () { meter('fileSave'); w.savedFiles.push(f); return 900 + w.savedFiles.length; };
                 return f;
             }

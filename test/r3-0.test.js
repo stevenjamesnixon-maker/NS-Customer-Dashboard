@@ -158,7 +158,9 @@ test('6. neither: a throw key throws as today; a default key gets the default as
             'setting DI_HEAT26_MAP is empty: treated as none', 'setting DI_BUILD_TYPE_OPTIONS is empty: treated as none',
             'setting DI_MARKET_OPTIONS is empty: treated as none', 'setting DI_PIC_REFLECT is empty: treated as none',
             'setting DI_PIC_BARRIER is empty: treated as none', 'setting DI_FILL_REPLACEABLE is empty: treated as none',
-            'setting EPC_BEARER_TOKEN is empty: treated as none'],
+            'setting EPC_BEARER_TOKEN is empty: treated as none',
+            // 3.7.0 (2.3c amendment 4): the standard heights.
+            'setting DI_STANDARD_HEIGHTS is empty: treated as none'],
         'the 2.x note, word for word');
 });
 
@@ -227,7 +229,7 @@ test('9. the settings search throws: one SETTINGS_UNAVAILABLE line; the paramete
     expected.DESIGNINFO_DRAWINGS_URL = '';
     // 3.5.0 (release 2.3c): the seven record-only keys.
     ['DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER', 'DI_FILL_REPLACEABLE',
-        'EPC_BEARER_TOKEN'].forEach(function (k) { expected[k] = ''; });
+        'EPC_BEARER_TOKEN', 'DI_STANDARD_HEIGHTS'].forEach(function (k) { expected[k] = ''; });
     assert.deepStrictEqual(s.config.load(s.log), expected);
     s.config.load(s.log);
     var lines = logs(s.w, 'SETTINGS_UNAVAILABLE');
@@ -407,7 +409,9 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
         'NEWBUILD_MARKET_IDS', 'NOTE_TYPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL', 'DESIGNINFO_DRAWINGS_URL',
         // 3.5.0 (release 2.3c)
         'DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER', 'DI_FILL_REPLACEABLE',
-        'EPC_BEARER_TOKEN']);
+        'EPC_BEARER_TOKEN',
+        // 3.7.0 (2.3c amendment 4)
+        'DI_STANDARD_HEIGHTS']);
     // 3.3.0: LINK_BACKFILL_SCOPE is the link backfill's, not the dashboard's. 3.4.0: the request email's two keys are the
     // Send design information Suitelet's.
     var slRecordOnly = recordOnly.filter(function (k) {
@@ -438,8 +442,8 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE']);
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND, c.SCRIPTS.LINK_BACKFILL, c.SCRIPTS.OPP_UE,
         c.SCRIPTS.SEND_DESIGNINFO].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 55,
-        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key, the eleven 3.4.0 keys and the seven 3.5.0 ' +
-        'keys, no more');
-    assert.strictEqual(c.VERSION, '3.6.0');
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 56,
+        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key, the eleven 3.4.0 keys, the seven 3.5.0 ' +
+        'keys and the 3.7.0 key, no more');
+    assert.strictEqual(c.VERSION, '3.7.0');
 });

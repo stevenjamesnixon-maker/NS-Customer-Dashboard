@@ -56,15 +56,22 @@
  * (c: { y, t }); systemWords() — "Underfloor heating and a heat pump" from the facts; unknownStateSteps() — saved steps and
  * rq entries the registry no longer has (plans).
  *
+ * 1.4.0 (2.3c amendment 4): systemWords().system; epcEntries() reads an element's descriptions from the certificate in
+ * any shape (arrays, flat hyphen/underscore/camel keys, "|" or ";" joins), with their ratings; epcElement() takes the
+ * first description that maps (matching ignores case, punctuation and repeated spaces, whole words) and returns the
+ * notes ("EPC: …", "Not on your EPC."); standardHeights(), fillText(); freeTextParts() / freeTextWrite() / textHash() /
+ * dayMonth() for staff text in free-text fields; the state's w (the form's writes) and eu (the EPC's unmatched
+ * elements).
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.3.0
+ * @version 1.4.0
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.3.0';
+    var VERSION = '1.4.0';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -1194,7 +1201,7 @@ define([], function () {
 
     function emptyState() {
         return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '',
-            rq: [], call: '', callWhen: '' };
+            rq: [], call: '', callWhen: '', marks: {}, epcUnmatched: [], changedSince: [], newPlans: false };
     }
 
     /**
@@ -1309,6 +1316,19 @@ define([], function () {
             s.call = v.c.y === 1 ? 'yes' : '';
             s.callWhen = str(v.c.t).slice(0, CALL_WHEN_MAX);
         }
+        // 1.4.0: the form's last write to each free-text field (w: { qid: [hash, length, 1 when plain] }) and the house
+        // elements the EPC left unmatched (eu).
+        for (k in plainObject(v.w)) {
+            if (v.w.hasOwnProperty(k) && Array.isArray(v.w[k]) && typeof v.w[k][0] === 'string' && typeof v.w[k][1] === 'number') {
+                s.marks[k] = { h: v.w[k][0], n: v.w[k][1], p: v.w[k][2] === 1 ? 1 : 0 };
+            }
+        }
+        s.epcUnmatched = (Array.isArray(v.eu) ? v.eu : []).filter(function (x) { return contains(ELEMENTS, x); });
+        // 1.4.0: the steps changed since the last Send (cs) and new plans uploaded since it (np), for the Task.
+        s.changedSince = (Array.isArray(v.cs) ? v.cs : []).filter(function (x) {
+            return typeof x === 'string' && /^[a-z0-9_]+$/.test(x);
+        });
+        s.newPlans = v.np === 1;
         // 1.2.0: the steps the last request asked about (optional; none: every step).
         s.rq = (Array.isArray(v.rq) ? v.rq : []).filter(function (x) { return typeof x === 'string' && /^[a-z0-9_]+$/.test(x); });
         return { state: s, status: 'ok', detail: '' };
@@ -1360,6 +1380,22 @@ define([], function () {
         }
         if ((st.rq || []).length) {
             out.rq = st.rq.slice();
+        }
+        // 1.4.0: w and eu, left out when empty.
+        for (k in (st.marks || {})) {
+            if (st.marks.hasOwnProperty(k) && st.marks[k]) {
+                out.w = out.w || {};
+                out.w[k] = [st.marks[k].h, st.marks[k].n].concat(st.marks[k].p === 1 ? [1] : []);
+            }
+        }
+        if ((st.epcUnmatched || []).length) {
+            out.eu = st.epcUnmatched.slice();
+        }
+        if ((st.changedSince || []).length) {
+            out.cs = st.changedSince.slice();
+        }
+        if (st.newPlans) {
+            out.np = 1;
         }
         return JSON.stringify(out);
     }
@@ -1678,46 +1714,145 @@ define([], function () {
     }
 
     /**
-     * Pure (brief §B9): one element's EPC description ("; "-joined entries, as epc_lib gives them) -> a card. Each entry is
-     * mapped on its own (the lowest-priority pattern it contains); all mapped to one preset -> that preset; any
-     * disagreement or an entry that maps to nothing -> unsure, with the certificate's text to show. An entry stating an
-     * average thermal transmittance gives the U-value (source EPC).
-     * @returns {{key: string, u: string, text: string, missing: boolean, mixed: boolean}} missing: no description at all
+     * Pure (1.4.0, amendment 4): EPC text compared ignoring case, punctuation and repeated spaces — lower-case words
+     * separated by one space, padded, so a pattern matches whole words ("50 mm loft" never inside "150 mm loft").
      */
-    function epcElement(description, map, element) {
-        var text = trim(description);
-        var entries = text === '' ? [] : text.split(/;\s*/).map(trim).filter(function (x) { return x !== ''; });
-        var keys = [];
+    function epcNorm(text) {
+        return ' ' + String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/^ +| +$/g, '') + ' ';
+    }
+
+    /** 1.4.0: the certificate's 1–5 efficiency scale, as the register words it. */
+    var EPC_RATING_WORDS = { 1: 'Very poor', 2: 'Poor', 3: 'Average', 4: 'Good', 5: 'Very good' };
+
+    /** Pure (1.4.0): an element's efficiency rating as words ("4" or "Good" -> "Good"); '' for none or N/A. */
+    function epcRating(value) {
+        var t = trim(value === null || value === undefined ? '' : String(value));
+        if (/^[1-5]$/.test(t)) {
+            return EPC_RATING_WORDS[t];
+        }
+        if (!/^[a-z][a-z ]*$/i.test(t) || /^n ?a$/i.test(t)) {
+            return '';
+        }
+        return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    }
+
+    /** 1.4.0: the certificate's keys per element — the GOV.UK API's arrays (and its single window object). */
+    var EPC_ARRAY_KEYS = { walls: ['walls'], windows: ['windows', 'window'], roof: ['roofs', 'roof'], floor: ['floors', 'floor'] };
+    /** 1.4.0: and the flat keys other shapes use ("walls-description", "walls_description", "wallsDescription"). */
+    var EPC_FLAT_BASES = { walls: ['walls', 'wall'], windows: ['windows', 'window'], roof: ['roof', 'roofs'], floor: ['floor', 'floors'] };
+
+    function epcDescriptionText(d) {
+        if (typeof d === 'string') {
+            return d;
+        }
+        return d && typeof d === 'object' && typeof d.value === 'string' ? d.value : '';
+    }
+
+    function epcSplit(text) {
+        return String(text || '').split(/\s*[|;]\s*/).map(trim).filter(function (x) { return x !== ''; });
+    }
+
+    /**
+     * Pure (1.4.0, amendment 4): one element's descriptions on a certificate, in the certificate's order (the main
+     * building first), each { text, rating }. Read from the certificate itself (`raw`, epc_lib's certificate().raw) in
+     * any of the shapes seen — an array of { description, energy_efficiency_rating } (the GOV.UK API), a single object, a
+     * flat "<element>-description" / "_description" / "Description" string (with "-energy-eff" ratings) — then, failing
+     * those, epc_lib's mapped "<element>Description" (`data`). Several entries joined with "|" or ";" are split; an entry
+     * repeated with the same rating is kept once.
+     * @returns {Array<{text: string, rating: string}>}
+     */
+    function epcEntries(raw, data, element) {
+        var r = raw && typeof raw === 'object' ? raw : {};
+        var out = [];
+        var seen = {};
+        function add(text, rating) {
+            var t = trim(text);
+            var k = epcNorm(t) + '|' + rating;
+            if (t === '' || seen[k]) {
+                return;
+            }
+            seen[k] = true;
+            out.push({ text: t, rating: rating });
+        }
+        function ratingOf(x) {
+            return epcRating(x.energy_efficiency_rating !== undefined ? x.energy_efficiency_rating :
+                x['energy-efficiency-rating'] !== undefined ? x['energy-efficiency-rating'] : x.energyEfficiencyRating);
+        }
+        (EPC_ARRAY_KEYS[element] || []).forEach(function (k) {
+            var v = r[k];
+            (Array.isArray(v) ? v : v && typeof v === 'object' ? [v] : []).forEach(function (x) {
+                if (x && typeof x === 'object') {
+                    epcSplit(epcDescriptionText(x.description)).forEach(function (t) { add(t, ratingOf(x)); });
+                } else if (typeof x === 'string') {
+                    epcSplit(x).forEach(function (t) { add(t, ''); });
+                }
+            });
+        });
+        if (!out.length) {
+            (EPC_FLAT_BASES[element] || []).forEach(function (base) {
+                [['-description', '-energy-eff'], ['_description', '_energy_eff'], ['Description', 'EnergyEff']].forEach(function (k) {
+                    var texts = epcSplit(epcDescriptionText(r[base + k[0]]));
+                    var ratings = String(r[base + k[1]] || '').split(/\s*[|;]\s*/);
+                    texts.forEach(function (t, i) {
+                        add(t, epcRating(ratings.length === texts.length ? ratings[i] : ratings.length === 1 ? ratings[0] : ''));
+                    });
+                });
+            });
+        }
+        if (!out.length && data && typeof data === 'object') {
+            epcSplit(data[{ walls: 'wallsDescription', windows: 'windowsDescription', roof: 'roofDescription',
+                floor: 'floorDescription' }[element]]).forEach(function (t) { add(t, ''); });
+        }
+        return out;
+    }
+
+    /** 1.4.0: the card's notes when the certificate says nothing about the element. */
+    var EPC_NOT_ON = 'Not on your EPC.';
+
+    /**
+     * Pure (brief §B9; 1.4.0, amendment 4): one element's EPC descriptions -> a card. `input` is epcEntries()'s list, or
+     * a string of entries joined with ";" or "|" (as epc_lib's mapped text). The card takes the FIRST entry (the main
+     * building) that maps to a preset — patterns matched ignoring case, punctuation and repeated spaces (epcNorm), the
+     * lowest priority winning within an entry; Not sure only when NONE maps. An entry stating an average thermal
+     * transmittance gives the U-value (source EPC). `notes` is always the certificate's own words: "EPC: <entry> (<rating>);
+     * <entry>…", clipped at ELEMENT_NOTES_MAX, or "Not on your EPC." when it has none.
+     * @returns {{key: string, u: string, text: string, notes: string, missing: boolean, mixed: boolean, matched: boolean}}
+     *   matched: a preset or a U-value came from the certificate; mixed: the entries map to different presets.
+     */
+    function epcElement(input, map, element) {
+        var entries = Array.isArray(input) ? input.filter(function (x) { return x && trim(x.text) !== ''; }) :
+            epcSplit(input).map(function (t) { return { text: t, rating: '' }; });
+        var key = '';
         var u = '';
-        var unmatched = false;
+        var presets = [];
         if (!entries.length) {
-            return { key: 'unsure', u: '', text: '', missing: true, mixed: false };
+            return { key: 'unsure', u: '', text: '', notes: EPC_NOT_ON, missing: true, mixed: false, matched: false };
         }
         entries.forEach(function (entry) {
-            var low = entry.toLowerCase();
+            var low = epcNorm(entry.text);
             var best = null;
-            var eu = uFromEpcText(entry);
+            var eu = uFromEpcText(entry.text);
             if (eu) {
                 u = u || eu;
                 return;
             }
             ((map && map.rows) || []).forEach(function (r) {
-                if (r.element === element && low.indexOf(r.pattern) >= 0 && (!best || r.priority < best.priority)) {
+                if (r.element === element && low.indexOf(epcNorm(r.pattern)) >= 0 && (!best || r.priority < best.priority)) {
                     best = r;
                 }
             });
             if (best) {
-                if (!contains(keys, best.preset)) {
-                    keys.push(best.preset);
+                key = key || best.preset;
+                if (!contains(presets, best.preset)) {
+                    presets.push(best.preset);
                 }
-            } else {
-                unmatched = true;
             }
         });
-        if (keys.length === 1 && !unmatched) {
-            return { key: keys[0], u: u, text: text, missing: false, mixed: false };
-        }
-        return { key: 'unsure', u: u, text: text, missing: false, mixed: keys.length > 1 || unmatched };
+        return { key: key || 'unsure', u: u, text: entries.map(function (x) { return x.text; }).join('; '),
+            notes: plainValue('EPC: ' + entries.map(function (x) {
+                return trim(x.text) + (x.rating ? ' (' + x.rating + ')' : '');
+            }).join('; '), ELEMENT_NOTES_MAX),
+            missing: false, mixed: presets.length > 1, matched: !!key || !!u };
     }
 
     /** The age question's bands by their first year. */
@@ -2039,16 +2174,18 @@ define([], function () {
         var ufh = fc.some(function (t) { return contains(FC_FLOORS, t); }) ||
             (fc.length === 1 && fc[0] === 'unknown' && !!f.service && f.service !== 'unknown');
         var hp = contains(asList(f.heat), 'nuheat_hp');
+        // 1.4.0 (amendment 4): system — the email's "{system}", always ending " system" ("heating system" when unknown).
         if (ufh && hp) {
-            return { key: 'ufh_hp', text: 'Underfloor heating and a heat pump', lower: 'underfloor heating and heat pump' };
+            return { key: 'ufh_hp', text: 'Underfloor heating and a heat pump', lower: 'underfloor heating and heat pump',
+                system: 'underfloor heating and heat pump system' };
         }
         if (ufh) {
-            return { key: 'ufh', text: 'Underfloor heating', lower: 'underfloor heating' };
+            return { key: 'ufh', text: 'Underfloor heating', lower: 'underfloor heating', system: 'underfloor heating system' };
         }
         if (hp) {
-            return { key: 'hp', text: 'A heat pump', lower: 'heat pump' };
+            return { key: 'hp', text: 'A heat pump', lower: 'heat pump', system: 'heat pump system' };
         }
-        return { key: '', text: '', lower: '' };
+        return { key: '', text: '', lower: '', system: 'heating system' };
     }
 
     /**
@@ -2169,6 +2306,139 @@ define([], function () {
         return t.length > n ? t.slice(0, n - 1) + '…' : t;
     }
 
+    // ---------------------------------------------------------------- 1.4.0 (2.3c amendment 4)
+
+    /**
+     * Pure (1.4.0): the standard heights (setting DI_STANDARD_HEIGHTS, JSON {"ceiling", "window", "door"} in metres); each
+     * missing, invalid or out of range (0.5–10) value takes its default. { heights: { ceiling, window, door }, invalid }.
+     */
+    function standardHeights(raw, defaults) {
+        var d = defaults || {};
+        var out = { heights: { ceiling: String(d.ceiling || ''), window: String(d.window || ''), door: String(d.door || '') },
+            invalid: false };
+        var v;
+        if (trim(raw) === '') {
+            return out;
+        }
+        try {
+            v = JSON.parse(String(raw));
+        } catch (e) {
+            out.invalid = true;
+            return out;
+        }
+        if (!v || typeof v !== 'object' || Array.isArray(v)) {
+            out.invalid = true;
+            return out;
+        }
+        ['ceiling', 'window', 'door'].forEach(function (k) {
+            var t = trim(v[k] === undefined || v[k] === null ? '' : String(v[k]));
+            var n = parseFloat(t);
+            if (t === '') {
+                return;
+            }
+            if (!/^\d+(\.\d+)?$/.test(t) || n < 0.5 || n > 10) {
+                out.invalid = true;
+                return;
+            }
+            out.heights[k] = t;
+        });
+        return out;
+    }
+
+    /** Pure (1.4.0): "{ceiling}"-style placeholders filled. */
+    function fillText(text, vals) {
+        return String(text || '').replace(/\{([a-z]+)\}/g, function (m, k) {
+            return vals && vals.hasOwnProperty(k) ? String(vals[k]) : m;
+        });
+    }
+
+    /** Pure (1.4.0): a short, stable fingerprint of a text (djb2, base 36) — how the state finds what the form wrote. */
+    function textHash(text) {
+        var t = String(text || '');
+        var h = 5381;
+        var i;
+        for (i = 0; i < t.length; i++) {
+            h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+        }
+        return (h >>> 0).toString(36);
+    }
+
+    var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    /** Pure (1.4.0): "2026-10-12" -> "12 Oct" (year: "12 Oct 2026"); '' for anything else. */
+    function dayMonth(key, year) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(key || ''));
+        return m ? parseInt(m[3], 10) + ' ' + MONTHS[parseInt(m[2], 10) - 1] + (year ? ' ' + m[1] : '') : '';
+    }
+
+    /** The prefix of a line the form appends after staff text: "Customer (12 Oct): ". */
+    var CUSTOMER_LINE = 'Customer (';
+
+    /**
+     * Pure (1.4.0, amendment 4 §9): a free-text field (a `long` or `text` question with a custbody field) split into the
+     * staff's text and the customer's own. `mark` is what the state keeps of the form's last write to it ({ h: hash, n:
+     * length, p: 1 when the field held only the customer's text }): the field equal to that write is the customer's only;
+     * a "Customer (…): …" block with that hash is the customer's, the rest the staff's. Without a mark (or when the field
+     * changed), every character is the staff's — never lost. Line endings normalised to \n.
+     * @returns {{staff: string, mine: string, ours: boolean}} ours: the field holds only what the form wrote.
+     */
+    function freeTextParts(fieldValue, mark) {
+        var v = String(fieldValue === null || fieldValue === undefined ? '' : fieldValue).replace(/\r\n?/g, '\n');
+        var m = mark && typeof mark === 'object' ? mark : null;
+        var i;
+        var cand;
+        var staff;
+        if (trim(v) === '') {
+            return { staff: '', mine: '', ours: false };
+        }
+        if (m && m.p === 1 && v.length === m.n && textHash(v) === m.h) {
+            return { staff: '', mine: v, ours: true };
+        }
+        if (m && m.p !== 1) {
+            i = v.indexOf(CUSTOMER_LINE);
+            while (i >= 0) {
+                cand = v.substr(i, m.n);
+                if (cand.length === m.n && textHash(cand) === m.h) {
+                    staff = (v.slice(0, i).replace(/\n$/, '') + (v.slice(i + m.n) ? '\n' + v.slice(i + m.n).replace(/^\n/, '') : ''))
+                        .replace(/^\n+|\n+$/g, '');
+                    return { staff: staff, mine: cand.replace(/^Customer \([^)]*\): /, ''), ours: trim(staff) === '' };
+                }
+                i = v.indexOf(CUSTOMER_LINE, i + 1);
+            }
+        }
+        return { staff: v, mine: '', ours: false };
+    }
+
+    /**
+     * Pure (1.4.0): what to write for a free-text answer. No staff text: the answer as it is (mark p: 1). Staff text: the
+     * staff's text, a new line, "Customer (<d MMM>): <answer>" (the answer clipped so the whole fits `limit`). { value,
+     * mark: { h, n, p }, clipped }; value '' when not even one character of the answer fits.
+     */
+    function freeTextWrite(parts, answer, dayText, limit) {
+        var a = String(answer || '').replace(/\r\n?/g, '\n');
+        var prefix = CUSTOMER_LINE + dayText + '): ';
+        var room;
+        var block;
+        var clipped = false;
+        if (!parts || trim(parts.staff) === '') {
+            if (limit && a.length > limit) {
+                a = a.slice(0, limit);
+                clipped = true;
+            }
+            return { value: a, mark: { h: textHash(a), n: a.length, p: 1 }, clipped: clipped };
+        }
+        room = limit ? limit - parts.staff.length - 1 - prefix.length : a.length;
+        if (room < 1) {
+            return { value: '', mark: null, clipped: true };
+        }
+        if (a.length > room) {
+            a = a.slice(0, room);
+            clipped = true;
+        }
+        block = prefix + a;
+        return { value: parts.staff + '\n' + block, mark: { h: textHash(block), n: block.length, p: 0 }, clipped: clipped };
+    }
+
     return {
         VERSION: VERSION,
         COLUMNS: COLUMNS,
@@ -2262,6 +2532,17 @@ define([], function () {
         parseEpcMap: parseEpcMap,
         uFromEpcText: uFromEpcText,
         epcElement: epcElement,
+        // 1.4.0
+        epcNorm: epcNorm,
+        epcRating: epcRating,
+        epcEntries: epcEntries,
+        EPC_NOT_ON: EPC_NOT_ON,
+        standardHeights: standardHeights,
+        fillText: fillText,
+        textHash: textHash,
+        dayMonth: dayMonth,
+        freeTextParts: freeTextParts,
+        freeTextWrite: freeTextWrite,
         ageBandKey: ageBandKey,
         elementLine: elementLine,
         parseElementLine: parseElementLine,
