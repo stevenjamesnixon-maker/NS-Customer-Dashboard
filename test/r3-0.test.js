@@ -441,5 +441,5 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     assert.strictEqual(Object.keys(c.PARAMETERS).length, 55,
         'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key, the eleven 3.4.0 keys and the seven 3.5.0 ' +
         'keys, no more');
-    assert.strictEqual(c.VERSION, '3.5.1');
+    assert.strictEqual(c.VERSION, '3.6.0');
 });

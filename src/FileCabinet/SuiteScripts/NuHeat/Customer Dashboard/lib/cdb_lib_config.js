@@ -88,13 +88,18 @@
  *
  * 3.5.1 (2.3c amendment 1): DESIGNINFO_EMAIL.SUB takes {about} (the asked steps' minutes) and SUB_NO_TIME is new.
  *
- * @version 3.5.1
+ * 3.6.0 (2.3c amendment 3): the request email assumes no design call — the intro is the sender as the main contact
+ * through design and delivery (HELLO, PERSONAL_PE / PERSONAL_AM with {system}), the survey (SURVEY / SURVEY_NO_TIME with
+ * {n}) and how to talk it through (TALK_PHONE with {phone} / TALK_NO_PHONE); NOTE and FACT_CALL are retired; TIPS are the
+ * three steps without timeframes (survey, design, delivery).
+ *
+ * @version 3.6.0
  */
 define(['N/runtime', 'N/search'], function (runtime, search) {
 
     'use strict';
 
-    var VERSION = '3.5.1';
+    var VERSION = '3.6.0';
 
     /** Every log title starts with this. One string to grep the execution log for. */
     var LOG_PREFIX = 'CDB ';
@@ -538,35 +543,44 @@ define(['N/runtime', 'N/search'], function (runtime, search) {
         // 3.5.1: {about} is the asked steps' minutes summed ("About 12 minutes"); with none, SUB_NO_TIME.
         SUB: 'Your plans and a few details are all we need to begin. {about}.',
         SUB_NO_TIME: 'Your plans and a few details are all we need to begin.',
-        HELLO: 'Hello {name}.',
-        HELLO_NO_NAME: 'Hello.',
+        // 3.6.0 (amendment 3): no design call is assumed. {system}: designinfo.systemWords() lower-case, else "heating system".
+        HELLO: 'Hi {name},',
+        HELLO_NO_NAME: 'Hello,',
         // The sender is the PE.
-        PERSONAL_PE: 'I\u2019m {sender}, your Project Engineer for this system, and I\u2019ll be designing it with you. ' +
-            'Before we speak, please tell me as much as you can about the property. I\u2019ll read it all before our call, ' +
-            'so the call is short and nothing gets missed.',
+        PERSONAL_PE: 'I\u2019m {sender}, your Project Engineer. I\u2019ll be your main contact for your {system} all the way ' +
+            'through design and delivery.',
         // The sender is the account manager (no PE case, or no PE yet).
-        PERSONAL_AM: 'I\u2019m {sender}, your account manager. {pe} will design your system with you. Before you speak, ' +
-            'please tell us as much as you can about the property. We\u2019ll read it all before your design call, so the ' +
-            'call is short and nothing gets missed.',
+        PERSONAL_AM: 'I\u2019m {sender}, your account manager. {pe} will be your Project Engineer for your {system}, all the ' +
+            'way through design and delivery.',
+        // {n}: the asked steps' minutes summed; with none, SURVEY_NO_TIME.
+        SURVEY: 'To complete your design, we need some details about your property and your heating system. Click the ' +
+            'button below to fill in our design survey. It takes about {n} minutes, and you can save it and come back at any ' +
+            'time.',
+        SURVEY_NO_TIME: 'To complete your design, we need some details about your property and your heating system. Click ' +
+            'the button below to fill in our design survey. You can save it and come back at any time.',
+        // {phone}: the sender's phone (direct line, else mobile); with none, TALK_NO_PHONE.
+        TALK_PHONE: 'If you\u2019d like to talk anything through, just give me a call on {phone} or reply to this email, and ' +
+            'we can go through it together.',
+        TALK_NO_PHONE: 'If you\u2019d like to talk anything through, just reply to this email, and we can go through it ' +
+            'together.',
+        SYSTEM_UNKNOWN: 'heating system',
         PE_NONE: 'Our design team',
         FACTS_LABEL: 'YOUR PROJECT',
         FACT_REFERENCE: 'Reference',
         FACT_HAVING: 'You\u2019re having',
-        FACT_CALL: 'Design call',
         FACT_GOODS: 'Goods needed',
         BUTTON: 'TELL US ABOUT YOUR PROPERTY',
         DASHBOARD_LINK: 'Or view all your projects',
         // 3.5.0: the list under it is the requested steps' short titles (designinfo.stepsFor()); STEP1_* to STEP3_HP are
         // retired.
         ASK_HEADING: 'What we\u2019ll ask',
-        NOTE: 'We only ask about what\u2019s on your quote, and you can stop and come back. Anything you can\u2019t ' +
-            'answer, we\u2019ll cover on the call.',
         NEXT_HEADING: 'What happens next',
         // [title, text]
+        // 3.6.0: three steps, no timeframes.
         TIPS: [
-            ['Your design call', 'We go through your answers together and settle anything still open.'],
-            ['Drawings in 5\u20137 days', 'Your installation drawings follow within 5\u20137 working days of the call.'],
-            ['Then delivery', 'Once you\u2019re happy with the design, we arrange your delivery.']
+            ['You complete the design survey', 'Tell us about your property and heating system.'],
+            ['We design your system', 'Our designers design your system and optimise it for installation and performance.'],
+            ['We deliver it', 'Your system is delivered to site.']
         ],
         QUESTIONS: 'Questions?',
         CARD_PE: 'YOUR PROJECT ENGINEER',

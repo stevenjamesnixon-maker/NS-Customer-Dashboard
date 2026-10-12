@@ -47,15 +47,18 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
- * @NApiVersion 2.1
- * @NScriptType Suitelet
- * @NModuleScope SameAccount
  * 1.1.1 (2.3c amendment 1): the email's subtitle time is the asked steps' minutes summed (none: no time).
  *
  * 1.1.2 (2.3c amendment 2): the step tick boxes in one block under "Steps to ask for" (Your project and Anything else as
  * fixed lines); the email lists the steps' long titles.
  *
- * @version 1.1.2
+ * 1.2.0 (2.3c amendment 3): six steps (the tick boxes are Heat loss, Heating and Heat pump); the email's intro names the
+ * system in plain words (designinfo.systemWords(), lower-case; none: "heating system") and assumes no design call.
+ *
+ * @NApiVersion 2.1
+ * @NScriptType Suitelet
+ * @NModuleScope SameAccount
+ * @version 1.2.0
  */
 define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidget', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_designinfo'],
@@ -63,7 +66,7 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
 
     'use strict';
 
-    var VERSION = '1.1.2';
+    var VERSION = '1.2.0';
 
     var OUTCOME = { SENT: 'sent', FAILED: 'failed' };
 
@@ -393,7 +396,9 @@ define(['N/record', 'N/email', 'N/redirect', 'N/url', 'N/log', 'N/ui/serverWidge
                 // 1.1.2 (amendment 2): the long titles (the step bar has the short ones).
                 askList: asked.map(function (st) { return st.title; }),
                 // 1.1.1: the subtitle's time, the same sum as the card's ("about N minutes"; 0: no time).
-                minutes: designinfo.stepsMinutes(asked)
+                minutes: designinfo.stepsMinutes(asked),
+                // 1.2.0 (amendment 3): "your {system}" in the intro.
+                system: designinfo.systemWords(p.facts).lower
             });
             email.send({
                 author: parseInt(emp.id, 10),

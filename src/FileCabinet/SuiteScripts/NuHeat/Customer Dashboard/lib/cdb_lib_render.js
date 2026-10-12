@@ -92,13 +92,22 @@
  * cards as designed (a 2 x 2 grid, the title, the tag as a chip, "Which is closest?" or the row's hint); the route tiles
  * 2 x 2; Review leaves out an optional question not answered.
  *
- * @version 2.5.2
+ * 2.6.0 (2.3c amendment 3): no design call is assumed — the step footer offers a call when sending or an email, Review asks
+ * "I'd like a call to talk through my design" (and the best time and number), the card has no call row, the read-only
+ * line and the email do not mention a call; the email's intro is the sender as the main contact (SURVEY, TALK_PHONE) and
+ * What happens next is three steps; the card's site address on its own lines and "You're having" in plain words; yes/no
+ * as two tiles with their radio; a card whose questions are all hidden by reveal is hidden (class rvhide, script-on only)
+ * and the first visible question has no divider (.first, kept by the script); a clause the server decided arrives fixed
+ * ([qid, keys, true|false]); the element card's select and exact U-value on one row; picture cards of one height; a
+ * hint's {first} is the PE's or AM's first name.
+ *
+ * @version 2.6.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.5.2';
+    var VERSION = '2.6.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -2506,14 +2515,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         F_NEO_HUB: 'with a Neo hub',
         F_SERVICE: 'Design service',
         F_DESIGNER: 'Your design is with',
-        F_CALL: 'Design call',
         CHIP_CHECKED: 'Checked',
         CHIP_TODO: 'Needed to start',
         CHIP_DONE: 'Done',
         CHIP_OPTIONAL: 'Optional',
         REQUIRED: 'Needed',
         WHY: '? Why',
-        READ_ONLY: '(we’ll cover this on your call)',
+        READ_ONLY: '(your Project Engineer will check this with you)',
         GOODS_HAVE: 'We currently have: {date}',
         GOODS_ASK: 'Has this changed? Tell us the new date',
         NOTED: 'You sent us this on {date}. Anything new? Add it here.',
@@ -2523,7 +2531,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         FILES_HAVE: 'Already sent:',
         FILE_N: 'File {n}',
         UPLOADS_OFF: 'We can’t take files here at the moment. Please email them to your Project Engineer instead.',
-        BIG_FILE: 'These files are bigger than 10 MB: {names}. Remove them and tick “I have files bigger than 10 MB”, ' +
+        BIG_FILE: 'These files are bigger than 10 MB: {names}. Remove them and tick “Some of my files are bigger than 10 MB”, ' +
             'and we’ll send you a secure way to send them.',
         SAVE_SECTION: 'Save this section',
         STILL_TO_DO: 'Still to do before your design can start: {list}.',
@@ -2549,8 +2557,8 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         VIEW_BANNER: 'Your design is being prepared. Need to change something?',
         SAVED: 'Saved.',
         SENT: 'Sent to {name}.',
-        SENT_NEXT: '{first} will read it all before your design call.',
-        SENT_NEXT_NO_NAME: 'We’ll read it all before your design call.',
+        SENT_NEXT: '{first} will read it all and be in touch.',
+        SENT_NEXT_NO_NAME: 'We’ll read it all and be in touch.',
         NOT_AVAILABLE: 'This isn’t available right now',
         NOTHING_NEEDED: 'Nothing is needed from you for this project.',
         NOT_HERE: 'That project isn’t waiting for design information.',
@@ -2565,11 +2573,9 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         CARD_TODO: 'Still to do: {list}.',
         CARD_TODO_FALLBACK: 'Still to do: a few more details.',
         CARD_READY: 'Everything’s here: press Send when you’re ready.',
-        CARD_SENT: 'Information received, {date}. {first} is reviewing it and will go through any questions on your design call.',
-        CARD_SENT_NO_NAME: 'Information received, {date}. We’re reviewing it and will go through any questions on your ' +
-            'design call.',
+        CARD_SENT: 'Information received, {date}. {first} is reviewing it and will be in touch with any questions.',
+        CARD_SENT_NO_NAME: 'Information received, {date}. We’re reviewing it and will be in touch with any questions.',
         CARD_DESIGNING: 'Your design is being prepared. We’ll email you when your installation drawings are ready.',
-        CARD_CALL: 'Design call: {date}',
         BADGE_NEEDS_INFO: 'We need information',
         BADGE_PARTIAL: 'In progress',
         BADGE_SENT: 'Information received',
@@ -2636,6 +2642,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         return q.placeholder ? ' placeholder="' + esc(q.placeholder) + '"' : '';
     }
 
+    /** 2.6.0: a hint with {first} — the PE's or AM's first name ("your Project Engineer" without one). */
+    function hintText(q, m) {
+        return fill(q.hint, { first: ((m && m.recipient) || {}).firstName || 'your Project Engineer' });
+    }
+
     /** The "? Why" toggle: HTML/CSS only. */
     function whyToggle(q) {
         return q.why ? '<details class="why"><summary>' + esc(DESIGN_TEXT.WHY) + '</summary><p>' + esc(q.why) + '</p></details>' : '';
@@ -2653,7 +2664,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var id = 'di-' + q.qid;
         var off = m.mode === 'view' ? ' disabled' : '';
         var label = esc(q.label) + (q.required && !qm.readOnly ? '<span class="req">' + esc(t.REQUIRED) + '</span>' : '');
-        var hint = q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '';
+        var hint = q.hint ? '<p class="hint" style="margin:0">' + esc(hintText(q, m)) + '</p>' : '';
         var html = '<div class="dq" id="q-' + esc(q.qid) + '">';
         var n;
         var i;
@@ -2676,10 +2687,11 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             html += '<fieldset' + (qm.role ? ' data-role="' + esc(qm.role) + '"' : '') + '><legend>' + label + '</legend>' +
                 whyToggle(q) + fieldError(e, q.qid);
             if (q.type === 'yesno') {
-                html += '<div class="segs">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
-                    return '<label class="seg"><input class="sr" type="radio" name="' + esc(name) + '" value="' + o[0] + '"' +
-                        (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span class="s">' + esc(o[1]) +
-                        '</span></label>';
+                // 2.6.0: two tiles, each with its radio circle, side by side (as the choice tiles).
+                html += '<div class="opts opts2">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
+                    return '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + o[0] + '" data-key="' + o[0] +
+                        '"' + (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span><span class="ot">' +
+                        esc(o[1]) + '</span></span></label>';
                 }).join('') + '</div>';
             } else if (q.pictures) {
                 // 2.5.0 (§B7): picture cards — the image (alt: the label), the radio, the label as visible text.
@@ -2763,14 +2775,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             whyToggle(q) + fieldError(e, q.qid) +
             (qm.prose ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_HAVE, { text: qm.prose })) + '</p>' : '') +
             (qm.epcSays ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_EPC_SAYS, { text: qm.epcSays })) + '</p>' : '') +
-            '<label class="lbl" for="' + esc(id) + '">' + esc(q.hint || t.EL_CHOOSE) + '</label>' +
+            // 2.6.0: the select and the exact U-value on one row, each with its label (stacked below 600 px).
+            '<div class="elrow"><div class="elsel"><label class="lbl" for="' + esc(id) + '">' + esc(q.hint || t.EL_CHOOSE) +
+            '</label>' +
             '<select class="inp" id="' + esc(id) + '" name="' + esc(name) + '"' + off + describedBy(e, q.qid) + '><option value="">' +
             esc(t.EL_PICK) + '</option>' + (qm.elementOptions || []).map(function (o) {
                 return '<option value="' + esc(o.value) + '"' + (o.value === c.key ? ' selected' : '') + '>' + esc(o.text) + '</option>';
-            }).join('') + '</select>' +
-            '<label class="lbl" for="' + esc(id) + '-u">' + esc(t.EL_U) + '</label><span class="urow"><input class="inp" type="text" ' +
-            'inputmode="decimal" id="' + esc(id) + '-u" name="' + esc(name) + '_u" value="' + esc(c.u) + '" maxlength="6" ' +
-            'style="max-width:120px"' + off + '> <span class="muted">' + esc(t.EL_U_UNIT) + '</span></span>' +
+            }).join('') + '</select></div>' +
+            '<div class="elu"><label class="lbl" for="' + esc(id) + '-u">' + esc(t.EL_U) + '</label><span class="urow"><input ' +
+            'class="inp" type="text" inputmode="decimal" id="' + esc(id) + '-u" name="' + esc(name) + '_u" value="' + esc(c.u) +
+            '" maxlength="6"' + off + '> <span class="muted">' + esc(t.EL_U_UNIT) + '</span></span></div></div>' +
             '<label class="lbl" for="' + esc(id) + '-notes">' + esc(describe ? t.EL_NOTES_REQ : t.EL_NOTES) + '</label>' +
             '<input class="inp" type="text" id="' + esc(id) + '-notes" name="' + esc(name) + '_notes" value="' + esc(c.notes) +
             '" maxlength="300"' + off + '>' +
@@ -2859,8 +2873,15 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         'function role(n){var s=f.querySelectorAll("[data-role=\'"+n+"\'] input:checked"),i;',
         'for(i=0;i<s.length;i++){if(vis(s[i]))return s[i].getAttribute("data-key")||"";}return "";}',
         'function run(){var i,j,k,sp,ok,a,c,v;for(i=0;i<ps.length;i++){sp=JSON.parse(ps[i].getAttribute("data-reveal"));ok=false;',
-        'for(j=0;j<sp.length&&!ok;j++){a=sp[j];ok=true;for(k=0;k<a.length&&ok;k++){c=a[k];v=key(c[0]);',
-        'if(v===null)continue;if(hid(c[0])||c[1].indexOf(v)<0)ok=false;}}ps[i].hidden=!ok;}}',
+        'for(j=0;j<sp.length&&!ok;j++){a=sp[j];ok=true;for(k=0;k<a.length&&ok;k++){c=a[k];',
+        'if(c.length>2){if(!c[2])ok=false;continue;}v=key(c[0]);if(v===null)continue;if(hid(c[0])||c[1].indexOf(v)<0)ok=false;}}',
+        'ps[i].hidden=!ok;}cards();}',
+        // 2.6.0: a card with no visible question is hidden; the first visible question of each card has no divider.
+        'function cards(){var sc=f.querySelectorAll("section"),i,j,ch,fst,cl;for(i=0;i<sc.length;i++){ch=sc[i].children||[];fst=null;',
+        'for(j=0;j<ch.length;j++){cl=" "+(ch[j].className||"")+" ";if(cl.indexOf(" dq ")<0&&cl.indexOf(" rvp ")<0)continue;',
+        'ch[j].className=cl.replace(/ first /g," ").replace(/^ +| +$/g,"");if(!ch[j].hidden&&!fst)fst=ch[j];}',
+        'if(fst)fst.className+=" first";cl=(" "+(sc[i].className||"")+" ").replace(/ rvhide /g," ");',
+        'sc[i].className=(cl+(fst?"":"rvhide")).replace(/^ +| +$/g,"");}}',
         'function opt(s,v,x){var o,i;for(i=0;i<s.options.length;i++){if(s.options[i].value===v)return;}',
         'if(!x)return;o=document.createElement("option");o.value=v;o.text=x;s.appendChild(o);}',
         'function prefill(){var r=role("route"),g=role("age"),cs=f.querySelectorAll(".el[data-fill]"),i,d,s,u,h,t,v,p;',
@@ -2914,15 +2935,17 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NEXT_LAST: 'Review and send →',
         SAVE_EXIT: 'Save and exit',
         EXIT_REVIEW: 'Back to your projects',
-        STUCK: 'Stuck on anything? It’s fine to skip it.',
-        STUCK_CALL: '{first} will go through it on your design call on {date}.',
-        STUCK_NO_DATE: '{first} will go through it on your design call.',
-        STUCK_PHONE: 'Call {phone} if you’d rather talk now.',
+        // 2.6.0: no design call is assumed. {email}: a mailto link to the PE or AM (STUCK_NO_EMAIL without one).
+        STUCK: 'Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you send, or email ' +
+            '{name}.',
+        STUCK_NO_EMAIL: 'Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you send.',
         REVIEW_TITLE: 'Review and send',
         REVIEW_INTRO: 'Here’s everything you’ve told us. Check it, change anything with Edit, then send it.',
         NEARLY_ONE: 'Nearly there. One step still needs you: {title}.',
         NEARLY_MANY: 'Nearly there. {n} steps still need you: {list}.',
-        SEND_LATER: 'You can send now and finish later, or on your design call.',
+        SEND_LATER: 'You can send now and finish the rest later.',
+        CALL_BOX: 'I’d like a call to talk through my design',
+        CALL_WHEN: 'Best time and number to call (optional)',
         GO_TO: 'Go to {title}',
         EDIT: 'Edit',
         CHIP_CHECKED: 'Checked',
@@ -2931,7 +2954,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         NOT_ANSWERED: 'Not answered yet',
         NOTHING_YET: 'Nothing added.',
         GIVEN: 'Given',
-        GOES_CALL: 'Your design call is on {date}.',
         SEND_TO: 'Send to {first}',
         SEND_TO_NO_NAME: 'Send it',
         SEND_SUB: 'Sends what you’ve done so far',
@@ -3039,9 +3061,25 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '@media (max-width:600px){[data-role=route] .opts{grid-template-columns:minmax(0,1fr)}}',
             '.urow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
             '.os{display:block;font-size:14px;color:' + c.MUTED + '}',
-            '.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}',
-            '.pic{display:flex;flex-direction:column;gap:6px;border:1px solid ' + c.BORDER + ';border-radius:8px;padding:8px;cursor:pointer}',
-            '.pic img{width:100%;height:auto;border-radius:4px}',
+            '.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-items:stretch}',
+            '.pic{display:flex;flex-direction:column;justify-content:flex-start;gap:6px;border:1px solid ' + c.BORDER +
+                ';border-radius:8px;padding:8px;cursor:pointer}',
+            // 2.6.0: one picture box on every card, so the captions line up; the picture carries its own caption.
+            '.pic img{display:block;width:100%;height:170px;object-fit:contain;margin:0 auto;border-radius:4px}',
+            '.pic .ot{font-size:15px;font-weight:400}',
+            '@media (max-width:600px){.pic img{height:140px}}',
+            '.opts2{grid-template-columns:1fr 1fr}',
+            '.elrow{display:flex;gap:12px;align-items:flex-end}',
+            '.elsel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}',
+            '.elu{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}',
+            '.elu .inp{width:140px}',
+            '@media (max-width:600px){.elrow{flex-direction:column;align-items:stretch}.elu .inp{width:100%}}',
+            '.js .card.rvhide{display:none}',
+            '.card > .first{border-top:0;padding-top:0}',
+            'html:not(.js) .card > :first-child{border-top:0;padding-top:0}',
+            '.callreq{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 14px}',
+            '.callreq .callwhen{flex:1 1 100%;display:flex;flex-direction:column;gap:6px}',
+            '.js #di-call:not(:checked) ~ .callwhen{display:none}',
             '.pic:has(input:checked){border-color:' + c.PURPLE + ';box-shadow:0 0 0 2px ' + c.PURPLE + '}',
             '.epcsum{display:flex;gap:16px;align-items:flex-start}',
             '.epcr{display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;border-radius:8px;' +
@@ -3157,11 +3195,13 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         return '<section class="card" aria-labelledby="h-facts"><h2 id="h-facts">' + esc(t.PROJECT_HEADING) + '</h2><dl class="facts">' +
             row(t.F_PROJECT, m.opp.title || m.opp.tranId) + row(t.F_REFERENCE, m.opp.title ? m.opp.tranId : '') +
-            row(t.F_SITE, String(m.opp.siteAddress || '').replace(/\s*\r?\n\s*/g, ', ')) + row(t.F_HAVING, m.project.havingText) +
+            // 2.6.0: the full site address, on its own lines.
+            (m.opp.siteAddress ? '<dt>' + esc(t.F_SITE) + '</dt><dd>' + String(m.opp.siteAddress).split(/\s*\r?\n\s*/).filter(function (x) {
+                return !!x;
+            }).map(function (x) { return esc(x); }).join('<br>') + '</dd>' : '') + row(t.F_HAVING, m.project.havingText) +
             row(t.F_THERMOSTATS, [m.project.thermostatsText, m.project.neoHub ? t.F_NEO_HUB : ''].filter(function (x) {
                 return !!x;
-            }).join(' ')) + row(t.F_SERVICE, m.project.serviceText) + row(t.F_DESIGNER, r.name) +
-            row(t.F_CALL, m.project.callKey ? shortDate(m.project.callKey) : '') + '</dl></section>';
+            }).join(' ')) + row(t.F_SERVICE, m.project.serviceText) + row(t.F_DESIGNER, r.name) + '</dl></section>';
     }
 
     /** The banners shared by the step and the review: saved, warnings, errors. */
@@ -3234,18 +3274,25 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         panels.forEach(function (p) {
             // 2.5.1: a panel of element cards is a 2 x 2 grid (one column below 700 px).
             var grid = byPanel[p].every(function (qm) { return qm.q.type === 'element'; });
-            body += '<section class="card' + (grid ? ' elgrid' : '') + '">' + byPanel[p].map(function (qm) {
-                return revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
-            }).join('') + '</section>';
+            // 2.6.0: every question hidden by its reveal -> the card is hidden (rvhide: with script only, so a script-off page
+            // still shows it with its "If you chose …" headings); the first visible question has no divider (.first). The
+            // page's script keeps both right as the answers change.
+            var shown = byPanel[p].filter(function (qm) { return qm.q.revealed !== false; });
+            body += '<section class="card' + (grid ? ' elgrid' : '') + (shown.length ? '' : ' rvhide') + '">' +
+                byPanel[p].map(function (qm) {
+                    var html = revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
+                    return qm === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+                }).join('') + '</section>';
         });
         // The nav row: Back saves first; on the first step it is a link to the dashboard.
         body += '<div class="navrow">' + (st.prev ? '<button type="submit" class="out" name="nav" value="back">' +
             esc(fill(t.BACK, { title: st.prev.title })) + '</button>' : '<a class="out" href="' + esc(m.backUrl) + '">' +
             esc(t.BACK_FIRST) + '</a>') + '<span class="auto">' + esc(t.AUTO) + '</span>' +
             '<button type="submit" class="cta" name="nav" value="next">' + esc(st.last ? t.NEXT_LAST : t.NEXT) + '</button></div>';
-        stuck = t.STUCK + (r.firstName ? ' ' + fill(m.callKey ? t.STUCK_CALL : t.STUCK_NO_DATE, { first: r.firstName,
-            date: m.callKey ? shortDate(m.callKey) : '' }) : '') + (r.phone ? ' ' + fill(t.STUCK_PHONE, { phone: r.phone }) : '');
-        body += '<p class="stuck">' + esc(stuck) + '</p></form>';
+        // 2.6.0: no design call assumed — ask for a call when sending, or email the PE or AM (a mailto link, as the header).
+        stuck = r.email ? esc(t.STUCK).replace('{name}', '<a href="mailto:' + esc(r.email) + '">' + esc(r.firstName || r.name ||
+            r.email) + '</a>') : esc(t.STUCK_NO_EMAIL);
+        body += '<p class="stuck">' + stuck + '</p></form>';
 
         return page({ title: st.title + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design', width: 'w1120',
             body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(), script: STEPPER_SCRIPT +
@@ -3258,7 +3305,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var q = qm.q;
         return '<div class="dq" id="q-' + esc(q.qid) + '"><label class="lbl" for="di-' + esc(q.qid) + '-1">' + esc(q.label) +
             (q.required ? '<span class="req">' + esc(DESIGN_TEXT.REQUIRED) + '</span>' : '') + '</label>' + whyToggle(q) +
-            (q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '') + fieldError(m.errors || {}, q.qid) +
+            (q.hint ? '<p class="hint" style="margin:0">' + esc(hintText(q, m)) + '</p>' : '') + fieldError(m.errors || {}, q.qid) +
             fileControl(qm, m, off) + '</div>';
     }
 
@@ -3315,18 +3362,24 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
         body += '<section class="card"><div class="goes"><span class="cap">' + esc(DESIGN_TEXT.GOES_TO) + '</span><span class="amn">' +
             esc(r.name || (r.role === 'pe' ? DESIGN_TEXT.ROLE_PE : DESIGN_TEXT.ROLE_AM)) + '</span></div>' +
-            (m.callKey ? '<p class="q-help">' + esc(fill(t.GOES_CALL, { date: shortDate(m.callKey) })) + '</p>' : '') +
             (view ? '' : '<form id="diform" method="post" enctype="multipart/form-data" action="' + esc(m.actionUrl) +
                 '" accept-charset="utf-8"><input type="hidden" name="t" value="' + esc(m.token) + '">' +
                 '<input type="hidden" name="a" value="designinfo"><input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
-                '<input type="hidden" name="step" value="review"><div class="submitrow"><button type="submit" class="cta" name="send" ' +
+                '<input type="hidden" name="step" value="review">' +
+                // 2.6.0: the call request — the box, then its time and number (shown with script only while ticked).
+                '<div class="callreq"><input type="checkbox" id="di-call" name="call" value="yes"' + ((m.call || {}).want ?
+                ' checked' : '') + '><label class="chk" for="di-call">' + esc(t.CALL_BOX) + '</label><div class="callwhen">' +
+                '<label class="lbl" for="di-callwhen">' + esc(t.CALL_WHEN) + '</label><input class="inp" type="text" ' +
+                'id="di-callwhen" name="call_when" maxlength="100" value="' + esc((m.call || {}).when || '') + '"></div></div>' +
+                '<div class="submitrow"><button type="submit" class="cta" name="send" ' +
                 'value="1">' + esc(first ? fill(t.SEND_TO, { first: first }) : t.SEND_TO_NO_NAME) + '</button><span class="meta">' +
                 esc(t.SEND_SUB) + '</span></div></form>') +
             (m.drawingsUrl ? '<p class="q-help"><a href="' + esc(m.drawingsUrl) + '" target="_blank" rel="noopener">' +
                 esc(DESIGN_TEXT.DRAWINGS_LINK) + '</a></p>' : '') + '</section>';
 
         return page({ title: t.REVIEW_TITLE + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design',
-            width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss(),
+            width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(),
+            script: view ? '' : 'document.documentElement.className+="";',
             headerExtra: view ? '' : '<a class="out" href="' + esc(m.backUrl) + '">' + esc(STEP_TEXT.EXIT_REVIEW) + '</a>' });
     }
 
@@ -3359,9 +3412,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         } else if (g.key === 'designing') {
             lines.push(t.CARD_DESIGNING);
         }
-        if (g.callKey && g.key !== 'fc_none') {
-            lines.push(fill(t.CARD_CALL, { date: shortDate(g.callKey) }));
-        }
+        // 2.6.0 (amendment 3): no design call is assumed; the card has no call row.
         return lines;
     }
 
@@ -3457,12 +3508,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
                 'max-width:600px;height:auto;"></td></tr>\n';
         }
 
-        // The personal paragraph: the PE's own words, or the account manager's.
+        // The personal paragraph: the PE's own words, or the account manager's. 2.6.0: the main contact through design and
+        // delivery, the survey (its minutes), and how to talk it through (the sender's phone, else reply). No call assumed.
         personal = fill(m.senderRole === 'pe' ? t.PERSONAL_PE : t.PERSONAL_AM, { sender: senderFirst,
-            pe: m.peName || t.PE_NONE });
+            pe: m.peName || t.PE_NONE, system: m.system || t.SYSTEM_UNKNOWN });
         html += '<tr><td align="left" valign="top" class="pad" style="padding:28px 48px 4px 48px;">' +
             emailP('0 0 12px 0', 17, COLORS.TEXT, name ? fill(t.HELLO, { name: name }) : t.HELLO_NO_NAME) +
-            emailP('0', 17, COLORS.TEXT, personal) + '</td></tr>\n';
+            emailP('0 0 12px 0', 17, COLORS.TEXT, personal) +
+            emailP('0 0 12px 0', 17, COLORS.TEXT, m.minutes > 0 ? fill(t.SURVEY, { n: m.minutes }) : t.SURVEY_NO_TIME) +
+            emailP('0', 17, COLORS.TEXT, sender.phone ? fill(t.TALK_PHONE, { phone: sender.phone }) : t.TALK_NO_PHONE) +
+            '</td></tr>\n';
 
         // "Your project".
         if (ref) {
@@ -3470,9 +3525,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         if (m.havingText) {
             facts += factRow(t.FACT_HAVING, '<b>' + esc(m.havingText) + '</b>');
-        }
-        if (m.callKey) {
-            facts += factRow(t.FACT_CALL, '<b>' + esc(shortDate(m.callKey)) + '</b>');
         }
         if (m.goodsKey) {
             facts += factRow(t.FACT_GOODS, '<b>' + esc(shortDate(m.goodsKey)) + '</b>');
@@ -3500,11 +3552,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             n += 1;
             html += stepRow(n, title, '');
         });
-        html += '</table>\n' +
-            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#fff5dc" ' +
-            'style="background-color:#fff5dc;border-radius:6px;"><tr><td align="left" valign="top" bgcolor="#fff5dc" ' +
-            'style="padding:12px 14px;' + EF + 'font-size:15px;line-height:21px;color:' + COLORS.TEXT + ';">' +
-            fontHtml(COLORS.TEXT, esc(t.NOTE)) + '</td></tr></table>\n</td></tr>\n';
+        html += '</table>\n</td></tr>\n';
 
         // What happens next: three tips, three across (stacked on phones).
         html += '<tr><td align="center" valign="top" bgcolor="' + std.PANEL + '" class="pad" style="background-color:' + std.PANEL +

@@ -50,15 +50,21 @@
  * the cylinder row: heat!=nuheat_hp); field `state` for a text question (kept in the state, clipped at STATE_TEXT_MAX);
  * a preset's U may be 0 (another home above or below), shown as "U 0.00" — the exact U-value box keeps its 0.05 minimum.
  *
+ * 1.3.0 (2.3c amendment 3, six steps): a `reveal` may name an EARLIER question in ANY section (the property type and new
+ * build or renovation moved to Your project, and step 2 reveals on them); field `state` for a `long` too (clipped at
+ * STATE_TEXT_MAX); a literal choice's stored value may be its KEY (plans_changed's old yes/no); the state's call request
+ * (c: { y, t }); systemWords() — "Underfloor heating and a heat pump" from the facts; unknownStateSteps() — saved steps and
+ * rq entries the registry no longer has (plans).
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.2.1
+ * @version 1.3.0
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.2.1';
+    var VERSION = '1.3.0';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
@@ -183,6 +189,8 @@ define([], function () {
     var STATE_HARD_MAX = 3900;
     /** 1.2.1: a text answer kept in the state (field `state`) is clipped to this. */
     var STATE_TEXT_MAX = 200;
+    /** 1.3.0: the call request's "Best time and number to call". */
+    var CALL_WHEN_MAX = 100;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -398,7 +406,7 @@ define([], function () {
         var seen = {};
         var titles = {};
         var steps = {};
-        var bySection = {};
+        var earlier = {};
         var v2;
         var v3;
         var i;
@@ -499,7 +507,8 @@ define([], function () {
                 reason = 'step_minutes must be a whole number, not "' + cell(r, 'step_minutes') + '"';
             }
             if (!reason && q.revealText !== '') {
-                rv = parseReveal(q.revealText, bySection[q.section] || {});
+                // 1.3.0: any earlier question of the file, in any section.
+                rv = parseReveal(q.revealText, earlier);
                 if (rv.ok) {
                     q.reveal = rv;
                 } else {
@@ -511,8 +520,7 @@ define([], function () {
                 continue;
             }
             seen[q.qid] = true;
-            bySection[q.section] = bySection[q.section] || {};
-            bySection[q.section][q.qid] = q;
+            earlier[q.qid] = q;
             // A section's title is its first row's.
             if (!titles.hasOwnProperty(q.section)) {
                 titles[q.section] = q.sectionTitle || q.section;
@@ -642,8 +650,8 @@ define([], function () {
             q.store = STORE.NOTE;
         } else if (field.toLowerCase() === 'state') {
             // 1.2.1: and a text question (a short answer the Task needs later, clipped at STATE_TEXT_MAX).
-            if (q.type !== 'yesno' && q.type !== 'choice' && q.type !== 'text') {
-                return 'field "state" is for yesno, choice and text questions only';
+            if (q.type !== 'yesno' && q.type !== 'choice' && q.type !== 'text' && q.type !== 'long') {
+                return 'field "state" is for yesno, choice, text and long questions only';
             }
             q.store = STORE.STATE;
         } else {
@@ -731,7 +739,7 @@ define([], function () {
     /**
      * Pure (1.2.0): the `reveal` column. Alternatives separated by |; each is clauses joined by ;; a clause is
      * qid=key1,key2. The question shows when ANY alternative has ALL its clauses true. Checked here: each qid is an
-     * EARLIER question of the SAME section (earlier: qid -> question), with answer keys, and each key is one of them.
+     * EARLIER question (1.3.0: of any section; earlier: qid -> question), with answer keys, and each key is one of them.
      * @returns {{ok: boolean, alternatives: Array<Array<{qid: string, keys: string[]}>>, error: string}}
      */
     function parseReveal(text, earlier) {
@@ -760,7 +768,7 @@ define([], function () {
                 }
                 q = (earlier || {})[m[1]];
                 if (!q) {
-                    error = 'reveal: "' + m[1] + '" is not an earlier question in this section';
+                    error = 'reveal: "' + m[1] + '" is not an earlier question';
                     return;
                 }
                 allowed = answerKeys(q);
@@ -809,7 +817,8 @@ define([], function () {
                 return q.optionKeys[i];
             }
         }
-        return '';
+        // 1.3.0: a value stored as a KEY (a question that was a yes/no: plans_changed's old 'yes' / 'no').
+        return contains(q.optionKeys, v) && !/^o\d+$/.test(v) ? v : '';
     }
 
     /**
@@ -1185,7 +1194,7 @@ define([], function () {
 
     function emptyState() {
         return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '',
-            rq: [] };
+            rq: [], call: '', callWhen: '' };
     }
 
     /**
@@ -1295,6 +1304,11 @@ define([], function () {
         s.requested = str(v.req);
         s.sent = str(v.sent);
         s.lastTaskAt = str(v.task);
+        // 1.3.0: the customer's call request on Review (c: { y: 1, t: 'best time and number' }).
+        if (v.c && typeof v.c === 'object') {
+            s.call = v.c.y === 1 ? 'yes' : '';
+            s.callWhen = str(v.c.t).slice(0, CALL_WHEN_MAX);
+        }
         // 1.2.0: the steps the last request asked about (optional; none: every step).
         s.rq = (Array.isArray(v.rq) ? v.rq : []).filter(function (x) { return typeof x === 'string' && /^[a-z0-9_]+$/.test(x); });
         return { state: s, status: 'ok', detail: '' };
@@ -1341,6 +1355,9 @@ define([], function () {
         out.req = shortIso(st.requested);
         out.sent = shortIso(st.sent);
         out.task = shortIso(st.lastTaskAt);
+        if (st.call === 'yes') {
+            out.c = { y: 1, t: String(st.callWhen || '').slice(0, CALL_WHEN_MAX) };
+        }
         if ((st.rq || []).length) {
             out.rq = st.rq.slice();
         }
@@ -2009,6 +2026,54 @@ define([], function () {
             k === 'regs' ? 'Building Regulations' : 'You chose this';
     }
 
+    // ---------------------------------------------------------------- 1.3.0: plain words, old steps
+
+    /**
+     * Pure (1.3.0): what the customer is having, in plain words — UFH when the floor construction says so (a floor token, or an
+     * unknown FC on a known design service), a heat pump when the heat set holds nuheat_hp.
+     * @returns {{key: string, text: string, lower: string}} key 'ufh_hp' | 'ufh' | 'hp' | '' (text '' then)
+     */
+    function systemWords(facts) {
+        var f = facts || {};
+        var fc = f.fc || [];
+        var ufh = fc.some(function (t) { return contains(FC_FLOORS, t); }) ||
+            (fc.length === 1 && fc[0] === 'unknown' && !!f.service && f.service !== 'unknown');
+        var hp = contains(asList(f.heat), 'nuheat_hp');
+        if (ufh && hp) {
+            return { key: 'ufh_hp', text: 'Underfloor heating and a heat pump', lower: 'underfloor heating and heat pump' };
+        }
+        if (ufh) {
+            return { key: 'ufh', text: 'Underfloor heating', lower: 'underfloor heating' };
+        }
+        if (hp) {
+            return { key: 'hp', text: 'A heat pump', lower: 'heat pump' };
+        }
+        return { key: '', text: '', lower: '' };
+    }
+
+    /**
+     * Pure (1.3.0): the steps a stored state saved, or its rq names, that the registry no longer has (the six-step registry
+     * folded `plans` into Your project). They are ignored; the caller logs them with the unknown qids.
+     * @returns {string[]}
+     */
+    function unknownStateSteps(state, questions) {
+        var known = {};
+        var out = [];
+        var k;
+        (questions || []).forEach(function (q) { known[q.section] = true; });
+        for (k in ((state && state.sections) || {})) {
+            if (state.sections.hasOwnProperty(k) && !known[k]) {
+                out.push(k);
+            }
+        }
+        ((state && state.rq) || []).forEach(function (id) {
+            if (!known[id] && out.indexOf(id) < 0) {
+                out.push(id);
+            }
+        });
+        return out;
+    }
+
     // ---------------------------------------------------------------- uploads
 
     /** Pure: a file name's extension, lower-case, '' when none. */
@@ -2214,6 +2279,10 @@ define([], function () {
         bandFill: bandFill,
         sourceTag: sourceTag,
         bandText: bandText,
+        // 1.3.0
+        CALL_WHEN_MAX: CALL_WHEN_MAX,
+        systemWords: systemWords,
+        unknownStateSteps: unknownStateSteps,
         // 1.2.1
         uShow: uShow,
         STATE_TEXT_MAX: STATE_TEXT_MAX

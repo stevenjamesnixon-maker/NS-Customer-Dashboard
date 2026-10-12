@@ -125,9 +125,11 @@
  * custbody_heat_source_type_26; decorateDesign() works from designinfo.stepsFor() (the requested steps, their minutes);
  * writeFacts() (the request page's "Update and recheck", config.FACTS_FIX_FIELDS only) and fileUrls() (one file search).
  *
+ * 2.4.1 (2.3c amendment 3): the file-size error names the tick as it now reads ("Some of my files are bigger than 10 MB").
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.4.0
+ * @version 2.4.1
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config', './cdb_lib_dates',
     './cdb_lib_designinfo'],
@@ -135,7 +137,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
 
     'use strict';
 
-    var VERSION = '2.4.0';
+    var VERSION = '2.4.1';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -2687,7 +2689,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                             errors[q.qid] = '“' + part.name + '” is not a file type we can take. Please send PDF, ' +
                                 'DWG, DXF, an image, ZIP, Word or Excel.';
                         } else if (!errors[q.qid] && Number(part.size) > limits.FILE_BYTES) {
-                            errors[q.qid] = '“' + part.name + '” is bigger than 10 MB. Tick “I have files bigger ' +
+                            errors[q.qid] = '“' + part.name + '” is bigger than 10 MB. Tick “Some of my files are bigger ' +
                                 'than 10 MB” and we’ll send you a secure way to send it.';
                         }
                     });

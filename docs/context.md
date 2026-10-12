@@ -193,22 +193,22 @@ A Map/Reduce emails each customer with something open a digest of the same infor
 
 | Component | Version | File | Purpose | Status |
 |---|---|---|---|---|
-| Dashboard Suitelet | 2.5.2 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule | Not deployed |
+| Dashboard Suitelet | 2.6.0 | `cdb_sl_dashboard.js` | Available Without Login: dashboard, delivery form, POST, confirmations; 2.3: `a=designinfo`; 2.5.0: reveal, element cards, the EPC lookup, pictures, the fill rule; 2.6.0: six steps, the call request, the site address question | Not deployed |
 | Digest Map/Reduce | 2.2.0 | `cdb_mr_digest.js` | The 14-day digest email (2.0.4: its two "open customer" searches moved, unchanged, to the data library; 2.1.0: the four design card states; 2.2.0: the cards from `stepsFor()`) | Not deployed |
 | Opportunity User Event (2.3) | 1.0.0 | `cdb_ue_opportunity.js` | beforeLoad, VIEW, UI only: the *Request design information* button and its banner | New |
-| Send design information Suitelet (2.3) | 1.1.2 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
+| Send design information Suitelet (2.3) | 1.2.0 | `cdb_sl_send_designinfo.js` | Internal, login required: confirm page (1.1.0: step tick boxes, fix the facts), then the *Tell us about your property* email | New |
 | Customer User Event (part A) | 1.0.0 | `cdb_ue_customer.js` | afterSubmit, create/edit/xedit, all contexts: keeps `custentity_cdb_link` right | New |
 | Link backfill Map/Reduce (part A) | 1.0.0 | `cdb_mr_link_backfill.js` | Rerunnable: writes `custentity_cdb_link` wherever it is missing or wrong | New |
 | Sales order User Event (2.0) | 2.0.0 | `cdb_ue_salesorder.js` | beforeLoad, VIEW, UI only: the *Send delivery link* button and its banner | New |
 | Send link Suitelet (2.0) | 2.0.5 | `cdb_sl_send_link.js` | Internal, login required: emails the customer a direct delivery link for one order | New |
-| Config library | 3.5.1 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
+| Config library | 3.6.0 | `lib/cdb_lib_config.js` | Every script, field and parameter ID; the settings record and the order a value is chosen in (3.0); what empty means; the `CDB ` log prefix; the 2.0 email and banner wording; the email standard's constants | Not deployed |
 | Token library | 2.1.0 | `lib/cdb_lib_token.js` | Sign and verify the link; `buildLink(customerId, extra)`; 2.1.0: the EXTERNAL CONSUMER note and the pure `linkMatches()` | Not deployed |
 | Link library (part A) | 1.0.0 | `lib/cdb_lib_link.js` | `ensure()`: the one check-and-write of `custentity_cdb_link`, shared by the User Event and the backfill | New |
 | Dates library | 1.3.3 | `lib/cdb_lib_dates.js` | Pure: working days, earliest date, window, calendar, London today, the customer-facing date (`formatDisplay`), the approximate month (`formatMonthYear`, 1.3.3) | Not deployed |
-| Data library | 2.4.0 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
-| Design information library (2.3) | 1.2.1 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
-| Render library | 2.5.2 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
-| Task library | 1.5.2 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task | Not deployed |
+| Data library | 2.4.1 | `lib/cdb_lib_data.js` | Reads: customer → opportunities → orders, grouping, the guards (`guardOrder`, 2.1 `guardOpportunity`, 2.3 `guardDesignInfo`), validation; the email recipient, author and AM card data; 2.2: the three one-purpose writes (`writeProjectDetails` (2.2.1; was `writeProjectName`), `addToAddressBook`, `writeDeliveryAddress`); 2.3: the registry, the design information load, validation and write, uploads, the opportunity extras and the card states | Not deployed |
+| Design information library (2.3) | 1.3.0 | `lib/cdb_lib_designinfo.js` | Pure: the registry CSV (1.1.0: v1 or v2 header; 1.2.0: v3), the facts (1.2.0: heat sets), `when`, `reveal`, `stepsFor()`, progress, the state JSON (1.2.0: `rq`), upload names, the element cards and the EPC mapping | New |
+| Render library | 2.6.0 | `lib/cdb_lib_render.js` | Pure HTML from the canvas: page, sections, form, confirmations, 2.1 the update page, 2.3 the design information page and cards (2.4.0: as a stepper); the email standard's blocks, the digest, the delivery-link email and (2.3) the request email | Not deployed |
+| Task library | 1.6.0 | `lib/cdb_lib_task.js` | The Task for the AM/PE; 1.3: the customer update and not-going-ahead Tasks, a priority option; 1.4: the *NEW ADDRESS –* delivery Task and the project name; 1.4.1: the project details and the *SURCHARGE* line; 1.5.0: the design information Note and *DESIGN INFO –* Task; 1.6.0: `topLines` (the call request first) | Not deployed |
 | Question registry (2.3) | 3 | `content/design-info-registry.csv` (repo root; uploaded to `SuiteScripts/NuHeat/Customer Dashboard Content/`) | The design information questions, wording, *Why* text and conditions. A CSV has no `# version` line: the version is this row | New |
 | Element presets (2.3c) | — | `content/element-presets.csv` (uploaded beside the registry) | `element,key,label,u`: the element cards' choices. Designers may edit | New |
 | Age bands (2.3c) | — | `content/age-bands.csv` (beside the registry) | `key,label,walls,windows,roof,floor`: what *Typical for the age* and the Building Regulations rows fill. Designers may edit | New |
@@ -1014,8 +1014,8 @@ bar's and the email's label. `image` is still unused (pictures come from setting
 
 | id | `section_title` | `short` | minutes |
 |---|---|---|---|
-| project | Your project | Your project | 1 |
-| plans | Your plans and layout | Plans (amendment 2; was Plans and layout) | 2 |
+| project | Your project | Your project | 3 (amendment 3: was 1; takes the plans questions, the property type and the market) |
+| ~~plans~~ | ~~Your plans and layout~~ | removed in amendment 3 (was Plans) | ~~2~~ |
 | insulation | Understanding the heat loss of your property | Heat loss | 5 |
 | heating | Heating and controls | Heating | 2 |
 | heatpump | Heat pump information required for MCS | Heat pump | 4 |
@@ -1041,7 +1041,7 @@ bar's and the email's label. `image` is still unused (pictures come from setting
 question's current answer key is listed. **Current answer** = the value posted in this request when there is one, else the
 stored one (the field; the state; a declined fill-rule answer). **The missing-question rule:** a clause on a question
 **absent for this opportunity** (its `when` is false) is **true**; on a question present but **hidden by its own reveal**,
-**false** — so hiding cascades. **Parse-time checks:** the named qid is an **earlier question of the same section**, a yesno
+**false** — so hiding cascades. **Parse-time checks:** the named qid is an **earlier question of the same section** (amendment 3: of any section), a yesno
 or a choice with keys, and each key is one of its keys (`yes`/`no` for a yesno); a failing row is rejected and logged.
 Consequence: a row whose `reveal` names a **rejected** row is rejected too — with `DI_MARKET_OPTIONS` empty, 45 of step 3's
 rows go (only the drawings rows are left). **Render:** every reveal panel is in the page (`<div class="rvp"
@@ -1086,6 +1086,60 @@ so the Task's extension line always has "what is it".
 - **The request page's tick boxes** are one INLINEHTML block, *Steps to ask for*, one per line in step order, with Your
   project and Anything else as fixed *(always included)* lines; they post `custpage_step_<id>=T` as before.
 - Held: the MCS pictures not loading in the built-in browser (Steve to check on a phone), and the design-call wording.
+
+**Amendment 3 (12 Oct; dashboard 2.6.0, render 2.6.0, designinfo 1.3.0, config 3.6.0, task 1.6.0, data 2.4.1, send 1.2.0):
+six steps, and no design call assumed.**
+- **Six steps.** *Plans* is gone: its questions moved to Your project, and the property type and the market moved there from
+  Heat loss, asked of everyone (no `when`). Your project, in order: the facts card · *Is this the right address for the
+  installation?* · the goods date · the design contact · the property type (+ the flat's floor) · new build or renovation ·
+  *Have your plans changed since your quote?* (+ the upload and the big files tick). The qids are kept. A state or `rq` that
+  names `plans` (or any other step the registry no longer has) is ignored without error and logged with the unknown qids,
+  once per request (`CDB DESIGNINFO_STATE_QID_UNKNOWN`, `… plans (step)`; `designinfo.unknownStateSteps()`). The request
+  page's ticks are Heat loss, Heating and Heat pump. The fill rule is unchanged.
+- **A reveal across steps.** Heat loss reveals on the market, now on Your project. `parseRegistry` accepts a `reveal` naming
+  any **earlier** question (any section; was: the same section). The page's script cannot see a question on another step,
+  so the server decides that clause on the stored answer and sends it fixed: `data-reveal` `[qid, keys, true|false]`
+  (`applyReveal`); the script honours the third element. Without script the panel shows with its *If you chose …* heading,
+  as before.
+- **The first visit.** A link without `&step=` opens the first step (Your project), or Review once sent (was: the first step
+  still to do).
+- **The card.** *You're having* in plain words (`designinfo.systemWords()`): *Underfloor heating and a heat pump* /
+  *Underfloor heating* / *A heat pump*, or the row is left out. Underfloor heating: the floor constructions name a floor (or
+  are unknown with a known design service); a heat pump: the heat set holds `nuheat_hp`. The full site address on its own
+  lines. No design call row (nor on the dashboard's card).
+- **The site address question.** `site_ok` (Yes/No, state) — No reveals `site_new`, *What's the correct site address?*
+  (long, state, clipped at 200, needed when revealed). It goes to the Note and the Task as *Customer says the site address
+  is: …* (the Task adds "Update the opportunity yourself if it is right; the dashboard did not change it.") and is **never
+  written to the address**.
+- **Plans changed** is a choice (state): *No, you have the latest plans* (`no`) · *Yes, and I've already sent them to
+  Nu-Heat* (`sent`) · *Yes, I'll upload them here* (`yes`). `yes` reveals the upload and *Some of my files are bigger than
+  10 MB.* (hint: *Tick this and {PE first name} will send you a secure link…*); `sent` reveals the optional *When and how
+  did you send them?* (text, state). A 2.3c yes/no answer reads as its key: an old *yes* is the upload, an old *no* is No.
+- **The call is asked, not assumed.** The footer: *Stuck on anything? It's fine to skip it. If you'd like to talk it
+  through, ask for a call when you send, or email {name}* (a mailto link to the PE or AM). *(we'll cover this on your call)*
+  is now *(your Project Engineer will check this with you)*. Review: *You can send now and finish the rest later.*, and the
+  box **I'd like a call to talk through my design** with *Best time and number to call (optional)* (text, 100; shown always
+  without script, and while ticked with it). On Send the Task's and the Note's first line is *Customer would like a call*
+  (`: <time and number>` when given); the state keeps it as `c: { y: 1, t }`, and Review shows it ticked again.
+- **Heat loss** in order: a drawings card (an info line, drawings, then ceilings and windows), an insulation card (an info
+  line, the route, **the age only for the Typical route**, SAP, EPC), the four house cards, then the extensions card
+  (renovation only: an info line, *Does the project include an extension?*, how many) and the extension cards. The element
+  card puts the select and the exact U-value (about 140 px, with its unit) on one row, stacked below 600 px; the notes below.
+- **Heating** in order: the manifolds; *Anywhere we shouldn't heat?*, the layouts upload and *through walls* (on every floor
+  that takes pipe, whatever the heat set); screed / joists; floor coverings; then the heat source rows. Yes/No questions
+  everywhere are two choice tiles with radio circles.
+- **Empty cards.** A card whose questions are all hidden by `reveal` carries `rvhide`, hidden only under `.js` — without
+  script every card shows. The script's `run()` toggles `rvhide` and marks the first visible question `.first` (no divider),
+  so a card appears when an answer reveals its first question.
+- **Heat pump labels:** *Already provided on floor plans · Yes, I'll upload it · I'll describe its location* (the heat pump)
+  and *… · I'll describe it* (buffer, cylinder). The keys are unchanged.
+- **Pictures:** a fixed 170 px box (140 px below 600 px), `object-fit: contain`, centred; the label 15 px regular; the cards
+  aligned to the top and the same height.
+- **The request email.** *Hi {first name},*; *I'm {PE first name}, your Project Engineer. I'll be your main contact for your
+  {system} all the way through design and delivery.* (the AM variant names the PE); the survey paragraph with the asked
+  steps' minutes; *give me a call on {phone} or reply to this email* — the sender's employee `phone`, else `mobilephone`
+  (`data.getEmployee()`), else *just reply to this email*. `{system}` is `systemWords().lower`, else *heating system*. No
+  *Before we speak*, no note box, no design call row. *What happens next* is three steps without timeframes.
 
 **The heat facts (§B2).** `heat` is a **set**. First `custbody_heat_source_type_26` (Multiple Select: an array from
 `record.getValue`, a `"4,10"` string from a search, `\u0005`-joined when posted; `designinfo.idsOf()` normalises) through
@@ -2008,7 +2062,7 @@ Every title starts `CDB `.
 | `CDB DESIGNINFO_NO_BUTTON` (2.3) | debug | Why the opportunity shows no *Request design information* button | — |
 | `CDB DESIGNINFO_TASK_CLIPPED` (2.3.1) | audit | The DESIGN INFO Task's snapshot was clipped at 3,900 | — (the Notes hold every change; the record holds every answer) |
 | `CDB DESIGNINFO_STATE_TRIMMED` (2.3.1; 2.3.2) | audit | The state was over 3,500 characters; it kept only its last 5 files (older ones stay on the opportunity and in the Notes) | — |
-| `CDB DESIGNINFO_STATE_QID_UNKNOWN` (2.4.0) | audit | The state holds answers under qids the registry no longer has (the v2 registry removed some); they are ignored, once per request | — |
+| `CDB DESIGNINFO_STATE_QID_UNKNOWN` (2.4.0) | audit | The state holds answers under qids the registry no longer has (the v2 registry removed some); they are ignored, once per request. 2.6.0: and saved steps or `rq` entries it no longer has (`plans`), listed as `<id> (step)` | — |
 | `CDB DESIGNINFO_STEP_UNKNOWN` (2.4.0) | debug | A `&step=` that is unknown or hidden for this project; the first step is shown | — |
 | `CDB DESIGNINFO_NO_CHANGE` (2.4.1) | debug | A navigation post with no change and no file: nothing written | — |
 | `CDB DESIGNINFO_WRITE_RETRY` (2.3.1) | audit | The one write of the fields and the state failed; the fields were retried alone | Read the details |
@@ -2217,6 +2271,10 @@ In order. Nothing changes for customers at any step.
    1.1.0 → `cdb_mr_digest.js` 2.2.0. The task library, the User Events and the send link Suitelet are unchanged.
 7. Expect `CDB DESIGNINFO_STATE_QID_UNKNOWN` once per request on opportunities that saved 2.3b answers under the removed
    qids (`build_stage`, `w3w`, `plans_current`, `ins_choice`, `year`, `walls_*`, `hp_*`, `nb_*`, `dhw`, `ground_loop`, …).
+8. **Amendment 3** (all overwriting, after the above): `content/design-info-registry.csv` (six steps) →
+   `lib/cdb_lib_config.js` 3.6.0 → `lib/cdb_lib_designinfo.js` 1.3.0 → `lib/cdb_lib_data.js` 2.4.1 → `lib/cdb_lib_task.js`
+   1.6.0 → `lib/cdb_lib_render.js` 2.6.0 → `cdb_sl_dashboard.js` 2.6.0 → `cdb_sl_send_designinfo.js` 1.2.0. No new field
+   or settings row. Expect `… plans (step)` in `CDB DESIGNINFO_STATE_QID_UNKNOWN` on opportunities that saved the Plans step.
 
 **Tests in Production** (an HP Design test opportunity with Heat Source Type set):
 
@@ -2512,6 +2570,21 @@ Sandbox-refresh link, the first 10 failures); `buildLink` and the direct links u
     cannot show the number, because the field that holds it is not known to the page (`custbody_domestic_hot_water_2026`
     rendered read-only, so it is not a text field). Tell us the field and its type if the line should show the number.
     (c) The pictures and (d) the design-call wording are held.
+14. **Amendment 3: Your project is no longer optional.** The brief keeps Your project's step status rule, but it now holds
+    required questions (the property type, the market, plans changed), so it can show *To do* and be named in *Still to
+    do* / *Go to Your project*, not only *Checked*. Mark them optional in the registry if Your project should never hold
+    the customer up.
+15. **Amendment 3: empty cards and JavaScript off.** "Hide a section when all its questions are reveal-hidden" and "the page
+    works with JavaScript off" pull apart: a hidden attribute would hide the card for good without script. The server adds
+    the class `rvhide`, which hides only under `.js`; without script every card shows, with its *If you chose …* headings.
+16. **Amendment 3: the heat source rows' place.** The brief orders Heating's first four groups; `heat_boiler`,
+    `heat_user_hp`, `heat_other` and `cylinder` are placed after the coverings.
+17. **Amendment 3: the corrected site address** is a state `long` answer, so it is clipped at 200 characters (the state's
+    limit), not 4,000.
+18. **Amendment 3: where we shouldn't heat** keeps the floor `when` (`fc=solid,joisted,overfloor,acoustic,unknown`): it is
+    asked for every heat set, but a heat-pump-only project (no floor) has no Heating step, as before.
+19. **Amendment 3: `rq` naming plans.** A request sent before amendment 3 may have `plans` in `rq`; it is ignored (and
+    logged), so that request's steps are the others it names.
 
 ### Release 2.3 — unverified in the account (check in Sandbox)
 

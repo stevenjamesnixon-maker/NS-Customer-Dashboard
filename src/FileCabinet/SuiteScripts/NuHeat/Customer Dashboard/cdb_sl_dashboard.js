@@ -149,14 +149,22 @@
  * the Task's extension line always has it; epcLookup's bearer token is `epcToken` (it shadowed the imported `token` module);
  * a preset of U 0 shows as "about U 0.00".
  *
- * @NApiVersion 2.1
- * @NScriptType Suitelet
- * @NModuleScope SameAccount
  * 2.5.2 (2.3c amendment 2): the element dropdown keeps Not sure and I'll describe it (and Built to current Building
  * Regulations on an extension's card only; never Typical for the age); a card pre-filled with typical or regs shows that
  * entry; Review rows carry required (an optional one not answered is left out).
  *
- * @version 2.5.2
+ * 2.6.0 (2.3c amendment 3, six steps): Plans folds into Your project (the registry); a reveal may name a question on an
+ * earlier STEP — its clause is decided here and sent to the page fixed (data-reveal [qid, keys, true|false]); a link without
+ * &step= opens the first step (Your project), or Review once sent; the card says what the customer is having in plain words
+ * (designinfo.systemWords()) and has no design call row; "Is this the right address?" — No asks for the address, kept in
+ * the state and given to the PE as "Customer says the site address is: …", never written to the address; Review asks "I'd
+ * like a call to talk through my design" (the state's call; the Task's and the Note's first line); saved steps and rq
+ * entries the registry no longer has (plans) are logged with the unknown qids.
+ *
+ * @NApiVersion 2.1
+ * @NScriptType Suitelet
+ * @NModuleScope SameAccount
+ * @version 2.6.0
  */
 define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', './lib/cdb_lib_token',
     './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render', './lib/cdb_lib_task', './lib/cdb_lib_designinfo',
@@ -165,7 +173,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
     'use strict';
 
-    var VERSION = '2.5.2';
+    var VERSION = '2.6.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
 
@@ -1385,6 +1393,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
     var STORE = designinfo.STORE;
     var OPPF = config.FIELDS.OPPORTUNITY;
 
+    /** 2.6.0: the corrected site address (Your project; kept in the state, never written to the address). */
+    var SITE_QID = 'site_new';
+
     /** 2.5.0: the EPC certificate number's shape (epc_lib's validCertificateNumber, checked here before any call). */
     var EPC_NUMBER_RE = /^\d{4}-\d{4}-\d{4}-\d{4}-\d{4}$/;
 
@@ -1528,9 +1539,12 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             once('DESIGNINFO_STATE_INVALID', 'Opportunity ' + guard.opportunity.id + ': ' + parsed.detail + '; treated as empty.');
         }
         // 2.4.0: answers stored under qids the registry no longer has (the v2 registry) are ignored, logged once.
-        if (designinfo.unknownStateQids(parsed.state, reg.questions).length) {
+        // 2.6.0: and saved steps or rq entries it no longer has (the six-step registry folded plans into Your project).
+        if (designinfo.unknownStateQids(parsed.state, reg.questions).length ||
+                designinfo.unknownStateSteps(parsed.state, reg.questions).length) {
             once('DESIGNINFO_STATE_QID_UNKNOWN', 'Opportunity ' + guard.opportunity.id + ': ignored, not in the registry: ' +
-                designinfo.unknownStateQids(parsed.state, reg.questions).join(', '));
+                designinfo.unknownStateQids(parsed.state, reg.questions).concat(designinfo.unknownStateSteps(parsed.state,
+                    reg.questions).map(function (id) { return id + ' (step)'; })).join(', '));
         }
         facts = designinfo.buildFacts({ valueProposition: rec.info.valueProposition, fc: rec.info.fc,
             heatSource: rec.info.heatSource, heatSource26: rec.info.heatSource26, market: rec.info.market,
@@ -1702,8 +1716,17 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             if (v.q.reveal && v.q.reveal.alternatives && v.q.reveal.alternatives.length) {
                 dc.questions.forEach(function (x) { src[x.q.qid] = x.q; });
                 v.revealHeading = designinfo.revealHeading(v.q, src);
+                // 2.6.0: a clause on a question of ANOTHER step (or absent) is decided here — the page cannot see that
+                // question — and sent fixed: [qid, keys, true|false]. A clause on this step's question is left to the script.
                 v.revealSpec = v.q.reveal.alternatives.map(function (alt) {
-                    return alt.map(function (c) { return [c.qid, c.keys]; });
+                    return alt.map(function (c) {
+                        var ctl = src[c.qid];
+                        if (ctl && ctl.section === v.q.section) {
+                            return [c.qid, c.keys];
+                        }
+                        return [c.qid, c.keys, !ctl ? true : map[c.qid] === false ? false :
+                            c.keys.indexOf(keyOfQuestion(dc, byQid[c.qid], params)) >= 0];
+                    });
                 });
             }
         });
@@ -1906,11 +1929,6 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         return designinfo.completeness(dc.questions.map(function (v) { return v.q; }), answerValues(dc), dc.state);
     }
 
-    /** "<FC text> · <heat source text>" (2.5.0: Heat Source Type's text first, else the Sales MI's). */
-    function havingText(info) {
-        return [info.fcText, info.heatSource26Text || info.heatSourceText].filter(function (x) { return !!x; }).join(' · ');
-    }
-
     /** 2.4.0: the URL of a step ('review' for the review). */
     function stepUrl(ctx, dc, stepId, extra) {
         return ctx.baseUrl + '&a=designinfo&opp=' + encodeURIComponent(dc.opp.id) + '&step=' + encodeURIComponent(stepId) +
@@ -1923,12 +1941,6 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             sec.href = stepUrl(ctx, dc, sec.id);
             return sec;
         });
-    }
-
-    /** 2.4.0: the first step still to do, else 'review'. */
-    function firstTodo(steps) {
-        var todo = steps.filter(function (x) { return x.status === 'todo'; })[0];
-        return todo ? todo.id : 'review';
     }
 
     /** 2.4.0: one question's value on Review — as the Task's snapshot reads it; "Given" for a Note-only answer sent. */
@@ -2041,7 +2053,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
             recipient: dc.recipient,
             opp: { id: dc.opp.id, tranId: dc.rec.info.tranId || dc.opp.tranId, title: dc.rec.info.title || dc.opp.title,
                 siteAddress: dc.rec.info.siteAddress },
-            project: { havingText: havingText(dc.rec.info), thermostatsText: dc.rec.info.thermostatsText, neoHub: dc.rec.info.neoHub,
+            project: { havingText: designinfo.systemWords(dc.facts).text, thermostatsText: dc.rec.info.thermostatsText, neoHub: dc.rec.info.neoHub,
                 serviceText: dc.rec.info.valuePropositionText, callKey: callKey },
             token: ctx.token,
             actionUrl: ctx.baseUrl,
@@ -2068,6 +2080,8 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         if (dc.mode !== 'edit' || index < 0) {
             m.currentId = 'review';
             m.todo = steps.filter(function (x) { return x.status === 'todo'; });
+            // 2.6.0: the call request, as last sent (ticked again when the customer comes back).
+            m.call = { want: dc.state.call === 'yes', when: dc.state.callWhen || '' };
             m.review = steps.map(function (x) {
                 // In question order; an unanswered row has value '' (Review shows "Not answered yet" in a todo step only).
                 // 2.5.0: only the revealed questions.
@@ -2161,7 +2175,8 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         steps = designSteps(ctx, dc);
         ids = steps.map(function (x) { return x.id; });
         if (!step) {
-            step = firstTodo(steps);
+            // 2.6.0: the first visit opens the first step (Your project); once sent, Review.
+            step = dc.state.sent ? 'review' : (ids[0] || 'review');
         } else if (step !== 'review' && ids.indexOf(step) < 0) {
             log.debug({ title: title('DESIGNINFO_STEP_UNKNOWN'), details: 'Opportunity ' + dc.opp.id + ': step "' + step +
                 '" is unknown or hidden; the first step is shown' });
@@ -2304,6 +2319,12 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 item.label = 'Goods needed';
                 item.oldText = out.goods.have;
                 item.newText = 'customer says ' + out.goods.says;
+            }
+            // 2.6.0: the corrected site address goes to the PE as words; the address field is never written.
+            if (q.qid === SITE_QID) {
+                item.label = 'Site address';
+                item.oldText = '';
+                item.newText = 'Customer says the site address is: ' + nv;
             }
             out.items.push(item);
             if (q.store === STORE.STATE || (q.store === STORE.NOTE && (q.type === 'date' || q.type === 'choice'))) {
@@ -2497,6 +2518,11 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         if (send) {
             s.sent = nowIso;
             s.lastTaskAt = nowIso;
+            // 2.6.0: the call request on Review, as sent.
+            if (ch.call) {
+                s.call = ch.call.want ? 'yes' : '';
+                s.callWhen = ch.call.want ? ch.call.when : '';
+            }
         }
         return s;
     }
@@ -2689,6 +2715,9 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         }
 
         ch = designChanges(dc, check.values, params);
+        // 2.6.0: Review's "I'd like a call to talk through my design" (call=yes) and its best time and number.
+        ch.call = send ? { want: String(params.call || '') === 'yes', when: designinfo.plainValue(String(params.call_when ||
+            '').replace(/[\r\n]+/g, ' ').replace(/^\s+|\s+$/g, ''), designinfo.CALL_WHEN_MAX) } : null;
         for (k in check.files) {
             if (check.files.hasOwnProperty(k) && check.files[k].length) {
                 hasFiles = true;
@@ -2793,6 +2822,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
 
         // Step 4: the Note, every save.
         noteResult = task.buildDesignInfoNote({
+            topLines: callLines(ch.call),
             sectionsSaved: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).filter(function (x) {
                 return touched.indexOf(x.id) >= 0;
             }).map(function (x) { return x.title; }),
@@ -3004,6 +3034,12 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         return renderDesignInfo(ctx, dc, extra);
     }
 
+    /** 2.6.0: "Customer would like a call" (and the best time and number), for the top of the Task and the Note. */
+    function callLines(call) {
+        return call && call.want ? ['Customer would like a call' + (call.when ? ': ' + designinfo.plainValue(call.when, 100) :
+            '.')] : [];
+    }
+
     /** "dd/mm/yyyy HH:mm" (London) of a stored time, '' for none. */
     function londonText(iso) {
         var ms = Date.parse(iso || '');
@@ -3084,6 +3120,10 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
                 return designinfo.plainValue(x, 200);
             }).join(', '));
         });
+        if (byQid[SITE_QID] && byQid[SITE_QID].q.revealed !== false && s.answers[SITE_QID]) {
+            out.push('Customer says the site address is: ' + designinfo.plainValue(s.answers[SITE_QID], 300) + '. Update the ' +
+                'opportunity yourself if it is right; the dashboard did not change it.');
+        }
         if (extraValue(dc, OPPF.EPC_NUMBER)) {
             out.push('EPC used: certificate ' + extraValue(dc, OPPF.EPC_NUMBER) + (extraValue(dc, OPPF.EPC_DATE) ? ', lodged ' +
                 designinfo.slashDate(extraValue(dc, OPPF.EPC_DATE)) + ', valid until ' +
@@ -3107,6 +3147,7 @@ define(['N/record', 'N/runtime', 'N/log', 'N/redirect', './lib/cdb_lib_config', 
         var extraLines = taskExtraLines(dc, s, ch);
         comp.sections.forEach(function (x) { statusOf[x.id] = x.status; });
         return task.buildDesignInfoMessage({
+            topLines: callLines(ch.call || (s.call === 'yes' ? { want: true, when: s.callWhen } : null)),
             complete: comp.complete,
             missing: comp.missing,
             sections: designinfo.sectionsOf(dc.questions.map(function (v) { return v.q; })).map(function (sec) {

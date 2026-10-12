@@ -145,14 +145,14 @@ function getStep(t, step) {
 
 test('GET (2.4.0): a step per screen — the step bar, the intro card, one multipart form, Back and Save and continue', function () {
     var t = setup();
-    var html = get(t);
+    // 2.3c amendment 3 §2: a link without step= opens the first step, so this test asks for Your plans by name.
+    var html = getStep(t, 'plans');
     assert.ok(html.indexOf('<title>Your plans \u00b7 Tell us about your property | Nu-Heat</title>') > 0, 'the step in the title');
     assert.ok(html.indexOf('Design questions? Call Pem Engineer on <a href="tel:0101">0101</a>') > 0, 'the PE, a PE case');
     assert.ok(html.indexOf('<form id="diform" class="fcol" method="post" enctype="multipart/form-data"') > 0);
     assert.strictEqual((html.match(/<form /g) || []).length, 1, 'one form');
     assert.ok(html.indexOf('<input type="hidden" name="a" value="designinfo">') > 0);
     assert.ok(html.indexOf('<input type="hidden" name="opp" value="20">') > 0);
-    // No step: the first step still to do (Your project has nothing required).
     assert.ok(html.indexOf('<input type="hidden" name="step" value="plans">') > 0);
     // The step bar: HP Design, solid + joisted, Nu-Heat heat pump, existing house; then Review.
     assert.deepStrictEqual((html.match(/name="goto" value="[a-z]+"/g) || []).map(function (x) { return x.split('"')[3]; }),
@@ -166,7 +166,9 @@ test('GET (2.4.0): a step per screen — the step bar, the intro card, one multi
     assert.strictEqual(html.indexOf('name="q_build_stage"'), -1, 'another step');
     // Per type.
     assert.ok(html.indexOf('<details class="why"><summary>? Why</summary><p>Plans change between quote and build.') > 0);
-    assert.ok(/<input class="sr" type="radio" name="q_plans_current" value="yes"/.test(html), 'yesno');
+    // 2.3c amendment 3 §6: Yes/No are choice tiles with their radio circles.
+    assert.ok(/<div class="opts opts2"><label class="optc"><input type="radio" name="q_plans_current" value="yes" data-key="yes"/
+        .test(html), 'yesno');
     assert.ok(html.indexOf('<textarea class="inp" id="di-ceilings" name="q_ceilings" maxlength="4000" placeholder="e.g. sections ' +
         'on the plans.') > 0, 'pre-filled from the opportunity, with its placeholder');
     assert.ok(html.indexOf('>All 2.4 m</textarea>') > 0);
@@ -175,8 +177,10 @@ test('GET (2.4.0): a step per screen — the step bar, the intro card, one multi
     assert.ok(html.indexOf('<button type="submit" class="out" name="nav" value="back">← Back: Your project</button>') > 0);
     assert.ok(html.indexOf('<button type="submit" class="cta" name="nav" value="next">Save and continue →</button>') > 0);
     assert.ok(html.indexOf('form="diform" name="nav" value="exit">Save and exit</button>') > 0, 'in the header');
-    assert.ok(html.indexOf('Stuck on anything? It’s fine to skip it. Pem will go through it on your design call. Call 0101 ' +
-        'if you’d rather talk now.') > 0);
+    // 2.3c amendment 3 §4: no design call assumed.
+    assert.ok(html.indexOf('Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you ' +
+        'send, or email <a href="mailto:') > 0);
+    assert.strictEqual(html.indexOf('design call'), -1);
     // The right column is gone.
     assert.strictEqual(html.indexOf('What each design service needs'), -1);
     assert.strictEqual(html.indexOf('<aside'), -1);
@@ -195,10 +199,12 @@ test('GET (2.4.0): step 1 — the project facts card; no Back, "Your projects" i
     var html = getStep(t, 'project');
     assert.ok(html.indexOf('<p class="eyebrow">Step 1 of 7 · about 1 minute</p>') > 0);
     assert.ok(html.indexOf('<h2 id="h-facts">Your project, as we have it</h2>') > 0);
-    assert.ok(html.indexOf('<dt>You’re having</dt><dd>In floor, solid + joisted · Nu-Heat heat pump</dd>') > 0);
+    // 2.3c amendment 3 §3: in plain words.
+    assert.ok(html.indexOf('<dt>You’re having</dt><dd>Underfloor heating and a heat pump</dd>') > 0);
     assert.ok(html.indexOf('<dt>Thermostats</dt><dd>Neo thermostats with a Neo hub</dd>') > 0);
     assert.ok(html.indexOf('<dt>Design service</dt><dd>HP Design</dd>') > 0);
-    assert.ok(html.indexOf('<dt>Site address</dt><dd>Plot 4, Village</dd>') > 0);
+    // 2.3c amendment 3 §3: the full site address, on its own lines.
+    assert.ok(html.indexOf('<dt>Site address</dt><dd>Plot 4<br>Village</dd>') > 0);
     assert.ok(html.indexOf('name="q_design_contact" value="" maxlength="300"') > 0);
     assert.ok(html.indexOf('<input class="inp" type="date" id="di-goods_date" name="q_goods_date" value=""') > 0);
     assert.strictEqual(html.indexOf('name="nav" value="back"'), -1, 'nothing before step 1');
@@ -349,7 +355,7 @@ test('choice @field: getSelectOptions() failing or UPD_BUILD_STAGES empty shows 
         var t = i ? setup({ settings: { UPD_BUILD_STAGES: null } }) : setup();
         if (f) { f(t); }
         var html = getStep(t, 'project');
-        assert.ok(html.indexOf('<p class="ro">Foundations <span class="muted">(we\u2019ll cover this on your call)</span></p>') > 0);
+        assert.ok(html.indexOf('<p class="ro">Foundations <span class="muted">(your Project Engineer will check this with you)</span></p>') > 0);
         assert.strictEqual(html.indexOf('name="q_build_stage"'), -1);
         assert.strictEqual(logs(t.w, 'DESIGNINFO_OPTIONS_UNAVAILABLE').length, 1);
     });
@@ -385,7 +391,7 @@ test('a date question on a DATE field writes a Date; on a non-DATE field it is r
     post(t, { step: 'project', q_start: key });
     assert.ok(oppWrites(t.w)[0].values.custbody15 instanceof Date);
     var u = setup({ registry: reg });
-    assert.ok(getStep(u, 'project').indexOf('(we\u2019ll cover this on your call)') > 0);
+    assert.ok(getStep(u, 'project').indexOf('(your Project Engineer will check this with you)') > 0);
     assert.strictEqual(logs(u.w, 'DESIGNINFO_FIELD_MISMATCH').length, 1);
 });
 
@@ -416,7 +422,7 @@ test('a mismatched field: shown read-only, never written even when posted, liste
     t.w.oppFieldTypes.custbody15 = 'select';
     t.w.opps[20].custbody15_text = '1930s';
     var html = getStep(t, 'insulation');
-    assert.ok(html.indexOf('<p class="ro">1930s <span class="muted">(we\u2019ll cover this on your call)</span></p>') > 0);
+    assert.ok(html.indexOf('<p class="ro">1930s <span class="muted">(your Project Engineer will check this with you)</span></p>') > 0);
     assert.strictEqual(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH').length, 1);
     post(t, { step: 'insulation', q_year: '1990', send: '1' });
     oppWrites(t.w).forEach(function (o) { assert.strictEqual(o.values.hasOwnProperty('custbody15'), false); });
@@ -538,7 +544,7 @@ test('files: a failed attach keeps the file and says so; a failed save says so; 
     assert.strictEqual(oppWrites(u.w)[0].values.custbody_elevations_window_sizes_2026, 'Lots', 'the answers still save');
 
     var v = setup({ settings: { DESIGNINFO_FOLDER: null } });
-    assert.ok(get(v).indexOf('We can\u2019t take files here at the moment.') > 0);
+    assert.ok(getStep(v, 'plans').indexOf('We can\u2019t take files here at the moment.') > 0);
     html = post(v, { step: 'plans', q_windows: 'Lots' }, { f_plans_files_1: part(v, 'a.pdf') });
     assert.strictEqual(v.w.savedFiles.length, 0);
     assert.strictEqual(logs(v.w, 'DESIGNINFO_NO_FOLDER').length, 1);
@@ -597,7 +603,8 @@ test('the Task, only on Send: title, assignee, what is missing, a snapshot of th
     var st = state(t.w);
     assert.ok(st.sent && st.lastTaskAt === st.sent);
     assert.ok(/^\d{4}-\d\d-\d\dT\d\d:\d\dZ$/.test(st.sent), 'to the minute');
-    assert.ok(html.indexOf('<p>Sent to Pem Engineer.</p><p>Pem will read it all before your design call.</p>') > 0);
+    // 2.3c amendment 3 §4: no design call assumed.
+    assert.ok(html.indexOf('<p>Sent to Pem Engineer.</p><p>Pem will read it all and be in touch.</p>') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_SAVED')[1][2].indexOf('send yes, Task 555') > 0);
     // The next Send is a snapshot again, and points to the Notes after the previous send.
     post(t, { send: '1', q_other: 'Zoning please' });
@@ -748,18 +755,20 @@ test('cards: info_sent — received on the date, the PE\'s first name, "View or 
     var st = JSON.parse(JSON.stringify(SAVED));
     st.sent = '2026-10-02T14:10:00Z';
     var c = cards(st);
-    assert.ok(/Information received, [A-Z][a-z]{2} 2 Oct( 2026)?\. Pem is reviewing it and will go through any questions on your design call\./
+    // 2.3c amendment 3 §4: no design call assumed.
+    assert.ok(/Information received, [A-Z][a-z]{2} 2 Oct( 2026)?\. Pem is reviewing it and will be in touch with any questions\./
         .test(c.row), c.row);
     assert.ok(c.row.indexOf('<a class="out" href="') > 0 && c.row.indexOf('>View or add to what you sent</a>') > 0);
     assert.ok(c.digest.indexOf('Pem is reviewing it') > 0);
     assert.ok(c.digest.indexOf('<b>VIEW OR ADD TO WHAT YOU SENT</b>') > 0);
 });
 
-test('cards: designing — the line, no button; a design call date today or later; FC none shows the old card', function () {
+test('cards: designing — the line, no button; no design call row (amendment 3); FC none shows the old card', function () {
     var d = amd.load('lib/cdb_lib_dates');
     var c = cards(null, { sub: '4', next: d.addDays(d.londonTodayKey(Date.now()), 3) });
     assert.ok(c.row.indexOf('Your design is being prepared. We\u2019ll email you when your installation drawings are ready.') > 0);
-    assert.ok(c.row.indexOf('Design call: ') > 0);
+    // 2.3c amendment 3 §4: no design call is assumed — even a call date today or later is not shown.
+    assert.strictEqual(c.row.indexOf('Design call: '), -1);
     assert.strictEqual(c.row.indexOf('a=designinfo'), -1, 'nothing saved: no view link');
     assert.ok(c.digest.indexOf('Your design is being prepared.') > 0);
     assert.strictEqual(c.digest.indexOf('a=designinfo'), -1);
@@ -940,10 +949,12 @@ test('the email: band, personal paragraph (PE), facts rows present and omitted, 
     assert.ok(b.indexOf('Tell us about your property, Acme Ltd') > 0);
     // 2.3c amendment 1: the subtitle's time is the asked steps' minutes summed (the 2.3b registry: 1 + 2 + 2 + 2 + 4 + 1).
     assert.ok(b.indexOf('Your plans and a few details are all we need to begin. About 12 minutes.') > 0);
-    assert.ok(b.indexOf('I\u2019m Pem, your Project Engineer for this system, and I\u2019ll be designing it with you.') > 0);
+    // 2.3c amendment 3 §10: the intro — the sender as the main contact, the survey's minutes, the sender's phone.
+    assert.ok(b.indexOf('I\u2019m Pem, your Project Engineer. I\u2019ll be your main contact for your underfloor heating and ' +
+        'heat pump all the way through design and delivery.') > 0);
     assert.ok(b.indexOf('QR20 \u00b7 Plot 4, Village') > 0);
     assert.ok(b.indexOf('In floor, solid + joisted \u00b7 Nu-Heat heat pump') > 0);
-    assert.ok(b.indexOf('>Design call</font>') > 0);
+    assert.strictEqual(b.indexOf('>Design call</font>'), -1, 'amendment 3 §10: no design call row');
     assert.ok(b.indexOf('>Goods needed</font>') > 0);
     assert.ok(b.indexOf('<b>TELL US ABOUT YOUR PROPERTY</b>') > 0);
     assert.ok(b.indexOf('a=designinfo&amp;opp=20') > 0);
@@ -953,8 +964,9 @@ test('the email: band, personal paragraph (PE), facts rows present and omitted, 
         'Anything else for your Project Engineer?'].forEach(function (title, i) {
         assert.ok(b.indexOf('<b>' + (i + 1) + '</b>') > 0 && b.indexOf('<b>' + title.replace('?', '?') + '</b>') > 0, title);
     });
-    assert.ok(b.indexOf('We only ask about what\u2019s on your quote, and you can stop and come back.') > 0);
-    assert.ok(b.indexOf('What happens next') > 0 && b.indexOf('Drawings in 5\u20137 days') > 0);
+    // 2.3c amendment 3 §10: the note box is gone; What happens next is three steps without timeframes.
+    assert.strictEqual(b.indexOf('We only ask about what\u2019s on your quote'), -1);
+    assert.ok(b.indexOf('What happens next') > 0 && b.indexOf('We deliver it') > 0 && b.indexOf('days') < 0);
     assert.ok(b.indexOf('<b>YOUR PROJECT ENGINEER</b>') > 0);
     assert.ok(b.indexOf('design@nu-heat.co.uk') > 0 && b.indexOf('pe@x') < 0, 'the design address instead of the PE\'s own');
     assert.ok(b.indexOf('You\u2019re receiving this because you have a project in design with Nu-Heat.') > 0);
@@ -971,7 +983,9 @@ test('the email: the account manager variant — UFH Design, a boiler: no step 2
     } });
     var b = r.w.emails[0].body;
     assert.strictEqual(r.w.emails[0].author, 88, 'not a PE case: the sales rep');
-    assert.ok(b.indexOf('I\u2019m Ray, your account manager. Pem Engineer will design your system with you.') > 0);
+    // 2.3c amendment 3 §10: the PE named as the Project Engineer for the system (UFH Design, a boiler: underfloor heating).
+    assert.ok(b.indexOf('I\u2019m Ray, your account manager. Pem Engineer will be your Project Engineer for your underfloor ' +
+        'heating, all the way through design and delivery.') > 0);
     assert.ok(b.indexOf('<b>YOUR ACCOUNT MANAGER</b>') > 0);
     // 2.3c (§B3): UFH Design with a boiler — the steps stepsFor() gives, renumbered: no insulation, no heat pump.
     assert.strictEqual(b.indexOf('<b>How well insulated is it?</b>'), -1);
@@ -1004,7 +1018,7 @@ test('A2. yesno on a CHECKBOX: unticked reads back as "no"; "no" over a ticked b
     var t = setup({ registry: reg });
     t.w.opps[20].custbody28 = false;
     var html = getStep(t, 'heating');
-    assert.ok(/name="q_through_walls" value="no" checked/.test(html), 'a stored false is "no"');
+    assert.ok(/name="q_through_walls" value="no" data-key="no" checked/.test(html), 'a stored false is "no"');
     assert.ok(html.indexOf('aria-label="Step 2 of 3: Heating and controls, done"') > 0, 'answered');
     assert.ok(getStep(t, 'review').indexOf('Heating and controls<span class="chip chip-done">Done</span>') > 0, 'answered');
     var u = setup({ registry: reg });
@@ -1068,9 +1082,9 @@ test('A3. the Task snapshot is clipped at 3,900 (DESIGNINFO_TASK_CLIPPED); long 
 test('A2. a RICHTEXT target is a type mismatch: read-only, never written, listed under "Not saved to the record"', function () {
     var t = setup();
     t.w.oppFieldTypes.custbody_elevations_window_sizes_2026 = 'richtext';
-    var html = get(t);
+    var html = getStep(t, 'plans');
     assert.strictEqual(html.indexOf('name="q_windows"'), -1);
-    assert.ok(html.indexOf('(we’ll cover this on your call)') > 0);
+    assert.ok(html.indexOf('(your Project Engineer will check this with you)') > 0);
     assert.ok(logs(t.w, 'DESIGNINFO_FIELD_MISMATCH')[0][2].indexOf('windows (custbody_elevations_window_sizes_2026 is RICHTEXT)') > 0);
     post(t, { step: 'plans', q_windows: '<img src=x onerror=alert(1)>', q_unheated: 'Garage' });
     oppWrites(t.w).forEach(function (o) {
@@ -1266,16 +1280,19 @@ function postNav(t, extra, files) {
     return t.redirect;
 }
 
-test('2.4.0 routing: no step goes to the first step still to do, else Review; a valid step is shown', function () {
+test('2.4.0 routing (2.3c amendment 3 §2): no step opens the first step, or Review once sent; a valid step is shown', function () {
     var t = setup();
-    assert.ok(get(t).indexOf('<input type="hidden" name="step" value="plans">') > 0, 'the first todo');
+    assert.ok(get(t).indexOf('<input type="hidden" name="step" value="project">') > 0, 'the first step');
     assert.ok(getStep(t, 'heatpump').indexOf('<input type="hidden" name="step" value="heatpump">') > 0);
     assert.ok(getStep(t, 'review').indexOf('<h1>Review and send</h1>') > 0);
     // Nothing still to do: Review.
     var reg = [HEADER, 'project,Your project,main,w3w,text,what3words,,,note,N,,',
         'plans,Your plans,main,bigfiles,yesno,Big?,,,state,N,,'].join('\n') + '\n';
     var u = setup({ registry: reg });
-    assert.ok(get(u).indexOf('<h1>Review and send</h1>') > 0, 'no todo step: Review');
+    assert.ok(get(u).indexOf('<input type="hidden" name="step" value="project">') > 0, 'nothing to do, not sent: still the first step');
+    var v = setup();
+    v.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 2, sent: '2026-10-01T10:00Z' });
+    assert.ok(get(v).indexOf('<h1>Review and send</h1>') > 0, 'once sent: Review');
     nothingWritten(t, 'GETs');
 });
 
@@ -1398,7 +1415,9 @@ test('2.4.0 Review: values, files by name, Yes/No, clipped at 200, "Given", chip
     assert.ok(html.indexOf('<div class="amber" role="status"><p><strong>Nearly there. 3 steps still need you: How well insulated ' +
         'is it?, Heating and controls, Your heat pump.</strong></p>') > 0);
     assert.ok(html.indexOf('<span class="cap">Goes to</span><span class="amn">Pem Engineer</span>') > 0);
-    assert.ok(html.indexOf('<input type="hidden" name="step" value="review"><div class="submitrow"><button type="submit" ' +
+    // 2.3c amendment 3 §4: the call request sits between the hidden step and the Send row.
+    assert.ok(html.indexOf('<input type="hidden" name="step" value="review"><div class="callreq">') > 0);
+    assert.ok(html.indexOf('</div></div><div class="submitrow"><button type="submit" ' +
         'class="cta" name="send" value="1">Send to Pem</button><span class="meta">Sends what you’ve done so far</span>') > 0);
     assert.ok(html.indexOf('<a href="https://example.com/drawings" target="_blank" rel="noopener">') > 0, 'the drawings link');
     assert.strictEqual(getStep(t, 'plans').indexOf('example.com/drawings'), -1, 'on Review only');
@@ -1411,8 +1430,9 @@ test('2.4.0 Send from Review: today\'s Send — the Task, then Review with the c
     assert.strictEqual(t.w.tasks.length, 1);
     assert.strictEqual(t.w.notes.length, 1);
     assert.ok(t.w.notes[0].values.note.indexOf('Sent to PE: yes') > 0);
-    assert.ok(html.indexOf('<div class="donep" role="status"><p>Sent to Pem Engineer.</p><p>Pem will read it all before your ' +
-        'design call.</p></div>') > 0);
+    // 2.3c amendment 3 §4: no design call assumed.
+    assert.ok(html.indexOf('<div class="donep" role="status"><p>Sent to Pem Engineer.</p><p>Pem will read it all and be in ' +
+        'touch.</p></div>') > 0);
     assert.ok(html.indexOf('<h1>Review and send</h1>') > 0);
     assert.ok(state(t.w).sent, 'sent');
 });
@@ -1474,7 +1494,7 @@ test('2.4.0 old qids in the state are ignored, logged once per request (DESIGNIN
     t.w.opps[20].custbody_cdb_designinfo_state = JSON.stringify({ v: 2, s: {}, a: { mcs_reflect: '1', plans_current: 'yes' },
         n: ['mcs_position'], f: [] });
     var html = getStep(t, 'plans');
-    assert.ok(/name="q_plans_current" value="yes" checked/.test(html), 'a known answer still reads');
+    assert.ok(/name="q_plans_current" value="yes" data-key="yes" checked/.test(html), 'a known answer still reads');
     var l = logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN');
     assert.strictEqual(l.length, 1);
     assert.ok(l[0][2].indexOf('mcs_reflect') > 0 && l[0][2].indexOf('mcs_position') > 0, l[0][2]);

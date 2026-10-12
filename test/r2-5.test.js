@@ -58,18 +58,19 @@ test('registry v3: the 12-, 16- and 18-column headers all parse; reveal and shor
         'plans,P,main,a,text,A,,,note,N,,,,\n').status, 'invalid', 'v3 without the v2 columns');
 });
 
-test('registry v3: the committed file parses with 0 rejected, 87 questions; titles, shorts and minutes as §B5', function () {
+test('registry v3: the committed file parses with 0 rejected, 93 questions; six steps (amendment 3), titles, shorts and minutes', function () {
     var r = parse(REGISTRY);
     var steps = di.sectionsOf(r.questions);
     assert.strictEqual(r.status, 'ok');
     assert.strictEqual(r.headerVersion, 3);
     assert.deepStrictEqual(r.rejected, []);
-    // Amendment 2: dhw_info (the hot water line) added.
-    assert.strictEqual(r.questions.length, 87);
+    // Amendment 2: dhw_info (the hot water line) added. Amendment 3: site_ok, site_new, plans_sent_how and the three Heat loss
+    // explainers (drawings_info, ins_info, ext_info) added.
+    assert.strictEqual(r.questions.length, 93);
     assert.strictEqual(REGISTRY.split(/\r?\n/)[0], V3);
     assert.deepStrictEqual(steps.map(function (s) { return [s.id, s.title, s.short, s.minutes]; }), [
-        ['project', 'Your project', 'Your project', 1],
-        ['plans', 'Your plans and layout', 'Plans', 2],
+        // Amendment 3: Plans folds into Your project.
+        ['project', 'Your project', 'Your project', 3],
         ['insulation', 'Understanding the heat loss of your property', 'Heat loss', 5],
         ['heating', 'Heating and controls', 'Heating', 2],
         ['heatpump', 'Heat pump information required for MCS', 'Heat pump', 4],
@@ -147,11 +148,12 @@ test('parseReveal: an unknown qid, a later qid, a bad key, a text question; | an
         'plans,P,main,i,text,I,,,note,N,,,,,,,"a=yes;b=x,y|e=no",'].join('\n') + '\n');
     var why = {};
     r.rejected.forEach(function (x) { why[x.qid] = x.reason; });
-    assert.ok(/not an earlier question in this section/.test(why.c), 'unknown');
+    assert.ok(/not an earlier question/.test(why.c), 'unknown');
     assert.ok(/not an earlier question/.test(why.d), 'later');
     assert.ok(/"z" is not a key of b/.test(why.f), 'bad key');
     assert.ok(/not an earlier question/.test(why.g), 'f was rejected, so it is not there');
-    assert.ok(/not an earlier question in this section/.test(why.h), 'another section');
+    // Amendment 3: an earlier question in ANOTHER section is allowed (Heat loss reveals on Your project's market).
+    assert.strictEqual(why.h, undefined, 'another section, earlier: accepted');
     var i = byQid(r.questions).i;
     assert.deepStrictEqual(i.reveal.alternatives, [[{ qid: 'a', keys: ['yes'] }, { qid: 'b', keys: ['x', 'y'] }],
         [{ qid: 'e', keys: ['no'] }]]);
@@ -232,35 +234,37 @@ test('stepsFor: requested empty means every allowed step; a subset; a ruled-out 
     var qs = parse(REGISTRY).questions;
     var f = facts({ valueProposition: '5', fc: '7', heatSource26: ['10'] });
     function ids(req) { return di.stepsFor(qs, f, req).map(function (s) { return s.id; }); }
-    assert.deepStrictEqual(ids([]), ['project', 'plans', 'insulation', 'heating', 'other']);
+    // Amendment 3: six steps (Plans folded into Your project); an rq naming plans adds nothing.
+    assert.deepStrictEqual(ids([]), ['project', 'insulation', 'heating', 'other']);
     assert.deepStrictEqual(ids(undefined), ids([]));
-    assert.deepStrictEqual(ids(['plans']), ['project', 'plans', 'other']);
+    assert.deepStrictEqual(ids(['plans']), ['project', 'other']);
+    assert.deepStrictEqual(ids(['plans', 'heating']), ['project', 'heating', 'other']);
     assert.deepStrictEqual(ids(['heatpump', 'heating']), ['project', 'heating', 'other'], 'heatpump is ruled out: not added');
     assert.deepStrictEqual(ids(['project', 'other']), ['project', 'other']);
-    assert.strictEqual(di.stepsMinutes(di.stepsFor(qs, f, [])), 1 + 2 + 5 + 2 + 1);
+    assert.strictEqual(di.stepsMinutes(di.stepsFor(qs, f, [])), 3 + 5 + 2 + 1);
     assert.strictEqual(di.stepsMinutes([]), 0);
 });
 
 /**
  * The visible-step table (§B5): {ufh, ufh_plus, hp} x {solid, joisted, overfloor, hp} x heat sets — the step SHORT titles.
- * Heat loss for UFH Design + and HP Design; Heating whenever the floor needs pipe; Heat pump for a Nu-Heat heat pump.
+ * Amendment 3: six steps, no Plans. Heat loss for UFH Design + and HP Design; Heating whenever the floor needs pipe; Heat pump for a Nu-Heat heat pump.
  */
 var STEP_TABLE = {
-    'ufh solid boiler': 'Your project, Plans, Heating, Anything else',
-    'ufh solid ashp': 'Your project, Plans, Heating, Heat pump, Anything else',
-    'ufh hp boiler': 'Your project, Plans, Anything else',
-    'ufh hp hpunknown': 'Your project, Plans, Heat pump, Anything else',
-    'ufh_plus joisted boiler': 'Your project, Plans, Heat loss, Heating, Anything else',
-    'ufh_plus joisted hybrid': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
-    'ufh_plus overfloor userhp': 'Your project, Plans, Heat loss, Heating, Anything else',
-    'ufh_plus hp ashp': 'Your project, Plans, Heat loss, Heat pump, Anything else',
-    'hp solid ashp': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
-    'hp solid boiler': 'Your project, Plans, Heat loss, Heating, Anything else',
-    'hp joisted hpunknown': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
-    'hp overfloor hybrid': 'Your project, Plans, Heat loss, Heating, Heat pump, Anything else',
-    'hp hp ashp': 'Your project, Plans, Heat loss, Heat pump, Anything else',
-    'hp hp boiler': 'Your project, Plans, Heat loss, Anything else',
-    'hp hp userhp': 'Your project, Plans, Heat loss, Anything else'
+    'ufh solid boiler': 'Your project, Heating, Anything else',
+    'ufh solid ashp': 'Your project, Heating, Heat pump, Anything else',
+    'ufh hp boiler': 'Your project, Anything else',
+    'ufh hp hpunknown': 'Your project, Heat pump, Anything else',
+    'ufh_plus joisted boiler': 'Your project, Heat loss, Heating, Anything else',
+    'ufh_plus joisted hybrid': 'Your project, Heat loss, Heating, Heat pump, Anything else',
+    'ufh_plus overfloor userhp': 'Your project, Heat loss, Heating, Anything else',
+    'ufh_plus hp ashp': 'Your project, Heat loss, Heat pump, Anything else',
+    'hp solid ashp': 'Your project, Heat loss, Heating, Heat pump, Anything else',
+    'hp solid boiler': 'Your project, Heat loss, Heating, Anything else',
+    'hp joisted hpunknown': 'Your project, Heat loss, Heating, Heat pump, Anything else',
+    'hp overfloor hybrid': 'Your project, Heat loss, Heating, Heat pump, Anything else',
+    'hp hp ashp': 'Your project, Heat loss, Heat pump, Anything else',
+    'hp hp boiler': 'Your project, Heat loss, Anything else',
+    'hp hp userhp': 'Your project, Heat loss, Anything else'
 };
 var HEATS = { boiler: [['boiler'], []], ashp: [['nuheat_hp', 'ashp'], ['ashp']], hpunknown: [['nuheat_hp'], ['unknown']],
     hybrid: [['boiler', 'nuheat_hp', 'ashp'], ['ashp']], userhp: [['user_hp'], []] };
@@ -465,14 +469,17 @@ test('the no-JS markup has every reveal panel with its heading; the script hides
     q.forEach(function (x) {
         assert.ok(html.indexOf('id="rp-' + x.qid + '"') > 0, x.qid + ': its panel renders');
     });
-    assert.ok(html.indexOf('<p class="rvif">If you chose “Flat or apartment” to “What type of property is it?”</p>') > 0);
+    // Amendment 3: the flat's floor is on Your project.
+    assert.ok(v3.step(t, 'project').indexOf('<p class="rvif">If you chose “Flat or apartment” to “What type of property is ' +
+        'it?”</p>') > 0);
     assert.ok(html.indexOf('If you chose “Yes” to “Does the project include an extension?” and “Two” to “How many ' +
         'extensions?”') > 0);
     assert.ok(html.indexOf('.js .rvif{display:none}') > 0, 'with script on, the headings go');
     assert.ok(html.indexOf('data-reveal') > 0 && html.indexOf('ps[i].hidden=!ok') > 0, 'the script');
-    assert.ok(/<input type="radio" name="q_market" value="8" data-key="reno" checked>/.test(html), 'pre-selected from the field');
-    // A step with no reveal and no element card carries no reveal script.
-    assert.strictEqual(v3.step(t, 'project').indexOf('ps[i].hidden=!ok'), -1);
+    // Amendment 3: the market is on Your project; a step with no reveal and no element card carries no reveal script.
+    assert.ok(/<input type="radio" name="q_market" value="8" data-key="reno" checked>/.test(v3.step(t, 'project')),
+        'pre-selected from the field');
+    assert.strictEqual(v3.step(t, 'other').indexOf('ps[i].hidden=!ok'), -1);
 });
 
 test('@setting options: a List field writes the option id; validation rejects an id not in the setting', function () {
@@ -484,8 +491,9 @@ test('@setting options: a List field writes the option id; validation rejects an
     var html = v3.post(u, { step: 'insulation', nav: 'stay', q_ptype: '17' });
     assert.strictEqual(u.w.submits.length, 0, 'nothing written');
     assert.ok(html.indexOf('Please choose one of the options shown.') > 0);
-    // A literal choice still posts its index and writes its label (text field).
-    v3.post(u, { step: 'insulation', nav: 'stay', q_age: '6' });
+    // A literal choice still posts its index and writes its label (text field). Amendment 3: the age shows only for the
+    // Typical route (index 2).
+    v3.post(u, { step: 'insulation', nav: 'stay', q_ins_route_reno: '2', q_age: '6' });
     assert.strictEqual(v3.oppWrites(u.w)[0].values.custbody15, '2012 or later');
 });
 
@@ -503,7 +511,8 @@ test('the fill rule (DI_FILL_REPLACEABLE): an empty field is written; a replacea
     assert.strictEqual(v3.state(held.w).answers.ptype, '2', 'the customer\'s answer kept for the page');
     assert.ok(held.w.notes[0].values.note.indexOf('What type of property is it?: Detached house → customer says Semi-detached; ' +
         'the opportunity holds Detached house (NOT changed)') > 0, held.w.notes[0].values.note);
-    assert.ok(/value="2" data-key="semi" checked/.test(v3.step(held, 'insulation')), 'the page shows the customer\'s answer');
+    // Amendment 3: the property type is on Your project.
+    assert.ok(/value="2" data-key="semi" checked/.test(v3.step(held, 'project')), 'the page shows the customer\'s answer');
     v3.post(held, { step: 'review', send: '1' });
     var msg = held.w.tasks[0].values.message;
     assert.ok(msg.indexOf('Customer says Semi-detached (What type of property is it?); the opportunity holds Detached house. ' +
@@ -780,13 +789,14 @@ function stateWith(rq, extra) {
 }
 
 test('stepsFor: the SAME list on the stepper, Review, the request page, the request email and the card', function () {
-    var rq = ['project', 'plans', 'heating', 'other'];
+    // Amendment 3: six steps — the request page's ticks are Heat loss, Heating and Heat pump.
+    var rq = ['project', 'heating', 'other'];
     var t = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith(rq) } });
-    var titles = ['Your project', 'Your plans and layout', 'Heating and controls', 'Anything else for your Project Engineer?'];
+    var titles = ['Your project', 'Heating and controls', 'Anything else for your Project Engineer?'];
     // Amendment 2: the step bar shows the short labels; the email lists the long titles.
-    var shorts = ['Your project', 'Plans', 'Heating', 'Anything else'];
+    var shorts = ['Your project', 'Heating', 'Anything else'];
     // The stepper's step bar (then Review).
-    var bar = (v3.step(t, 'plans').match(/<span class="stitle">[^<]*<\/span>/g) || []).map(function (x) {
+    var bar = (v3.step(t, 'heating').match(/<span class="stitle">[^<]*<\/span>/g) || []).map(function (x) {
         return x.replace(/<[^>]+>/g, '');
     });
     assert.deepStrictEqual(bar, shorts.concat(['Review and send']), 'the stepper');
@@ -796,28 +806,29 @@ test('stepsFor: the SAME list on the stepper, Review, the request page, the requ
     // The request page: "will be asked about", and the ticks pre-ticked from rq.
     var form = sendPage(t, 'GET');
     assert.ok(form.fields[0].defaultValue.indexOf('<td style="padding:4px 0">' + titles.join(', ') + '</td>') > 0, 'the request page');
-    assert.deepStrictEqual(ticks(form, true), [['custpage_step_plans', 'Your plans and layout', 'T'], ['custpage_step_insulation',
-        'Understanding the heat loss of your property', 'F'], ['custpage_step_heating', 'Heating and controls', 'T'],
-        ['custpage_step_heatpump', 'Heat pump information required for MCS', 'F']]);
+    assert.deepStrictEqual(ticks(form, true), [['custpage_step_insulation', 'Understanding the heat loss of your property', 'F'],
+        ['custpage_step_heating', 'Heating and controls', 'T'], ['custpage_step_heatpump', 'Heat pump information required for MCS',
+            'F']]);
     // The email, sent with those ticks.
-    sendPage(t, 'POST', { custpage_step_plans: 'T', custpage_step_heating: 'T' });
+    sendPage(t, 'POST', { custpage_step_heating: 'T' });
     var body = t.w.emails[0].body;
     titles.forEach(function (s, i) {
         assert.ok(body.indexOf('<b>' + (i + 1) + '</b>') > 0 && body.indexOf('<b>' + s + '</b>') > 0, 'the email: ' + s);
     });
     assert.strictEqual(body.indexOf('<b>Understanding the heat loss of your property</b>'), -1);
-    assert.strictEqual(body.indexOf('<b>5</b>'), -1, 'four steps');
-    // The card: "about N minutes" is the requested steps' minutes (1 + 2 + 2 + 1).
+    assert.strictEqual(body.indexOf('<b>4</b>'), -1, 'three steps');
+    // The card: "about N minutes" is the requested steps' minutes (3 + 2 + 1).
     var dash = v3.run(t, 'GET', { t: t.tok });
     assert.ok(dash.indexOf('It takes about 6 minutes, and you can do it in stages.') > 0);
     // In progress: only the requested steps count (a save of a step not requested makes no progress).
     t.w.opps[20].custbody_cdb_designinfo_state = stateWith(rq, { s: { insulation: { at: '2026-10-02T10:00Z', st: 'done' } } });
     dash = v3.run(t, 'GET', { t: t.tok });
     assert.ok(dash.indexOf('We need some information about your property') > 0, 'still "needs information"');
-    t.w.opps[20].custbody_cdb_designinfo_state = stateWith(rq, { s: { plans: { at: '2026-10-02T10:00Z', st: 'done' } } });
+    t.w.opps[20].custbody_cdb_designinfo_state = stateWith(rq, { s: { heating: { at: '2026-10-02T10:00Z', st: 'done' } } });
     dash = v3.run(t, 'GET', { t: t.tok });
-    // Your project has no required question (optional): it is never "still to do".
-    assert.ok(dash.indexOf('Thanks, we have: Your plans and layout. Still to do: Heating and controls.') > 0);
+    // Amendment 3: Your project now has required questions (the property type, the market, plans changed), so it can be
+    // "still to do".
+    assert.ok(dash.indexOf('Thanks, we have: Heating and controls. Still to do: Your project.') > 0, dash.slice(dash.indexOf('Thanks'), dash.indexOf('Thanks') + 120));
 });
 
 test('the request page: a crafted tick for a ruled-out step is dropped; rq is stored with project and other, merged into ' +
@@ -826,8 +837,8 @@ test('the request page: a crafted tick for a ruled-out step is dropped; rq is st
     var t = v3.setup({ opp: { custbody_heat_source_type_26: ['10'], custbody_cdb_designinfo_state: stateWith([], {
         a: { has_ext: 'no' }, s: { plans: { at: '2026-10-01T10:00Z', st: 'done' } } }) } });
     var form = sendPage(t, 'GET');
-    assert.deepStrictEqual(ticks(form), [['custpage_step_plans', 'T'], ['custpage_step_insulation', 'T'],
-        ['custpage_step_heating', 'T']],
+    // Amendment 3: the ticks are Heat loss, Heating and Heat pump (no Plans).
+    assert.deepStrictEqual(ticks(form), [['custpage_step_insulation', 'T'], ['custpage_step_heating', 'T']],
         'no earlier request: every step ticked; the heat pump step is not offered');
     sendPage(t, 'POST', { custpage_step_insulation: 'T', custpage_step_heatpump: 'T', custpage_step_bogus: 'T' });
     var st = v3.state(t.w);
@@ -837,8 +848,7 @@ test('the request page: a crafted tick for a ruled-out step is dropped; rq is st
     assert.ok(v3.logs(t.w, 'DESIGNINFO_REQUESTED')[0][2].indexOf('asking about: Your project, Understanding the heat loss of ' +
         'your property, Anything else for your Project Engineer? (rq project,insulation,other)') > 0);
     form = sendPage(t, 'GET');
-    assert.deepStrictEqual(ticks(form), [['custpage_step_plans', 'F'], ['custpage_step_insulation', 'T'],
-        ['custpage_step_heating', 'F']], 'pre-ticked from rq');
+    assert.deepStrictEqual(ticks(form), [['custpage_step_insulation', 'T'], ['custpage_step_heating', 'F']], 'pre-ticked from rq');
     // Nothing ticked: project and other only (allowed), never "everything".
     sendPage(t, 'POST', {});
     assert.deepStrictEqual(v3.state(t.w).rq, ['project', 'other']);
@@ -867,7 +877,7 @@ test('fix the facts: shown when the heat source and the FC are empty or unmapped
     // The real thing: the multi-select (\u0005-joined, as NetSuite posts it) and the FC; the empty Sales MI heat source left.
     t.w.units = 0;
     form = sendPage(t, 'POST', { custpage_recheck: 'Update and recheck', custpage_fix_heat26: '4\u000510', custpage_fix_heat: '',
-        custpage_fix_fc: '12', custpage_step_plans: 'T' });
+        custpage_fix_fc: '12', custpage_step_heating: 'T' });
     t.recheckUnits = t.w.units;
     assert.strictEqual(t.w.submits.length, 1);
     assert.deepStrictEqual(t.w.submits[0].values, { custbody_heat_source_type_26: ['4', '10'], custbody_mi_opp_fc: '12' });
@@ -875,8 +885,7 @@ test('fix the facts: shown when the heat source and the FC are empty or unmapped
     assert.strictEqual(t.w.opps[20].custbody_cdb_designinfo_state, '', 'the state untouched');
     assert.ok(form.fields[0].defaultValue.indexOf('Updated. The facts below are recalculated.') > 0);
     assert.strictEqual(field(form, 'custpage_fix_fc'), undefined, 'recalculated: nothing left to fix');
-    assert.ok(form.fields[0].defaultValue.indexOf('Your project, Your plans and layout, Understanding the heat loss of your ' +
-        'property, Heating and controls, Heat pump information required for MCS') > 0, 'the heat pump step now');
+    assert.ok(form.fields[0].defaultValue.indexOf('Your project, Understanding the heat loss of your property, Heating and controls, Heat pump information required for MCS') > 0, 'the heat pump step now');
     assert.ok(v3.logs(t.w, 'DESIGNINFO_FACTS_UPDATED').length === 1);
     // The customer page's deny-list is unchanged: the three facts fields can never be written from it.
     ['custbody_heat_source_type_26', 'custbody_mi_heat_source', 'custbody_mi_opp_fc'].forEach(function (f) {
@@ -911,17 +920,19 @@ test('the Task: the extension line, the EPC used, the heat warnings; revealed an
     assert.ok(msg.indexOf('Extension 1 walls: Same as the main house') > 0);
 });
 
-test('old state: a 2.3b state with removed qids reads without error; its progress is kept; logged once', function () {
+test('old state: a 2.3b state with removed qids and the plans step reads without error; its progress is kept; logged once', function () {
     var t = v3.setup({ opp: { custbody_cdb_designinfo_state: JSON.stringify({ v: 2, s: { plans: { at: '2026-10-01T10:00Z',
         st: 'done' }, project: { at: '2026-10-01T10:00Z', st: 'opt' } }, a: { plans_current: 'yes', bigfiles: 'no' },
         n: ['w3w', 'year', 'walls_ex'], f: [{ q: 'plans_files', id: '901', n: 'QR20_plans.pdf', at: '2026-10-01T10:00Z' }],
         req: '2026-09-30T10:00Z', sent: '', task: '' }) } });
-    var html = v3.step(t, 'plans');
-    assert.ok(html.indexOf('<h1 id="h-step">Your plans and layout</h1>') > 0);
+    // Amendment 3: the plans step is gone — its saved progress is ignored and logged with the qids.
+    var html = v3.step(t, 'project');
+    assert.ok(html.indexOf('<h1 id="h-step">Your project</h1>') > 0);
     assert.strictEqual(v3.logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN').length, 1);
-    assert.ok(/plans_current, w3w, year, walls_ex/.test(v3.logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN')[0][2]));
+    assert.ok(/plans_current, w3w, year, walls_ex, plans \(step\)/.test(v3.logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN')[0][2]),
+        v3.logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN')[0][2]);
     var dash = v3.run(t, 'GET', { t: t.tok });
-    assert.ok(dash.indexOf('In progress') > 0 && dash.indexOf('Thanks, we have: Your project, Your plans and layout. Still to ' +
+    assert.ok(dash.indexOf('In progress') > 0 && dash.indexOf('Thanks, we have: Your project. Still to ' +
         'do: Understanding the heat loss of your property, Heating and controls, Heat pump information required for MCS.') > 0,
         'progress kept');
 });
@@ -1077,7 +1088,7 @@ test('A2. every inline script parses (vm.Script), on every step and Review, for 
         var parsed = 0;
         worlds.forEach(function (wv) {
             var t = v3.setup({ opp: wv[1] });
-            ['project', 'plans', 'insulation', 'heating', 'heatpump', 'other', 'review'].forEach(function (id) {
+            ['project', 'insulation', 'heating', 'heatpump', 'other', 'review'].forEach(function (id) {
                 var html = v3.step(t, id);
                 scriptsOf(html).forEach(function (body) {
                     assert.doesNotThrow(function () { new vm.Script(body); }, wv[0] + ', ' + id);
@@ -1091,7 +1102,8 @@ test('A2. every inline script parses (vm.Script), on every step and Review, for 
 
 /**
  * A tiny DOM for the reveal script: the form, its radios (name, value, data-key, checked) and its reveal panels (id,
- * data-reveal, hidden), read from the rendered HTML. Selectors the script uses that it does not model match nothing.
+ * data-reveal, hidden), read from the rendered HTML. Amendment 3: and the sections (className, their direct-child questions
+ * and panels, each with its className), so cards() runs. Selectors the script uses that it does not model match nothing.
  */
 function tinyDom(html) {
     function unesc(x) {
@@ -1109,17 +1121,40 @@ function tinyDom(html) {
     }
     function el(a) {
         return { attrs: a, hidden: false, checked: a.hasOwnProperty('checked'), value: a.value || '', name: a.name || '',
-            getAttribute: function (n) { return a.hasOwnProperty(n) ? a[n] : null; } };
+            className: a['class'] || '', getAttribute: function (n) { return a.hasOwnProperty(n) ? a[n] : null; } };
     }
     var listeners = [];
     var form = { addEventListener: function (type, fn) { if (type === 'change') { listeners.push(fn); } } };
     var inputs = (html.match(/<input [^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
     var panels = (html.match(/<div class="rvp"[^>]*>/g) || []).map(function (tag) { return el(attrs(tag)); });
     inputs.concat(panels).forEach(function (x) { x.parentNode = form; });
+    // The sections, and their direct-child divs (a panel is the same object as in panels).
+    var sections = (html.match(/<section [^>]*>[\s\S]*?<\/section>/g) || []).map(function (sec) {
+        var head = /^<section [^>]*>/.exec(sec)[0];
+        var out = { className: attrs(head)['class'] || '', children: [] };
+        var re = /<div [^>]*>|<\/div>/g;
+        var depth = 0;
+        var m;
+        while ((m = re.exec(sec))) {
+            if (m[0] === '</div>') {
+                depth -= 1;
+            } else {
+                if (depth === 0) {
+                    var a = attrs(m[0]);
+                    out.children.push(panels.filter(function (p) { return a.id && p.attrs.id === a.id; })[0] || el(a));
+                }
+                depth += 1;
+            }
+        }
+        return out;
+    });
     form.querySelectorAll = function (sel) {
         var m = /^input\[name='([^']+)'\]$/.exec(sel);
         if (sel === '[data-reveal]') {
             return panels;
+        }
+        if (sel === 'section') {
+            return sections;
         }
         if (m) {
             return inputs.filter(function (x) { return x.name === m[1]; });
@@ -1138,7 +1173,12 @@ function tinyDom(html) {
         querySelector: function () { return null; },
         createElement: function () { return {}; }
     };
-    return { document: doc, window: { JSON: JSON }, JSON: JSON, form: form, inputs: inputs, panel: function (qid) {
+    return { document: doc, window: { JSON: JSON }, JSON: JSON, form: form, inputs: inputs, sections: sections,
+        section: function (id) {
+            return sections.filter(function (sc) {
+                return sc.children.some(function (c) { return c.attrs.id === id; });
+            })[0];
+        }, panel: function (qid) {
         return panels.filter(function (p) { return p.attrs.id === 'rp-' + qid; })[0];
     }, choose: function (name, value) {
         inputs.forEach(function (x) { if (x.name === name) { x.checked = x.value === value; } });
@@ -1146,31 +1186,51 @@ function tinyDom(html) {
     } };
 }
 
+/** Amendment 3: run every inline script of a page against a tinyDom of it. */
+function runPage(html) {
+    var dom = tinyDom(html);
+    scriptsOf(html).forEach(function (body) {
+        vm.runInNewContext(body, { document: dom.document, window: dom.window, JSON: JSON });
+    });
+    return dom;
+}
+
 test('A2. the reveal script runs: rp-flat_floor hidden until ptype=flat; market and extension panels follow the answers',
     function () {
+        // Amendment 3: the property type and the market are on Your project; a reveal on them from Heat loss is decided by the
+        // server (a fixed clause), the rest by the script.
         var t = v3.setup();
-        var html = v3.step(t, 'insulation');
-        var dom = tinyDom(html);
-        scriptsOf(html).forEach(function (body) {
-            vm.runInNewContext(body, { document: dom.document, window: dom.window, JSON: JSON });
-        });
+        var dom = runPage(v3.step(t, 'project'));
         assert.strictEqual(dom.panel('flat_floor').hidden, true, 'no property type: hidden');
-        assert.strictEqual(dom.panel('age').hidden, false, 'Renovation is stored: the age shows');
-        assert.strictEqual(dom.panel('ext_count').hidden, true, 'no extension answer: hidden');
         dom.choose('q_ptype', '2');
         assert.strictEqual(dom.panel('flat_floor').hidden, true, 'semi-detached: still hidden');
         dom.choose('q_ptype', '6');
         assert.strictEqual(dom.panel('flat_floor').hidden, false, 'flat: shown');
+        dom = runPage(v3.step(t, 'insulation'));
+        assert.strictEqual(dom.panel('ins_route_reno').hidden, false, 'Renovation is stored: the renovation route');
+        assert.strictEqual(dom.panel('ins_route_new').hidden, true);
+        assert.strictEqual(dom.panel('age').hidden, true, 'amendment 3: the age only for the Typical route');
+        assert.strictEqual(dom.panel('has_ext').hidden, false, 'Renovation: the extension question');
+        assert.strictEqual(dom.panel('ext_count').hidden, true, 'no extension answer: hidden');
+        dom.choose('q_ins_route_reno', '2');
+        assert.strictEqual(dom.panel('age').hidden, false, 'Typical: the age shows');
+        dom.choose('q_ins_route_reno', '1');
+        assert.strictEqual(dom.panel('age').hidden, true, 'EPC: no age');
         dom.choose('q_has_ext', 'yes');
         assert.strictEqual(dom.panel('ext_count').hidden, false);
         assert.strictEqual(dom.panel('ext1_what').hidden, false);
         assert.strictEqual(dom.panel('ext2_what').hidden, true, 'one extension until Two');
         dom.choose('q_ext_count', '1');
         assert.strictEqual(dom.panel('ext2_what').hidden, false);
-        dom.choose('q_market', '9');
-        assert.strictEqual(dom.panel('age').hidden, true, 'new build: no age');
-        assert.strictEqual(dom.panel('ext1_what').hidden, true, 'the cascade: has_ext hidden hides the extension');
-        assert.strictEqual(dom.panel('ins_route_new').hidden, false);
+        dom.choose('q_has_ext', 'no');
+        assert.strictEqual(dom.panel('ext1_what').hidden, true, 'the cascade');
+        assert.strictEqual(dom.panel('ext2_what').hidden, true);
+        // A new build: the server sends the market clause false.
+        var nb = runPage(v3.step(v3.setup({ opp: { custbody_mis_opp_market: '9' } }), 'insulation'));
+        assert.strictEqual(nb.panel('ins_route_new').hidden, false);
+        assert.strictEqual(nb.panel('ins_route_reno').hidden, true);
+        assert.strictEqual(nb.panel('has_ext').hidden, true, 'new build: no extension question');
+        assert.strictEqual(nb.panel('ext_info').hidden, true);
     });
 
 test('A2. the step bar and Review\'s prompts use the short labels; the element cards; the route tiles; hot water',
@@ -1180,7 +1240,7 @@ test('A2. the step bar and Review\'s prompts use the short labels; the element c
         assert.deepStrictEqual((html.match(/<span class="stitle">[^<]*/g) || []).map(function (x) {
             return x.replace('<span class="stitle">', '');
         }),
-            ['Your project', 'Plans', 'Heat loss', 'Heating', 'Heat pump', 'Anything else', 'Review and send']);
+            ['Your project', 'Heat loss', 'Heating', 'Heat pump', 'Anything else', 'Review and send']);
         assert.ok(html.indexOf('<h1 id="h-step">Understanding the heat loss of your property</h1>') > 0, 'the long title stays');
         // The element cards: a grid, the title, the tag as a chip under it, "Which is closest?".
         assert.ok(html.indexOf('<section class="card elgrid">') > 0);
@@ -1211,8 +1271,10 @@ test('A2. the step bar and Review\'s prompts use the short labels; the element c
         assert.ok(hp.indexOf('<textarea class="inp" id="di-dhw" name="q_dhw"') > 0, 'a question, not read-only');
         var rv = v3.step(t, 'review');
         assert.strictEqual(rv.indexOf('Any specific hot water needs?'), -1, 'optional, not answered: left out');
-        assert.ok(rv.indexOf('Nearly there.') > 0 && rv.indexOf('Go to Your project') < 0);
-        assert.ok(/Go to (Plans|Heat loss|Heating|Heat pump)</.test(rv), 'the short label in "Go to"');
+        // Amendment 3: Your project has required questions now (the property type, the market, plans changed), so it can
+        // be "Go to Your project".
+        assert.ok(rv.indexOf('Nearly there.') > 0);
+        assert.ok(/Go to (Your project|Heat loss|Heating|Heat pump)</.test(rv), 'the short label in "Go to"');
     });
 
 test('A2. the request page: the steps in one block, in step order, Your project and Anything else as fixed lines', function () {
@@ -1222,8 +1284,316 @@ test('A2. the request page: the steps in one block, in step order, Your project 
     assert.strictEqual(form.fields.filter(function (f) { return f.type === 'CHECKBOX'; }).length, 0);
     assert.ok(html.indexOf('<p style="font-weight:600;margin:0 0 6px">Steps to ask for</p>') > 0);
     assert.deepStrictEqual((html.match(/> [^<]*<\/label>/g) || []).map(function (x) { return x.slice(2, -8); }),
-        ['Your project (always included)', 'Your plans and layout', 'Understanding the heat loss of your property',
+        ['Your project (always included)', 'Understanding the heat loss of your property',
             'Heating and controls', 'Heat pump information required for MCS',
             'Anything else for your Project Engineer? (always included)']);
     assert.strictEqual((html.match(/checked disabled/g) || []).length, 2);
+});
+
+// ---------------------------------------------------------------- 2.3c amendment 3
+
+var STEPS6 = ['project', 'insulation', 'heating', 'heatpump', 'other'];
+
+/** The positions of ids in html, in the order given (-1 for a missing one). */
+function positions(html, ids) {
+    return ids.map(function (id) { return html.indexOf(id); });
+}
+
+function ascending(list) {
+    return list.every(function (x, i) { return x > 0 && (i === 0 || x > list[i - 1]); });
+}
+
+test('A3. six steps: Plans folds into Your project in the order of §1; the property type and the market for everyone',
+    function () {
+        var t = v3.setup();
+        var bar = (v3.step(t, 'project').match(/name="goto" value="[a-z]+"/g) || []).map(function (x) { return x.split('"')[3]; });
+        assert.deepStrictEqual(bar, STEPS6.concat(['review']));
+        var html = v3.step(t, 'project');
+        var order = positions(html, ['id="h-facts"', 'id="q-site_ok"', 'id="rp-site_new"', 'id="q-goods_date"',
+            'id="q-design_contact"', 'id="q-ptype"', 'id="rp-flat_floor"', 'id="q-market"', 'id="q-plans_changed"',
+            'id="rp-plans_sent_how"', 'id="rp-plans_files"', 'id="rp-bigfiles"']);
+        assert.ok(ascending(order), JSON.stringify(order));
+        // The property type and the market are asked of everyone: UFH Design with a boiler too.
+        var ufh = v3.step(v3.setup({ opp: { custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] } }), 'project');
+        assert.ok(ufh.indexOf('name="q_ptype"') > 0 && ufh.indexOf('name="q_market"') > 0);
+        // The plans step is not a step: a link to it opens Your project.
+        assert.ok(v3.step(t, 'plans').indexOf('<input type="hidden" name="step" value="project">') > 0);
+    });
+
+test('A3. an rq or a state naming plans loads without error and is logged once (DESIGNINFO_STATE_QID_UNKNOWN)', function () {
+    var t = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith(['project', 'plans', 'heating', 'other']) } });
+    var html = v3.step(t, 'project');
+    assert.deepStrictEqual((html.match(/<span class="stitle">[^<]*/g) || []).map(function (x) { return x.slice(21); }),
+        ['Your project', 'Heating', 'Anything else', 'Review and send']);
+    var l = v3.logs(t.w, 'DESIGNINFO_STATE_QID_UNKNOWN');
+    assert.strictEqual(l.length, 1);
+    assert.ok(l[0][2].indexOf('plans (step)') > 0, l[0][2]);
+    // The request page drops it too.
+    assert.deepStrictEqual(ticks(sendPage(t, 'GET')), [['custpage_step_insulation', 'F'], ['custpage_step_heating', 'T'],
+        ['custpage_step_heatpump', 'F']]);
+});
+
+test('A3. the first visit (no step=) opens Your project; once sent, Review', function () {
+    var t = v3.setup();
+    assert.ok(v3.run(t, 'GET', { t: t.tok, a: 'designinfo', opp: '20' }).indexOf('<input type="hidden" name="step" ' +
+        'value="project">') > 0);
+    var sent = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith([], { sent: '2026-10-01T10:00Z' }) } });
+    assert.ok(v3.run(sent, 'GET', { t: sent.tok, a: 'designinfo', opp: '20' }).indexOf('<h1>Review and send</h1>') > 0);
+});
+
+test('A3. the card: You\'re having in plain words (four variants), the address on its own lines, no design call row; the ' +
+    'email\'s {system}', function () {
+        var cases = [
+            [{}, 'Underfloor heating and a heat pump', 'underfloor heating and heat pump'],
+            [{ custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }, 'Underfloor heating', 'underfloor heating'],
+            [{ custbody_mi_opp_fc: '6' }, 'A heat pump', 'heat pump'],
+            [{ custbody_mi_opp_fc: '6', custbody_value_proposition: '1', custbody_heat_source_type_26: ['10'] }, '', 'heating system']
+        ];
+        cases.forEach(function (c) {
+            var t = v3.setup({ opp: c[0] });
+            var html = v3.step(t, 'project');
+            if (c[1]) {
+                assert.ok(html.indexOf('<dt>You’re having</dt><dd>' + c[1] + '</dd>') > 0, c[1]);
+            } else {
+                assert.strictEqual(html.indexOf('<dt>You’re having</dt>'), -1, 'neither: omitted');
+            }
+            assert.ok(html.indexOf('<dt>Site address</dt><dd>Plot 4<br>Village</dd>') > 0);
+            assert.strictEqual(html.indexOf('Design call'), -1);
+            sendPage(t, 'POST', {});
+            // The PE's intro ("your main contact for your …") or the account manager's ("Project Engineer for your …,").
+            assert.ok(t.w.emails[0].body.indexOf('for your ' + c[2] + (c[0].custbody_value_proposition === '1' ? ',' : ' all')) > 0,
+                c[2]);
+        });
+    });
+
+test('A3. "Is this the right address?" — No reveals the address; it goes to the Task and the Note as words and is never ' +
+    'written to the address', function () {
+        var t = v3.setup();
+        var dom = runPage(v3.step(t, 'project'));
+        assert.strictEqual(dom.panel('site_new').hidden, true);
+        dom.choose('q_site_ok', 'no');
+        assert.strictEqual(dom.panel('site_new').hidden, false);
+        v3.post(t, { step: 'project', nav: 'stay', q_site_ok: 'no', q_site_new: 'Plot 5, Other Lane, Village, AB1 2CD' });
+        assert.strictEqual(v3.state(t.w).answers.site_new, 'Plot 5, Other Lane, Village, AB1 2CD', 'kept in the state');
+        assert.ok(t.w.notes[0].values.note.indexOf('Customer says the site address is: Plot 5, Other Lane, Village, AB1 2CD') >= 0,
+            t.w.notes[0].values.note);
+        v3.post(t, { step: 'review', send: '1' });
+        assert.ok(t.w.tasks[0].values.message.indexOf('Customer says the site address is: Plot 5, Other Lane, Village, AB1 2CD.') >= 0);
+        t.w.submits.forEach(function (o) {
+            assert.strictEqual(o.values.custbody_opp_site_adress, undefined, 'the address field is never written');
+        });
+        assert.strictEqual(t.w.opps[20].custbody_opp_site_adress, 'Plot 4\nVillage');
+        // Yes: no line.
+        var y = v3.setup();
+        v3.post(y, { step: 'project', nav: 'stay', q_site_ok: 'yes', q_site_new: 'ignored: hidden' });
+        v3.post(y, { step: 'review', send: '1' });
+        assert.strictEqual(y.w.tasks[0].values.message.indexOf('Customer says the site address'), -1);
+    });
+
+test('A3. plans changed: three choices; upload reveals the files and big files, sent reveals "When and how"; an old yes is ' +
+    'upload and an old no is No', function () {
+        var t = v3.setup();
+        var html = v3.step(t, 'project');
+        var seg = html.slice(html.indexOf('id="q-plans_changed"'), html.indexOf('</fieldset>', html.indexOf('id="q-plans_changed"')));
+        assert.deepStrictEqual((seg.match(/data-key="[a-z]+"/g) || []), ['data-key="no"', 'data-key="sent"', 'data-key="yes"']);
+        assert.ok(seg.indexOf('No, you have the latest plans') > 0 && seg.indexOf('Yes, and I&#39;ve already sent them to Nu-Heat') > 0 &&
+            seg.indexOf('Yes, I&#39;ll upload them here') > 0);
+        assert.ok(html.indexOf('Some of my files are bigger than 10 MB.') > 0);
+        assert.ok(html.indexOf('Tick this and Pem will send you a secure link to upload them. You don&#39;t need to attach them ' +
+            'here.') > 0);
+        var dom = runPage(html);
+        ['plans_files', 'bigfiles', 'plans_sent_how'].forEach(function (q) { assert.strictEqual(dom.panel(q).hidden, true, q); });
+        dom.choose('q_plans_changed', '2');
+        assert.deepStrictEqual([dom.panel('plans_files').hidden, dom.panel('bigfiles').hidden, dom.panel('plans_sent_how').hidden],
+            [false, false, true], 'upload');
+        dom.choose('q_plans_changed', '1');
+        assert.deepStrictEqual([dom.panel('plans_files').hidden, dom.panel('bigfiles').hidden, dom.panel('plans_sent_how').hidden],
+            [true, true, false], 'sent');
+        dom.choose('q_plans_changed', '0');
+        assert.deepStrictEqual([dom.panel('plans_files').hidden, dom.panel('plans_sent_how').hidden], [true, true], 'no');
+        // "When and how" is kept in the state.
+        v3.post(t, { step: 'project', nav: 'stay', q_plans_changed: '1', q_plans_sent_how: 'Emailed Pem on 3 October' });
+        // (A literal choice in the state keeps its label; keyOfValue() reads it back.)
+        assert.deepStrictEqual([v3.state(t.w).answers.plans_changed, v3.state(t.w).answers.plans_sent_how],
+            ['Yes, and I\'ve already sent them to Nu-Heat', 'Emailed Pem on 3 October']);
+        assert.ok(/name="q_plans_changed" value="1" data-key="sent" checked/.test(v3.step(t, 'project')));
+        // An old yes / no (the 2.3c yes/no question).
+        [['yes', 'yes'], ['no', 'no']].forEach(function (c) {
+            var o = v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith([], { a: { plans_changed: c[0] } }) } });
+            var p = v3.step(o, 'project');
+            assert.ok(new RegExp('name="q_plans_changed" value="\\d" data-key="' + c[1] + '" checked').test(p), c[0]);
+        });
+    });
+
+test('A3. the call: ticked, the Task\'s and the Note\'s first line and the state; unticked, none; the time box shows without ' +
+    'script', function () {
+        var t = v3.setup();
+        var rv = v3.step(t, 'review');
+        assert.ok(rv.indexOf('<input type="checkbox" id="di-call" name="call" value="yes"><label class="chk" for="di-call">I’d like a ' +
+            'call to talk through my design</label>') > 0);
+        assert.ok(rv.indexOf('<label class="lbl" for="di-callwhen">Best time and number to call (optional)</label>') > 0);
+        assert.ok(rv.indexOf('name="call_when" maxlength="100"') > 0);
+        // Without script the box always shows: only the .js rule hides it.
+        assert.ok(rv.indexOf('.js #di-call:not(:checked) ~ .callwhen{display:none}') > 0);
+        assert.strictEqual(/[^s] #di-call:not\(:checked\) ~ \.callwhen/.test(rv.replace('.js #di-call', '')), false);
+        assert.ok(rv.indexOf('You can send now and finish the rest later.') > 0);
+        v3.post(t, { step: 'review', send: '1', call: 'yes', call_when: 'Weekday mornings, 07700 900123' });
+        var msg = t.w.tasks[0].values.message;
+        assert.strictEqual(msg.split('\n')[0], 'Customer would like a call: Weekday mornings, 07700 900123', msg);
+        var note = t.w.notes[t.w.notes.length - 1].values.note;
+        assert.strictEqual(note.split('\n')[0], 'Customer would like a call: Weekday mornings, 07700 900123', note);
+        var st = v3.state(t.w);
+        assert.deepStrictEqual([st.call, st.callWhen], ['yes', 'Weekday mornings, 07700 900123']);
+        assert.deepStrictEqual(JSON.parse(t.w.opps[20].custbody_cdb_designinfo_state).c, { y: 1, t: 'Weekday mornings, 07700 900123' });
+        assert.ok(v3.step(t, 'review').indexOf('name="call" value="yes" checked') > 0, 'ticked again on Review');
+        // Ticked, no time.
+        var b = v3.setup();
+        v3.post(b, { step: 'review', send: '1', call: 'yes' });
+        assert.strictEqual(b.w.tasks[0].values.message.split('\n')[0], 'Customer would like a call.');
+        // Unticked: no line, nothing in the state.
+        var u = v3.setup();
+        v3.post(u, { step: 'review', send: '1', call_when: 'ignored' });
+        assert.strictEqual(u.w.tasks[0].values.message.indexOf('would like a call'), -1);
+        assert.strictEqual(u.w.notes[u.w.notes.length - 1].values.note.indexOf('would like a call'), -1);
+        assert.strictEqual(JSON.parse(u.w.opps[20].custbody_cdb_designinfo_state).c, undefined);
+    });
+
+test('A3. no "design call" anywhere: every step, Review, the dashboard card and the request email', function () {
+    var d = amd.load('lib/cdb_lib_dates');
+    var t = v3.setup({ opp: { custbody_next_contact: d.addDays(d.londonTodayKey(Date.now()), 3) } });
+    STEPS6.concat(['review']).forEach(function (id) {
+        var html = v3.step(t, id);
+        assert.strictEqual(/design call|on your call|before our call/i.test(html), false, id);
+    });
+    assert.strictEqual(/design call/i.test(v3.run(t, 'GET', { t: t.tok })), false, 'the dashboard card');
+    sendPage(t, 'POST', {});
+    var body = t.w.emails[0].body;
+    assert.strictEqual(/design call|Before we speak|read it all before|Anything you can.t answer/i.test(body), false);
+    var sent = v3.post(t, { step: 'review', send: '1' });
+    assert.strictEqual(/design call/i.test(sent), false, 'the confirmation');
+    assert.ok(sent.indexOf('Pem will read it all and be in touch.') > 0);
+});
+
+test('A3. Heat loss: drawings, then the insulation (age only for Typical) and the house cards, then the extensions; the info ' +
+    'rows; the element card\'s select and U on one row', function () {
+        var t = v3.setup();
+        var html = v3.step(t, 'insulation');
+        assert.ok(ascending(positions(html, ['id="q-drawings_info"', 'id="q-drawings"', 'id="rp-ceilings"', 'id="rp-windows"',
+            'id="q-ins_info"', 'id="rp-ins_route_reno"', 'id="rp-ins_route_new"', 'id="rp-age"', 'id="rp-sap_files"', 'id="rp-epc"',
+            'id="rp-el_walls"', 'id="rp-el_windows"', 'id="rp-el_roof"', 'id="rp-el_floor"', 'id="rp-ext_info"', 'id="rp-has_ext"',
+            'id="rp-ext_count"', 'id="rp-ext1_what"', 'id="rp-ext2_what"'])));
+        assert.ok(html.indexOf('Sections and elevations show your ceiling heights and window sizes.') > 0);
+        assert.ok(html.indexOf('How well your walls, windows, roof and floor hold heat sets how much heat each room needs.') > 0);
+        assert.ok(html.indexOf('If part of the home is an extension, tell us about it here.') > 0);
+        assert.strictEqual(parse(REGISTRY).questions.filter(function (q) { return q.qid === 'age'; })[0].revealText,
+            'ins_route_reno=typical');
+        // The card: the select and the exact U on one row (stacked below 600px), the notes below.
+        var card = html.slice(html.indexOf('id="q-el_walls"'), html.indexOf('</fieldset>', html.indexOf('id="q-el_walls"')));
+        assert.ok(/<div class="elrow"><div class="elsel">[\s\S]*<select[\s\S]*<\/div><div class="elu">[\s\S]*name="q_el_walls_u"/
+            .test(card), card);
+        assert.ok(card.indexOf('name="q_el_walls_notes"') > card.indexOf('name="q_el_walls_u"'));
+        assert.ok(html.indexOf('.elrow{') > 0 && /@media \(max-width:600px\)\{[^}]*\.elrow/.test(html.replace(/\n/g, '')));
+    });
+
+test('A3. Heating: manifolds, where we shouldn\'t heat (on every heat set), screed / joists, coverings; Yes/No as tiles',
+    function () {
+        var qs = parse(REGISTRY).questions;
+        var order = qs.filter(function (q) { return q.section === 'heating'; }).map(function (q) { return q.qid; });
+        assert.deepStrictEqual(order.slice(0, 10), ['manifolds', 'unheated', 'layouts_files', 'through_walls', 'screed_gate',
+            'screed', 'joist_gate', 'joists', 'joist_files', 'coverings']);
+        Object.keys(HEATS).forEach(function (h) {
+            ['solid', 'joisted', 'overfloor'].forEach(function (fc) {
+                var ids = di.visibleQuestions(qs, { service: 'ufh', fc: [fc], heat: HEATS[h][0], hp: HEATS[h][1] })
+                    .map(function (q) { return q.qid; });
+                ['unheated', 'layouts_files', 'through_walls'].forEach(function (q) {
+                    assert.ok(ids.indexOf(q) >= 0, h + ' ' + fc + ': ' + q);
+                });
+            });
+        });
+        var html = v3.step(v3.setup(), 'heating');
+        assert.ok(ascending(positions(html, ['id="q-manifolds"', 'id="q-unheated"', 'id="q-layouts_files"', 'id="q-through_walls"',
+            'id="q-coverings"'])));
+        assert.ok(/<div class="opts opts2"><label class="optc"><input type="radio" name="q_through_walls" value="yes" data-key="yes"/
+            .test(html), 'Yes/No as two tiles with radio circles');
+        assert.ok(html.indexOf('.opts2{grid-template-columns:1fr 1fr}') > 0);
+    });
+
+test('A3. empty cards: a card whose questions are all hidden is hidden by the server (with script) and shown again by the ' +
+    'script; the first visible question carries .first', function () {
+        var t = v3.setup();
+        var html = v3.step(t, 'insulation');
+        // has_ext unanswered: both extension cards hidden; the house cards too (no route yet).
+        var dom = runPage(html);
+        assert.ok(/\brvhide\b/.test(dom.section('rp-ext1_what').className));
+        assert.ok(/\brvhide\b/.test(dom.section('rp-ext2_what').className));
+        assert.ok(/\brvhide\b/.test(dom.section('rp-el_walls').className));
+        assert.ok(html.indexOf('.js .card.rvhide{display:none}') > 0, 'only with script on: without it every card shows');
+        assert.ok(html.indexOf('html:not(.js) .card > :first-child') > 0);
+        dom.choose('q_has_ext', 'yes');
+        assert.strictEqual(/\brvhide\b/.test(dom.section('rp-ext1_what').className), false, 'yes: the first extension card shows');
+        assert.ok(/\brvhide\b/.test(dom.section('rp-ext2_what').className), 'one extension');
+        assert.ok(/\bfirst\b/.test(dom.panel('ext1_what').className), '.first on the first visible question');
+        dom.choose('q_ext_count', '1');
+        assert.strictEqual(/\brvhide\b/.test(dom.section('rp-ext2_what').className), false, 'two: the second card shows');
+        dom.choose('q_ins_route_reno', '3');
+        assert.strictEqual(/\brvhide\b/.test(dom.section('rp-el_walls').className), false, 'describe: the house cards show');
+        dom.choose('q_has_ext', 'no');
+        assert.ok(/\brvhide\b/.test(dom.section('rp-ext1_what').className), 'no: hidden again');
+        // Server side: a card with a visible question is not hidden; the step's first card question is .first.
+        var shown = v3.step(v3.setup({ opp: { custbody_cdb_designinfo_state: stateWith([], { a: { has_ext: 'yes' } }) } }),
+            'insulation');
+        assert.ok(shown.indexOf('<section class="card"><div class="first rvp" id="rp-ext1_what"') > 0);
+    });
+
+test('A3. heat pump: the plan choices read "Yes, I\'ll upload it" and "I\'ll describe its location" / "I\'ll describe it"; keys ' +
+    'unchanged', function () {
+        var html = v3.step(v3.setup(), 'heatpump');
+        function choices(qid) {
+            var seg = html.slice(html.indexOf('id="q-' + qid + '"'), html.indexOf('</fieldset>', html.indexOf('id="q-' + qid + '"')));
+            return [(seg.match(/data-key="[a-z]+"/g) || []).join(' '), (seg.match(/<span class="ot">[^<]*/g) || []).map(function (x) {
+                return x.slice(17);
+            })];
+        }
+        assert.deepStrictEqual(choices('hp_loc_plan'), ['data-key="plans" data-key="yes" data-key="no"',
+            ['Already provided on floor plans', 'Yes, I&#39;ll upload it', 'I&#39;ll describe its location']]);
+        assert.deepStrictEqual(choices('buffer_plan'), ['data-key="plans" data-key="yes" data-key="no"',
+            ['Already provided on floor plans', 'Yes, I&#39;ll upload it', 'I&#39;ll describe it']]);
+        assert.deepStrictEqual(choices('cyl_plan')[1], ['Already provided on floor plans', 'Yes, I&#39;ll upload it',
+            'I&#39;ll describe it']);
+    });
+
+test('A3. the pictures: a fixed box, contain, centred; the cards aligned top, the same height', function () {
+    var html = v3.step(v3.setup(), 'heatpump');
+    assert.ok(/\.pic img\{[^}]*height:170px[^}]*object-fit:contain/.test(html), 'a 170px box');
+    assert.ok(/@media \(max-width:600px\)\{[^}]*\.pic img\{height:140px/.test(html.replace(/\n/g, '')), '140px below 600px');
+    assert.ok(/\.pics\{[^}]*align-items:stretch/.test(html) || /\.pics\{[^}]*align-items:start/.test(html));
+});
+
+test('A3. the request email: the intro (with and without a phone), three steps without timeframes, no "days"', function () {
+    var t = v3.setup();
+    sendPage(t, 'POST', {});
+    var b = t.w.emails[0].body;
+    assert.ok(/Hi [^,<]+,/.test(b), 'Hi {first name},');
+    assert.ok(b.indexOf('I’m Pem, your Project Engineer. I’ll be your main contact for your underfloor heating and heat pump ' +
+        'all the way through design and delivery.') > 0);
+    assert.ok(/It takes about \d+ minutes, and you can save it and come back at any time\./.test(b));
+    assert.ok(b.indexOf('just give me a call on 0101 or reply to this email') > 0);
+    ['You complete the design survey', 'Tell us about your property and heating system.', 'We design your system',
+        'Our designers design your system and optimise it for installation and performance.', 'We deliver it',
+        'Your system is delivered to site.'].forEach(function (x) { assert.ok(b.indexOf(x) > 0, x); });
+    assert.strictEqual(/\bdays?\b/i.test(b), false, 'no timeframes');
+    // No phone on the employee record (phone, then mobilephone): "just reply to this email".
+    var n = v3.setup();
+    n.w.employees[77].phone = '';
+    n.w.employees[77].mobilephone = '';
+    sendPage(n, 'POST', {});
+    var nb = n.w.emails[0].body;
+    assert.ok(nb.indexOf('If you’d like to talk anything through, just reply to this email') > 0);
+    assert.strictEqual(nb.indexOf('give me a call'), -1);
+    // The mobile when there is no direct line.
+    var m = v3.setup();
+    m.w.employees[77].phone = '';
+    m.w.employees[77].mobilephone = '07700 900456';
+    sendPage(m, 'POST', {});
+    assert.ok(m.w.emails[0].body.indexOf('just give me a call on 07700 900456') > 0);
 });

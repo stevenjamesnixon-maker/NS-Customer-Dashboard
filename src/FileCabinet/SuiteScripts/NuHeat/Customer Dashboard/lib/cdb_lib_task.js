@@ -42,19 +42,22 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
- * @NApiVersion 2.1
- * @NModuleScope SameAccount
  * 1.5.2 (amendment 3): the DESIGN INFO Task is a SNAPSHOT — every shown section with its current answers ("Label:
  * value", clipped at 200), "(nothing yet)" for an empty one, and a pointer to the Notes for the changes since the last
  * send — because the state no longer carries a change list.
  *
- * @version 1.5.2
+ * 1.6.0 (2.3c amendment 3): the design information Note and Task take topLines — lines put first (the customer's call
+ * request, "Customer would like a call").
+ *
+ * @NApiVersion 2.1
+ * @NModuleScope SameAccount
+ * @version 1.6.0
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.5.2';
+    var VERSION = '1.6.0';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -319,8 +322,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @returns {{body: string, clipped: boolean}}
      */
     function buildDesignInfoNote(o) {
-        var lines = ['Sections saved: ' + ((o.sectionsSaved || []).join(', ') || '(none)'),
-            'Sent to PE: ' + (o.sent ? 'yes' : 'no')];
+        // 1.6.0: topLines first (the call request).
+        var lines = (o.topLines || []).concat((o.topLines || []).length ? [''] : []).concat(['Sections saved: ' +
+            ((o.sectionsSaved || []).join(', ') || '(none)'),
+            'Sent to PE: ' + (o.sent ? 'yes' : 'no')]);
         var body;
         (o.blocks || []).forEach(function (b) {
             if (!(b.changes || []).length && !(b.files || []).length) {
@@ -358,8 +363,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @returns {string} unclipped: the caller clips it with clipBody() (and logs CDB DESIGNINFO_TASK_CLIPPED)
      */
     function buildDesignInfoMessage(o) {
-        var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
-            'attached files, then move the sub-status to Design Required when you\u2019re ready.', ''];
+        // 1.6.0: topLines first (the call request).
+        var lines = (o.topLines || []).concat((o.topLines || []).length ? [''] : []).concat(['The customer has sent design ' +
+            'information. Check it on the Project Specification tab and the attached files, then move the sub-status to Design ' +
+            'Required when you\u2019re ready.', '']);
         if ((o.failures || []).length) {
             lines.push('NOT SAVED (please enter by hand):');
             o.failures.forEach(function (f) { lines.push('- ' + f); });
