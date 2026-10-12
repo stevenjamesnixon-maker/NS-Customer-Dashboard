@@ -153,7 +153,14 @@ test('6. neither: a throw key throws as today; a default key gets the default as
             'setting DESIGNINFO_MAX_FILES is empty: using the default 6', 'setting FC_MAP is empty: treated as none',
             'setting HEAT_MAP is empty: treated as none', 'setting VP_MAP is empty: treated as none',
             'setting NEWBUILD_MARKET_IDS is empty: treated as none', 'setting NOTE_TYPE is empty: treated as none',
-            'setting DESIGNINFO_DRAWINGS_URL is empty: treated as none'],
+            'setting DESIGNINFO_DRAWINGS_URL is empty: treated as none',
+            // 3.5.0 (release 2.3c): the seven new record-only keys, the same way.
+            'setting DI_HEAT26_MAP is empty: treated as none', 'setting DI_BUILD_TYPE_OPTIONS is empty: treated as none',
+            'setting DI_MARKET_OPTIONS is empty: treated as none', 'setting DI_PIC_REFLECT is empty: treated as none',
+            'setting DI_PIC_BARRIER is empty: treated as none', 'setting DI_FILL_REPLACEABLE is empty: treated as none',
+            'setting EPC_BEARER_TOKEN is empty: treated as none',
+            // 3.7.0 (2.3c amendment 4): the standard heights.
+            'setting DI_STANDARD_HEIGHTS is empty: treated as none'],
         'the 2.x note, word for word');
 });
 
@@ -220,6 +227,9 @@ test('9. the settings search throws: one SETTINGS_UNAVAILABLE line; the paramete
     expected.NEWBUILD_MARKET_IDS = [];
     expected.NOTE_TYPE = '';
     expected.DESIGNINFO_DRAWINGS_URL = '';
+    // 3.5.0 (release 2.3c): the seven record-only keys.
+    ['DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER', 'DI_FILL_REPLACEABLE',
+        'EPC_BEARER_TOKEN', 'DI_STANDARD_HEIGHTS'].forEach(function (k) { expected[k] = ''; });
     assert.deepStrictEqual(s.config.load(s.log), expected);
     s.config.load(s.log);
     var lines = logs(s.w, 'SETTINGS_UNAVAILABLE');
@@ -396,14 +406,21 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
         'TIME_DEFAULT', 'UNLOAD_SURCHARGE', 'LINK_BACKFILL_SCOPE',
         // 3.4.0 (release 2.3)
         'DESIGNINFO_REGISTRY', 'DESIGNINFO_FOLDER', 'DESIGNINFO_MAX_FILES', 'FC_MAP', 'HEAT_MAP', 'VP_MAP',
-        'NEWBUILD_MARKET_IDS', 'NOTE_TYPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL', 'DESIGNINFO_DRAWINGS_URL']);
+        'NEWBUILD_MARKET_IDS', 'NOTE_TYPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL', 'DESIGNINFO_DRAWINGS_URL',
+        // 3.5.0 (release 2.3c)
+        'DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER', 'DI_FILL_REPLACEABLE',
+        'EPC_BEARER_TOKEN',
+        // 3.7.0 (2.3c amendment 4)
+        'DI_STANDARD_HEIGHTS']);
     // 3.3.0: LINK_BACKFILL_SCOPE is the link backfill's, not the dashboard's. 3.4.0: the request email's two keys are the
     // Send design information Suitelet's.
     var slRecordOnly = recordOnly.filter(function (k) {
         return ['LINK_BACKFILL_SCOPE', 'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL'].indexOf(k) < 0;
     });
     // 3.4.0 (amendment 1 §3): the digest reads the design keys from the record, and PE_VALUEPROPS (no MR twin).
-    var mrRecordOnly = ['DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'PE_VALUEPROPS'];
+    var mrRecordOnly = ['DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS', 'PE_VALUEPROPS',
+        // 3.5.0: the heat facts' map and the registry's options settings (not the token, not the fill rule).
+        'DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER'];
     Object.keys(c.PARAMETER_COLUMNS).forEach(function (scriptId) {
         assert.deepStrictEqual(c.SCRIPT_KEYS[scriptId].slice().sort(),
             c.keysForColumn(c.PARAMETER_COLUMNS[scriptId]).concat(scriptId === SL ? slRecordOnly : scriptId === MR ?
@@ -416,14 +433,17 @@ test('SCRIPT_KEYS lists exactly the keys of each script\'s parameter column, plu
     // 3.4.1 (amendment 2): DESIGN_SUBSTATUS, which the facts read.
     assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.SEND_DESIGNINFO], ['WON_STATUSES', 'NEEDINFO_SUBSTATUS', 'DESIGN_SUBSTATUS', 'PE_VALUEPROPS',
         'FALLBACK_EMPLOYEE', 'LOGO_URL', 'DESIGNINFO_REGISTRY', 'FC_MAP', 'HEAT_MAP', 'VP_MAP', 'NEWBUILD_MARKET_IDS',
-        'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL']);
+        'DESIGN_EMAIL_ADDRESS', 'DESIGNINFO_EMAIL',
+        // 3.5.0 (release 2.3c)
+        'DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER']);
     // 3.3.0: the link backfill has no parameters: the "open" keys and its scope, from the record only.
     assert.strictEqual(c.PARAMETER_COLUMNS[c.SCRIPTS.LINK_BACKFILL], undefined);
     assert.deepStrictEqual(c.SCRIPT_KEYS[c.SCRIPTS.LINK_BACKFILL], ['WON_STATUSES', 'LOST_STATUSES', 'DESIGN_SUBSTATUS',
         'DELIVERY_SUBSTATUS', 'EXCLUDED_STATUSES', 'EXCLUDED_QUOTE_TYPES', 'RELEASED_STATUSES', 'LINK_BACKFILL_SCOPE']);
     assert.deepStrictEqual(Object.keys(c.SCRIPT_KEYS).sort(), [MR, SL, SEND, c.SCRIPTS.LINK_BACKFILL, c.SCRIPTS.OPP_UE,
         c.SCRIPTS.SEND_DESIGNINFO].sort());
-    assert.strictEqual(Object.keys(c.PARAMETERS).length, 48,
-        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key and the eleven 3.4.0 keys, no more');
-    assert.strictEqual(c.VERSION, '3.4.2');
+    assert.strictEqual(Object.keys(c.PARAMETERS).length, 56,
+        'the 2.0.5 keys, the three 3.1 keys, the two 3.2.1 keys, the 3.3.0 key, the eleven 3.4.0 keys, the seven 3.5.0 ' +
+        'keys and the 3.7.0 key, no more');
+    assert.strictEqual(c.VERSION, '3.7.0');
 });

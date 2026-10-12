@@ -492,6 +492,15 @@ test('address: an address-book booking is byte-identical to 2.1.2 (page, writes,
         'DESIGNINFO_DRAWINGS_URL is empty: treated as none'].map(function (t) {
         return ['audit', 'CDB PARAMETER_DEFAULT', 'setting ' + t];
     })));
+    // 3.5.0 (release 2.3c): the same for the dashboard's seven new record-only keys, after those nine.
+    var keys35 = ['DI_HEAT26_MAP', 'DI_BUILD_TYPE_OPTIONS', 'DI_MARKET_OPTIONS', 'DI_PIC_REFLECT', 'DI_PIC_BARRIER',
+        'DI_FILL_REPLACEABLE', 'EPC_BEARER_TOKEN',
+        // 3.7.0 (2.3c amendment 4): the standard heights, record only.
+        'DI_STANDARD_HEIGHTS'];
+    expected.logs[0][2] += keys35.map(function (k) { return ', ' + k + '=none'; }).join('');
+    expected.logs.splice.apply(expected.logs, [22, 0].concat(keys35.map(function (k) {
+        return ['audit', 'CDB PARAMETER_DEFAULT', 'setting ' + k + ' is empty: treated as none'];
+    })));
     assert.deepStrictEqual(capture(), expected);
 });
 

@@ -116,17 +116,31 @@
  * HTML for staff: such a row is now a type mismatch, read-only and reported); the request rule reads FC_MAP only
  * (designinfo.parseFcMapOnly()), so the User Event needs no other map.
  *
+ * 2.4.0 (release 2.3c): loadRegistry(path, cfg) parses with the @setting options rows (config.DI_OPTION_SETTINGS);
+ * loadContent() reads the element presets, the age bands and the EPC map from the registry's folder, once per execution;
+ * typeFits() takes an @setting choice on a List field (the option's id is written) and the number question on a numeric
+ * field; loadDesignInfo() reads custbody_heat_source_type_26 (an array), an @setting choice's id, and the element and EPC
+ * fields (out.extra); validateDesignInfo() reads element cards (q_<qid>, _u, _notes, _src), checks an @setting choice
+ * against its ids and the distance as a number above 0; the extras search and the request lookup read
+ * custbody_heat_source_type_26; decorateDesign() works from designinfo.stepsFor() (the requested steps, their minutes);
+ * writeFacts() (the request page's "Update and recheck", config.FACTS_FIX_FIELDS only) and fileUrls() (one file search).
+ *
+ * 2.4.1 (2.3c amendment 3): the file-size error names the tick as it now reads ("Some of my files are bigger than 10 MB").
+ *
+ * 2.5.0 (2.3c amendment 4): saveDesignInfoPdf() (N/render xmlToPdf, saved in the upload folder; attached with
+ * attachUpload()); getCustomer() gives surname (a company: its name) for the Task's title.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.3.1
+ * @version 2.5.0
  */
 define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config', './cdb_lib_dates',
-    './cdb_lib_designinfo'],
-    function (search, record, format, log, file, config, dates, designinfo) {
+    './cdb_lib_designinfo', 'N/render'],
+    function (search, record, format, log, file, config, dates, designinfo, nrender) {
 
     'use strict';
 
-    var VERSION = '2.3.1';
+    var VERSION = '2.5.0';
 
     var OPP = config.FIELDS.OPPORTUNITY;
     var SO = config.FIELDS.SALES_ORDER;
@@ -1279,6 +1293,17 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         return { value: trim(value), text: '' };
     }
 
+    /** 2.4.0: a multi-select from lookupFields: every [{value, text}]; a plain value as IDs. */
+    function lookupSelects(value) {
+        if (Array.isArray(value)) {
+            return value.map(function (x) {
+                return x && typeof x === 'object' ? { value: String(x.value), text: String(x.text || '') } :
+                    { value: trim(x), text: '' };
+            }).filter(function (x) { return x.value !== ''; });
+        }
+        return designinfo.idsOf(value).map(function (id) { return { value: id, text: '' }; });
+    }
+
     /** A checkbox from a search or lookup: true, 'T' or false/'F'. */
     function isTicked(value) {
         return value === true || value === 'T';
@@ -1339,6 +1364,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             id: String(customerId),
             name: name || trim(r.entityid),
             greetingName: (isTicked(r.isperson) ? trim(r.firstname) : '') || name || trim(r.entityid),
+            // 2.5.0 (2.3c amendment 4 §7): the Task title's surname (a company: its name).
+            surname: (isTicked(r.isperson) ? trim(r.lastname) : '') || name || trim(r.entityid),
             email: trim(r.email),
             phone: trim(r.phone),
             salesRep: lookupSelect(r.salesrep).value,
@@ -2214,6 +2241,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
      */
     var DI_TEXT_TYPES = ['TEXT', 'TEXTAREA', 'LONGTEXT', 'CLOBTEXT', 'PHONE', 'EMAIL', 'URL'];
 
+    /** 2.4.0: the numeric Field.type values the number question may write (as a number). */
+    var DI_NUMBER_TYPES = ['FLOAT', 'INTEGER', 'CURRENCY', 'PERCENT'];
+
     /** NetSuite's own limits by field type, used when getField() exposes no maxLength. */
     var DI_TYPE_LIMITS = { TEXT: 300, PHONE: 300, EMAIL: 254, URL: 300, TEXTAREA: 4000 };
 
@@ -2280,8 +2310,19 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         return result;
     }
 
-    /** 2.3.0: the registry, once per execution per path. */
+    /** 2.3.0: the registry, once per execution per path (2.4.0: and per options settings). */
     var registryCache = {};
+
+    /** 2.4.0: the options settings a registry may name (@setting:KEY), from the config. */
+    function optionSettings(cfg) {
+        var out = {};
+        config.DI_OPTION_SETTINGS.forEach(function (k) {
+            if (cfg && cfg.hasOwnProperty(k)) {
+                out[k] = cfg[k];
+            }
+        });
+        return out;
+    }
 
     /**
      * 2.3.0: the question registry from the File Cabinet (file.load by path, ~10 units), parsed with the allow-list
@@ -2290,23 +2331,68 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
      * @returns {{status: string, questions: Object[], rejected: Object[], detail: string}} status 'none' (no
      *   setting), 'missing' (the file cannot be read), or parseRegistry()'s 'ok' | 'empty' | 'invalid'
      */
-    function loadRegistry(path) {
+    function loadRegistry(path, cfg) {
         var p = trim(path);
+        var settings = optionSettings(cfg);
+        var key = p + '\n' + JSON.stringify(settings);
         var text;
         if (p === '') {
             return { status: 'none', questions: [], rejected: [], detail: 'setting DESIGNINFO_REGISTRY is empty' };
         }
-        if (registryCache.hasOwnProperty(p)) {
-            return registryCache[p];
+        if (registryCache.hasOwnProperty(key)) {
+            return registryCache[key];
         }
         try {
-            text = file.load({ id: p }).getContents();
-            registryCache[p] = designinfo.parseRegistry(text, config.designInfoAllowList(), config.DESIGNINFO_DENY);
+            text = fileText(p);
+            registryCache[key] = designinfo.parseRegistry(text, config.designInfoAllowList(), config.DESIGNINFO_DENY,
+                { settings: settings });
         } catch (e) {
-            registryCache[p] = { status: 'missing', questions: [], rejected: [], detail: p + ' could not be read: ' +
+            registryCache[key] = { status: 'missing', questions: [], rejected: [], detail: p + ' could not be read: ' +
                 (e && e.message ? e.message : String(e)) };
         }
-        return registryCache[p];
+        return registryCache[key];
+    }
+
+    /** 2.4.0: a File Cabinet text file by path, once per execution (~10 units the first time). Throws as file.load does. */
+    var fileTextCache = {};
+    function fileText(path) {
+        if (!fileTextCache.hasOwnProperty(path)) {
+            fileTextCache[path] = file.load({ id: path }).getContents();
+        }
+        return fileTextCache[path];
+    }
+
+    /** 2.4.0: a content file's path — the name in the registry's own folder. */
+    function contentPath(registryPath, name) {
+        return trim(registryPath).replace(/[^\/]*$/, '') + name;
+    }
+
+    /**
+     * 2.4.0 (brief §B8, §B9): the content files the element cards read, parsed, once per execution. Never throws: a file
+     * that cannot be read is { status: 'missing', detail } (the cards then offer the specials only, or no pre-fill).
+     * @param {string} registryPath - setting DESIGNINFO_REGISTRY
+     * @param {string} which - 'presets' | 'ageBands' | 'epcMap'
+     */
+    var contentCache = {};
+    function loadContent(registryPath, which) {
+        var names = { presets: config.DESIGNINFO_CONTENT.PRESETS, ageBands: config.DESIGNINFO_CONTENT.AGE_BANDS,
+            epcMap: config.DESIGNINFO_CONTENT.EPC_MAP };
+        var p = contentPath(registryPath, names[which]);
+        var text;
+        if (contentCache.hasOwnProperty(p)) {
+            return contentCache[p];
+        }
+        try {
+            text = fileText(p);
+            contentCache[p] = which === 'presets' ? designinfo.parsePresets(text) :
+                which === 'ageBands' ? designinfo.parseAgeBands(text, loadContent(registryPath, 'presets')) :
+                    designinfo.parseEpcMap(text, loadContent(registryPath, 'presets'));
+        } catch (e) {
+            contentCache[p] = { status: 'missing', byElement: {}, bands: {}, rows: [], rejected: [],
+                detail: p + ' could not be read: ' + (e && e.message ? e.message : String(e)) };
+        }
+        contentCache[p].path = p;
+        return contentCache[p];
     }
 
     /** Field.type upper-cased, '' when unreadable. */
@@ -2319,8 +2405,13 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         if (q.type === 'date') {
             return type === 'DATE';
         }
-        if (q.type === 'choice' && q.optionsFromField) {
+        // 2.4.0: an @setting choice writes its option's id, so a List field; a literal choice writes its label (text).
+        if (q.type === 'choice' && (q.optionsFromField || q.optionsFromSetting)) {
             return type === 'SELECT';
+        }
+        // 2.4.0: the number question may also go to a numeric field.
+        if (q.type === 'text' && designinfo.isNumberQuestion(q) && contains(DI_NUMBER_TYPES, type)) {
+            return true;
         }
         if (q.type === 'yesno') {
             return type === 'CHECKBOX' || contains(DI_TEXT_TYPES, type);
@@ -2396,6 +2487,12 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                 out.texts[q.qid] = type === 'SELECT' ? safeText(rec, q.field) : displayValue(raw);
                 return;
             }
+            if (q.type === 'choice' && q.optionsFromSetting) {
+                // 2.4.0: the options are the setting's; the field holds the id.
+                out.texts[q.qid] = safeText(rec, q.field);
+                out.values[q.qid] = trim(raw);
+                return;
+            }
             if (q.type === 'choice' && q.optionsFromField) {
                 options = selectOptions(field, q, cfg);
                 out.texts[q.qid] = safeText(rec, q.field);
@@ -2423,6 +2520,30 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             out.texts[q.qid] = out.values[q.qid];
         });
 
+        // 2.4.0: the element fields and the EPC pair, read beside the registry's own (the element questions' targets
+        // depend on the customer's answers, so all eight are read).
+        out.extra = {};
+        config.DESIGNINFO_EXTRA_FIELDS.forEach(function (fieldId) {
+            var field;
+            var type;
+            var max;
+            var raw;
+            try {
+                field = rec.getField({ fieldId: fieldId });
+            } catch (e) {
+                field = null;
+            }
+            if (!field) {
+                out.extra[fieldId] = { present: false, type: '', limit: 0, value: '' };
+                return;
+            }
+            type = fieldType(field);
+            max = typeof field.maxLength === 'number' && field.maxLength > 0 ? field.maxLength : 0;
+            raw = safeValue(rec, fieldId);
+            out.extra[fieldId] = { present: true, type: type, limit: max || DI_TYPE_LIMITS[type] || 0,
+                value: type === 'DATE' ? dateKey(raw) : displayValue(raw) };
+        });
+
         out.info = {
             tranId: trim(safeValue(rec, 'tranid')),
             title: trim(safeValue(rec, OPP.TITLE)),
@@ -2434,6 +2555,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             fcText: safeText(rec, OPP.FC),
             heatSource: trim(safeValue(rec, OPP.HEAT_SOURCE)),
             heatSourceText: safeText(rec, OPP.HEAT_SOURCE),
+            // 2.4.0: Multiple Select — an array of IDs (designinfo.idsOf normalises), and its text.
+            heatSource26: designinfo.idsOf(safeValue(rec, OPP.HEAT_SOURCE_TYPE)),
+            heatSource26Text: safeText(rec, OPP.HEAT_SOURCE_TYPE),
             market: trim(safeValue(rec, OPP.MARKET)),
             manifolds: trim(safeValue(rec, OPP.MANIFOLD_LOCATIONS)),
             thermostatsText: safeText(rec, OPP.THERMOSTATS) || displayValue(safeValue(rec, OPP.THERMOSTATS)),
@@ -2543,7 +2667,16 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             var n;
             var list;
             var err;
-            if (q.type === 'info') {
+            if (q.type === 'info' || q.type === 'epc') {
+                return;
+            }
+            if (q.type === 'element') {
+                // 2.4.0 (brief §B8): the card — the preset or special, the exact U, the notes, the source.
+                v = elementCard(p, q, ctx);
+                if (v.error) {
+                    errors[q.qid] = v.error;
+                }
+                values[q.qid] = v.card;
                 return;
             }
             if (q.type === 'files') {
@@ -2561,7 +2694,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                             errors[q.qid] = '“' + part.name + '” is not a file type we can take. Please send PDF, ' +
                                 'DWG, DXF, an image, ZIP, Word or Excel.';
                         } else if (!errors[q.qid] && Number(part.size) > limits.FILE_BYTES) {
-                            errors[q.qid] = '“' + part.name + '” is bigger than 10 MB. Tick “I have files bigger ' +
+                            errors[q.qid] = '“' + part.name + '” is bigger than 10 MB. Tick “Some of my files are bigger ' +
                                 'than 10 MB” and we’ll send you a secure way to send it.';
                         }
                     });
@@ -2578,6 +2711,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                 v = diLine(raw);
                 if (v.length > limits.TEXT) {
                     errors[q.qid] = 'Please keep this under ' + limits.TEXT + ' characters.';
+                } else if (v !== '' && designinfo.isNumberQuestion(q) && !(/^\d*\.?\d+$/.test(v) && parseFloat(v) > 0)) {
+                    // 2.4.0: the distance — a number above 0, decimals allowed.
+                    errors[q.qid] = 'Please give the distance in metres as a number, for example 8.5.';
                 }
             } else if (q.type === 'date') {
                 v = trim(raw);
@@ -2599,6 +2735,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                     if (v !== '' && !contains(opts, v)) {
                         errors[q.qid] = 'Please choose one of the options shown.';
                     }
+                } else if (q.optionsFromSetting) {
+                    // 2.4.0: only an id the setting lists.
+                    if (v !== '' && !contains(q.optionIds, v)) {
+                        errors[q.qid] = 'Please choose one of the options shown.';
+                    }
                 } else if (v !== '') {
                     n = /^\d+$/.test(v) ? parseInt(v, 10) : -1;
                     if (n < 0 || n >= (q.options || []).length) {
@@ -2611,6 +2752,37 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             values[q.qid] = v;
         });
         return { ok: !Object.keys(errors).length, errors: errors, values: values, files: chosen };
+    }
+
+    /**
+     * Pure (2.4.0, brief §B8): one element card as posted — q_<qid> (a preset key of the element, or a special; typical on a
+     * renovation only), q_<qid>_u (an exact U-value, 0.05–6.0, optional), q_<qid>_notes (at most 300; required for
+     * "I'll describe it"), q_<qid>_src (the source fingerprint, designinfo.parseSrc()).
+     * @returns {{card: {key, u, notes, src}, error: string}}
+     */
+    function elementCard(p, q, ctx) {
+        var name = 'q_' + q.qid;
+        var key = trim(p[name]);
+        var u = trim(p[name + '_u']).replace(/,/g, '.');
+        var notes = diLine(p[name + '_notes']);
+        var src = trim(p[name + '_src']);
+        var allowed = ((ctx.presets && ctx.presets.byElement && ctx.presets.byElement[q.element]) || []).map(function (x) {
+            return x.key;
+        }).concat(designinfo.ELEMENT_SPECIALS.map(function (x) { return x.key; }).filter(function (k) {
+            return k !== 'typical' || ctx.market === 'reno';
+        }));
+        var card = { key: key, u: u, notes: notes, src: /^[a-z]+(:[a-z0-9_]*:[0-9.]*)?$/.test(src) ? src : 'you' };
+        var error = '';
+        if (key !== '' && !contains(allowed, key)) {
+            error = 'Please choose one of the options shown.';
+        } else if (u !== '' && !designinfo.uInRange(u)) {
+            error = 'A U-value is a number between ' + designinfo.U_MIN + ' and ' + designinfo.U_MAX + ' W/m²K, for example 0.28.';
+        } else if (notes.length > designinfo.ELEMENT_NOTES_MAX) {
+            error = 'Please keep the notes under ' + designinfo.ELEMENT_NOTES_MAX + ' characters.';
+        } else if (key === 'describe' && notes === '') {
+            error = 'Please describe it in the notes.';
+        }
+        return { card: card, error: error };
     }
 
     /**
@@ -2685,6 +2857,19 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
     }
 
     /**
+     * 2.5.0 (2.3c amendment 4 §8): the design information PDF — N/render's xmlToPdf (BFO XML, every value escaped by the
+     * caller; ~10 units), saved into the upload folder (20), not available without login. Returns the file's ID; the caller
+     * attaches it with attachUpload() (10). Throws whatever NetSuite throws.
+     */
+    function saveDesignInfoPdf(xml, name, folderId) {
+        var pdf = nrender.xmlToPdf({ xmlString: xml });
+        pdf.name = name;
+        pdf.folder = parseInt(folderId, 10);
+        pdf.isOnline = false;
+        return String(pdf.save());
+    }
+
+    /**
      * 2.3.0 (brief §6): the card states' extras for opportunities ALREADY FOUND, in one separate search — the
      * getOrderExtras() pattern. FAIL-SAFE: any error logs CDB OPP_EXTRAS_FAILED once and gives {}, so the page and
      * the digest show "needs information" cards. Never add these columns to getOpportunities().
@@ -2702,7 +2887,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             collect(search.create({
                 type: search.Type.OPPORTUNITY,
                 filters: [['internalid', 'anyof', oppIds]],
-                columns: [OPP.DESIGNINFO_STATE, OPP.FC, OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT]
+                columns: [OPP.DESIGNINFO_STATE, OPP.FC, OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT, OPP.HEAT_SOURCE_TYPE]
             }), function (r) {
                 if (!wanted[String(r.id)]) {
                     return;
@@ -2711,6 +2896,8 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
                     state: r.getValue(OPP.DESIGNINFO_STATE) || '',
                     fc: trim(r.getValue(OPP.FC)),
                     heatSource: trim(r.getValue(OPP.HEAT_SOURCE)),
+                    // 2.4.0: a multi-select column comes back as "4,10".
+                    heatSource26: designinfo.idsOf(r.getValue(OPP.HEAT_SOURCE_TYPE)),
                     market: trim(r.getValue(OPP.MARKET)),
                     nextContactKey: dateKey(r.getValue(OPP.NEXT_CONTACT))
                 };
@@ -2736,20 +2923,23 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             var ex = (o.extras || {})[String(d.opp.id)] || {};
             var parsed = designinfo.parseState(ex.state);
             var facts = designinfo.buildFacts({ valueProposition: d.opp.valueProposition, fc: ex.fc,
-                heatSource: ex.heatSource, market: ex.market, subStatus: d.opp.subStatus }, o.cfg);
+                heatSource: ex.heatSource, heatSource26: ex.heatSource26, market: ex.market, subStatus: d.opp.subStatus }, o.cfg);
+            // 2.4.0 (§B3): the requested steps only — their progress, their minutes, their saves.
+            var steps = o.questions ? designinfo.stepsFor(o.questions, facts, parsed.state.rq) : null;
+            var ids = steps ? steps.map(function (x) { return x.id; }) : null;
             var key = designinfo.cardState({ needInfo: contains(o.cfg.NEEDINFO_SUBSTATUS, d.opp.subStatus),
-                fcNone: designinfo.isFcNone(facts.fc), state: parsed.state });
+                fcNone: designinfo.isFcNone(facts.fc), state: parsed.state, stepIds: ids });
             if (parsed.status === 'invalid' && o.onStateInvalid) {
                 o.onStateInvalid(d.opp.id, parsed.detail);
             }
             d.design = {
                 key: key,
-                progress: o.questions ? designinfo.progressFromState(designinfo.visibleQuestions(o.questions, facts),
-                    parsed.state) : null,
+                progress: steps ? designinfo.progressFromState(designinfo.stepQuestions(steps), parsed.state) : null,
+                minutes: steps ? designinfo.stepsMinutes(steps) : 0,
                 sentKey: parsed.state.sent ? designinfo.londonTime(Date.parse(parsed.state.sent)).key : '',
                 callKey: ex.nextContactKey && ex.nextContactKey >= o.todayKey ? ex.nextContactKey : '',
                 peFirst: key === designinfo.CARD.INFO_SENT && o.firstNameOf ? o.firstNameOf(d.opp) : '',
-                anySaved: designinfo.anySectionSaved(parsed.state)
+                anySaved: designinfo.anySectionSaved(parsed.state, ids)
             };
             d.badge = key === designinfo.CARD.FC_NONE ? DESIGN_BADGES.DESIGNING : key;
         });
@@ -2776,7 +2966,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         try {
             r = search.lookupFields({ type: search.Type.OPPORTUNITY, id: trim(oppId), columns: ['entity', 'tranid', 'title',
                 OPP.STATUS, OPP.SUB_STATUS, OPP.SITE_ADDRESS, OPP.PE, 'salesrep', OPP.VALUE_PROPOSITION, OPP.FC,
-                OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT, OPP.DEL_DATE, OPP.DESIGNINFO_STATE] });
+                OPP.HEAT_SOURCE, OPP.MARKET, OPP.NEXT_CONTACT, OPP.DEL_DATE, OPP.DESIGNINFO_STATE, OPP.HEAT_SOURCE_TYPE] });
         } catch (e) {
             out.reason = 'the opportunity could not be read: ' + (e && e.message ? e.message : String(e));
             return out;
@@ -2796,6 +2986,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             fcText: lookupSelect(r[OPP.FC]).text,
             heatSource: lookupSelect(r[OPP.HEAT_SOURCE]).value,
             heatSourceText: lookupSelect(r[OPP.HEAT_SOURCE]).text,
+            // 2.4.0: Multiple Select — every {value, text} of the lookup.
+            heatSource26: lookupSelects(r[OPP.HEAT_SOURCE_TYPE]).map(function (x) { return x.value; }),
+            heatSource26Text: lookupSelects(r[OPP.HEAT_SOURCE_TYPE]).map(function (x) { return x.text; }).join(', '),
             market: lookupSelect(r[OPP.MARKET]).value,
             nextContactKey: dateKey(r[OPP.NEXT_CONTACT]),
             delDateKey: dateKey(r[OPP.DEL_DATE]),
@@ -2828,6 +3021,63 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
             return 'the FC maps to none: nothing is needed from the customer';
         }
         return '';
+    }
+
+    /**
+     * 2.4.0 (brief §B4): the request page's "Update and recheck" — ONE submitFields of the facts' sources, only the fields
+     * in config.FACTS_FIX_FIELDS (DESIGNINFO_DENY stays as it is for the customer page). Blank never writes. Anything else
+     * refuses the whole write (fail closed).
+     * @param {string} oppId
+     * @param {Object} values - fieldId -> an ID, or an array of IDs (the multi-select)
+     * @returns {Object} the values written
+     * @throws CDB_BAD_FACTS_WRITE, or whatever submitFields throws
+     */
+    function writeFacts(oppId, values) {
+        var id = trim(oppId);
+        var out = {};
+        var key;
+        var v;
+        if (!/^\d+$/.test(id)) {
+            throw writeError('CDB_BAD_FACTS_WRITE', 'opportunity "' + id + '": not written');
+        }
+        for (key in (values || {})) {
+            if (!values.hasOwnProperty(key)) {
+                continue;
+            }
+            v = values[key];
+            if (!contains(config.FACTS_FIX_FIELDS, key)) {
+                throw writeError('CDB_BAD_FACTS_WRITE', 'opportunity "' + id + '": ' + key + ' may not be written here: nothing ' +
+                    'written');
+            }
+            if (Array.isArray(v) ? !v.length || !v.every(function (x) { return /^\d+$/.test(String(x)); }) : !/^\d+$/.test(trim(v))) {
+                throw writeError('CDB_BAD_FACTS_WRITE', 'opportunity "' + id + '": ' + key + ' is not an ID: nothing written');
+            }
+            out[key] = v;
+        }
+        if (!Object.keys(out).length) {
+            throw writeError('CDB_BAD_FACTS_WRITE', 'opportunity "' + id + '": nothing to write');
+        }
+        record.submitFields({ type: record.Type.OPPORTUNITY, id: id, values: out,
+            options: { enableSourcing: false, ignoreMandatoryFields: true } });
+        return out;
+    }
+
+    /**
+     * 2.4.0 (brief §B7): the File Cabinet URLs of these files — ONE search (~10 units), file ID -> the relative URL NetSuite
+     * returns. A file not returned is not in the map. Throws as search does (the caller logs and shows no images).
+     * @param {string[]} ids
+     * @returns {Object}
+     */
+    function fileUrls(ids) {
+        var out = {};
+        var list = (ids || []).filter(function (x) { return /^\d+$/.test(String(x)); });
+        if (!list.length) {
+            return out;
+        }
+        collect(search.create({ type: 'file', filters: [['internalid', 'anyof', list]], columns: ['url'] }), function (r) {
+            out[String(r.id)] = String(r.getValue('url') || '');
+        });
+        return out;
     }
 
     return {
@@ -2917,9 +3167,18 @@ define(['N/search', 'N/record', 'N/format', 'N/log', 'N/file', './cdb_lib_config
         writeDesignInfo: writeDesignInfo,
         saveUpload: saveUpload,
         attachUpload: attachUpload,
+        saveDesignInfoPdf: saveDesignInfoPdf,
         getOpportunityExtras: getOpportunityExtras,
         decorateDesign: decorateDesign,
         designInfoRequest: designInfoRequest,
-        requestRefusal: requestRefusal
+        requestRefusal: requestRefusal,
+        // 2.4.0
+        loadContent: loadContent,
+        contentPath: contentPath,
+        typeFits: typeFits,
+        elementCard: elementCard,
+        lookupSelects: lookupSelects,
+        writeFacts: writeFacts,
+        fileUrls: fileUrls
     };
 });

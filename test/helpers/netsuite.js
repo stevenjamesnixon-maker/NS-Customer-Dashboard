@@ -60,7 +60,16 @@ function findClause(expr, field) {
     return null;
 }
 
+/**
+ * 2.3c: a governance meter. Each stubbed API call adds NetSuite's documented unit cost to w.units (a MODEL: the real
+ * figures come from the CDB USAGE line in Sandbox). Transaction record calls 10 (load, submitFields, attach 10), Note and
+ * Task saves as transactions do (10), lookupFields 1, a search run 10, file.load 10, a file save 20, email.send 20, https 10.
+ */
+var UNITS = { lookupFields: 1, search: 10, fileLoad: 10, recordLoad: 10, submitFields: 10, recordSave: 10, attach: 10,
+    fileSave: 20, email: 20, https: 10, xmlToPdf: 10 };
+
 function stubs(w) {
+    function meter(kind) { w.units = (w.units || 0) + UNITS[kind]; w.unitLog = (w.unitLog || []).concat([kind]); }
     function results(rows) {
         return { runPaged: function () { return { pageRanges: [{ index: 0 }], fetch: function () { return { data: rows }; } }; } };
     }
@@ -72,6 +81,7 @@ function stubs(w) {
         Summary: { GROUP: 'GROUP' },
         createColumn: function (c) { return c; },
         lookupFields: function (o) {
+            meter('lookupFields');
             // Amendment 3: a Long Text field is not a valid lookupFields column (w.longTextFields, as in Production).
             (o.columns || []).forEach(function (c) {
                 if ((w.longTextFields || []).indexOf(c) >= 0) {
@@ -106,6 +116,17 @@ function stubs(w) {
             var clause;
             w.searches = w.searches || [];
             w.searches.push(def);
+            meter('search');
+            // 2.3c: the File Cabinet's files by ID (w.fileUrls = { id: '/core/media/media.nl?id=…' }); w.fileSearchThrows.
+            if (def.type === 'file') {
+                if (w.fileSearchThrows) { throw new Error('SSS_INVALID_SRCH_TYPE: file'); }
+                asList(findClause(def.filters, 'internalid')[2]).forEach(function (id) {
+                    if ((w.fileUrls || {})[id]) {
+                        rows.push({ id: id, getValue: function () { return w.fileUrls[id]; } });
+                    }
+                });
+                return results(rows);
+            }
             // Amendment 3: nor a search column (w.longTextFields). A Text Area is both.
             (def.columns || []).forEach(function (c) {
                 var name = c && typeof c === 'object' ? c.name : c;
@@ -292,6 +313,7 @@ function stubs(w) {
                 // 2.2.1: w.oppFieldTypes: fieldId -> Field.type ('text' when not given).
                 if (w.oppLoadThrows) { throw new Error('INSUFFICIENT_PERMISSION: opportunity'); }
                 w.oppLoads = (w.oppLoads || 0) + 1;
+                meter('recordLoad');
                 // 2.3: how it was loaded; select options per field (w.selectOptions), getSelectOptions() failing
                 // (w.selectOptionsThrow), a field's maxLength (w.fieldMaxLength), a select's text ('<field>_text').
                 w.oppLoadModes = (w.oppLoadModes || []).concat([!!o.isDynamic]);
@@ -332,6 +354,7 @@ function stubs(w) {
         // 2.2: w.submitThrows(o) true fails a submitFields; an opportunity's values are applied to w.opps.
         submitFields: function (o) {
             if (w.submitThrows && w.submitThrows(o)) { throw nsError('USER_ERROR', 'submitFields refused'); }
+            meter('submitFields');
             w.submits.push(o);
             if (o.type === 'opportunity' && w.opps[o.id]) {
                 Object.keys(o.values).forEach(function (k) { w.opps[o.id][k] = o.values[k]; });
@@ -344,6 +367,7 @@ function stubs(w) {
             var isNote = c && c.type === 'note';
             (isNote ? w.notes : w.tasks).push(t);
             return { setValue: function (f) { t.values[f.fieldId] = f.value; }, save: function () {
+                meter('recordSave');
                 if (isNote && w.noteThrows) { throw new Error('INSUFFICIENT_PERMISSION: note'); }
                 if (!isNote && w.taskThrows) { throw new Error('INSUFFICIENT_PERMISSION: task'); }
                 return isNote ? 777 : 555;
@@ -352,6 +376,7 @@ function stubs(w) {
         // 2.3: record.attach, recorded (w.attachThrows fails it).
         attach: function (o) {
             if (w.attachThrows) { throw new Error('INVALID_RCRD_TYPE: file attach'); }
+            meter('attach');
             w.attaches.push(o);
         }
     };
@@ -377,7 +402,7 @@ function stubs(w) {
             // Per-test overrides on top of the defaults (1.2).
             Object.keys(w.paramOverrides || {}).forEach(function (k) { p[k] = w.paramOverrides[k]; });
             return { id: w.scriptId || 'customscript_cdb_sl_dashboard', getParameter: function (o) { return p[o.name]; },
-                getRemainingUsage: function () { return 900; } };
+                getRemainingUsage: function () { return 1000 - (w.units || 0); } };
         },
         // 2.0: only the login-required Send delivery link Suitelet reads it, for its log.
         getCurrentUser: function () { return w.user; },
@@ -386,15 +411,22 @@ function stubs(w) {
         'N/log': {
             audit: function (o) { w.logs.push(['audit', o.title, o.details]); },
             error: function (o) { w.logs.push(['error', o.title, o.details]); },
-            debug: function () {}
+            debug: function (o) { w.logs.push(['debug', o.title, o.details]); }
         },
         'N/email': { send: function (o) {
+            meter('email');
             if (w.emailThrow) { throw new Error('SSS_AUTHOR_MUST_BE_EMPLOYEE'); }
             w.emails.push(o);
         } },
         // The dashboard link as before; 2.0: any further parameter appended, encoded, in order; an
         // internal URL (no returnExternalUrl) for the Send delivery link Suitelet.
         'N/url': { resolveRecord: function (o) { return '/app/accounting/transactions/opprtnty.nl?id=' + o.recordId; },
+            // 2.3c: the account's application domain (w.domainThrows fails it).
+            HostType: { APPLICATION: 'APPLICATION' },
+            resolveDomain: function (o) {
+                if (w.domainThrows) { throw new Error('SSS_INVALID_HOST_TYPE'); }
+                return o.hostType === 'APPLICATION' ? '1234567.app.netsuite.com' : '';
+            },
             resolveScript: function (o) {
             var extra = Object.keys(o.params || {}).filter(function (k) { return k !== 't'; }).map(function (k) {
                 return '&' + encodeURIComponent(k) + '=' + encodeURIComponent(o.params[k]);
@@ -405,29 +437,42 @@ function stubs(w) {
             }
             return 'https://acct.extforms.netsuite.com/sl?t=' + o.params.t + extra;
         } },
-        'N/redirect': { toRecord: function (o) { w.redirects.push(o); } },
+        'N/redirect': { toRecord: function (o) { w.redirects.push(o); }, redirect: function (o) { w.redirects.push(o); } },
         // 2.3: the File Cabinet by path (w.files[path] = text; missing throws as NetSuite does).
         'N/file': {
             load: function (o) {
                 w.fileLoads = (w.fileLoads || 0) + 1;
+                meter('fileLoad');
                 if (!w.files.hasOwnProperty(o.id)) { throw new Error('RCRD_DSNT_EXIST: ' + o.id); }
                 return { getContents: function () { return w.files[o.id]; } };
             },
             create: function (o) {
                 var f = { name: o.name, folder: o.folder, isOnline: o.isOnline, contents: o.contents };
-                f.save = function () { w.savedFiles.push(f); return 900 + w.savedFiles.length; };
+                f.save = function () { meter('fileSave'); w.savedFiles.push(f); return 900 + w.savedFiles.length; };
+                return f;
+            }
+        },
+        // 2.3c amendment 4: N/render's xmlToPdf — the XML in w.pdfs; the file saves into w.savedFiles; w.pdfThrows fails it.
+        'N/render': {
+            xmlToPdf: function (o) {
+                meter('xmlToPdf');
+                if (w.pdfThrows) { throw new Error('USER_ERROR: Error Parsing XML'); }
+                w.pdfs = (w.pdfs || []).concat([o.xmlString]);
+                var f = { pdf: true, xml: o.xmlString };
+                f.save = function () { meter('fileSave'); w.savedFiles.push(f); return 900 + w.savedFiles.length; };
                 return f;
             }
         },
         // 2.3: the Send design information Suitelet's pages, recorded in w.forms.
         'N/ui/serverWidget': {
-            FieldType: { INLINEHTML: 'INLINEHTML', TEXT: 'TEXT' },
+            FieldType: { INLINEHTML: 'INLINEHTML', TEXT: 'TEXT', CHECKBOX: 'CHECKBOX', SELECT: 'SELECT', MULTISELECT: 'MULTISELECT' },
             FieldDisplayType: { HIDDEN: 'HIDDEN' },
             createForm: function (o) {
                 var form = { title: o.title, fields: [], submit: null };
                 form.addField = function (f) {
-                    var field = { id: f.id, type: f.type, defaultValue: '', displayType: '' };
+                    var field = { id: f.id, type: f.type, label: f.label, defaultValue: '', displayType: '', options: [] };
                     field.updateDisplayType = function (d) { field.displayType = d.displayType; return field; };
+                    field.addSelectOption = function (o) { field.options.push(o); };
                     form.fields.push(field);
                     return field;
                 };
@@ -448,4 +493,4 @@ function stubs(w) {
     };
 }
 
-module.exports = { world: world, stubs: stubs, keyOf: keyOf };
+module.exports = { world: world, stubs: stubs, keyOf: keyOf, UNITS: UNITS };

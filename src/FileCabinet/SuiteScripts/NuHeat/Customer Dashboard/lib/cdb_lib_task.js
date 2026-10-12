@@ -42,19 +42,26 @@
  *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
- * @NApiVersion 2.1
- * @NModuleScope SameAccount
  * 1.5.2 (amendment 3): the DESIGN INFO Task is a SNAPSHOT — every shown section with its current answers ("Label:
  * value", clipped at 200), "(nothing yet)" for an empty one, and a pointer to the Notes for the changes since the last
  * send — because the state no longer carries a change list.
  *
- * @version 1.5.2
+ * 1.6.0 (2.3c amendment 3): the design information Note and Task take topLines — lines put first (the customer's call
+ * request, "Customer would like a call").
+ *
+ * 1.7.0 (2.3c amendment 4): buildDesignInfoBrief() — the Task with key facts only (the call, sent / updated with the
+ * steps, new plans, Needs a look, where the full answers are); buildDesignInfoReceivedTitle(),
+ * buildDesignInfoSendNoteTitle(); the Note's fullAnswers block on Send.
+ *
+ * @NApiVersion 2.1
+ * @NModuleScope SameAccount
+ * @version 1.7.0
  */
 define(['N/record', './cdb_lib_dates'], function (record, dates) {
 
     'use strict';
 
-    var VERSION = '1.5.2';
+    var VERSION = '1.7.0';
 
     /** Longest title the Task accepts. */
     var TITLE_MAX = 200;
@@ -319,8 +326,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @returns {{body: string, clipped: boolean}}
      */
     function buildDesignInfoNote(o) {
-        var lines = ['Sections saved: ' + ((o.sectionsSaved || []).join(', ') || '(none)'),
-            'Sent to PE: ' + (o.sent ? 'yes' : 'no')];
+        // 1.6.0: topLines first (the call request).
+        var lines = (o.topLines || []).concat((o.topLines || []).length ? [''] : []).concat(['Sections saved: ' +
+            ((o.sectionsSaved || []).join(', ') || '(none)'),
+            'Sent to PE: ' + (o.sent ? 'yes' : 'no')]);
         var body;
         (o.blocks || []).forEach(function (b) {
             if (!(b.changes || []).length && !(b.files || []).length) {
@@ -344,8 +353,72 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         if (o.bigFiles) {
             lines.push('', 'Large files: customer has files over 10 MB');
         }
+        // 1.7.0 (2.3c amendment 4 §7): on Send, the full answers — every shown step, then the facts that left the Task.
+        if (o.fullAnswers) {
+            lines.push('', 'FULL ANSWERS');
+            (o.fullAnswers.sections || []).forEach(function (sec) {
+                lines.push('', sec.title + (sec.status ? ' (' + statusWord(sec.status) + ')' : ''));
+                if ((sec.lines || []).length) {
+                    sec.lines.forEach(function (l) { lines.push('- ' + l); });
+                } else {
+                    lines.push('(nothing yet)');
+                }
+            });
+            if ((o.fullAnswers.facts || []).length) {
+                lines.push('', 'Also');
+                o.fullAnswers.facts.forEach(function (l) { lines.push('- ' + l); });
+            }
+        }
         body = lines.join('\n');
         return clipBody(body);
+    }
+
+    function statusWord(status) {
+        return status === 'done' ? 'done' : status === 'todo' ? 'to do' : 'optional';
+    }
+
+    // ---------------------------------------------------------------- 1.7.0 (2.3c amendment 4 §7): the Task, key facts only
+
+    /** Pure: "Design information received: <QR ref> <customer surname>" (plain text, control characters made spaces). */
+    function buildDesignInfoReceivedTitle(tranId, surname) {
+        return clampTitle(('Design information received: ' + [String(tranId || ''), String(surname || '')].filter(function (x) {
+            return !!x;
+        }).join(' ')).replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').replace(/\s+$/, ''));
+    }
+
+    /** Pure: the Send's Note title, "Design information 12 Oct 2026" (the Task names it). */
+    function buildDesignInfoSendNoteTitle(dateText) {
+        return 'Design information ' + dateText;
+    }
+
+    /**
+     * Pure (amendment 4 §7): the Task's message — only what the PE must act on or know before opening the detail. Blocks with
+     * nothing to say are left out.
+     * @param {Object} o - { call: { when }|null (ticked: first), dateText ("12 Oct 2026"), resend (an earlier Send),
+     *   changed: [step] (a re-send: the steps saved since the last Send), complete: [step], todo: [step], plansNew (new
+     *   plans uploaded since the last Send), needs: [line], noteTitle ('' when the Note failed), pdfName ('' when the PDF
+     *   failed) } — plain text, prepared by the caller
+     * @returns {string}
+     */
+    function buildDesignInfoBrief(o) {
+        var lines = [];
+        if (o.call) {
+            lines.push('CALL REQUESTED' + (o.call.when ? ': best time ' + o.call.when : ''), '');
+        }
+        lines.push((o.resend ? 'Updated ' + o.dateText + '. Changed since last send: ' + ((o.changed || []).join(', ') || 'none') +
+            '.' : 'Sent ' + o.dateText + '.') + ' Complete: ' + ((o.complete || []).join(', ') || 'none') + '. Still to do: ' +
+            ((o.todo || []).join(', ') || 'none') + '.', '');
+        if (o.plansNew) {
+            lines.push('Updated / uploaded plans', 'New plans submitted: see the Files section.', '');
+        }
+        if ((o.needs || []).length) {
+            lines.push('Needs a look');
+            o.needs.forEach(function (l) { lines.push('- ' + l); });
+            lines.push('');
+        }
+        lines.push('Full answers: ' + (o.noteTitle ? 'Note "' + o.noteTitle + '"' : 'the Note could not be created') +
+            (o.pdfName ? ' and PDF "' + o.pdfName + '".' : '. PDF not created; see the Note.'));
+        return lines.join('\n');
     }
 
     /**
@@ -358,8 +431,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
      * @returns {string} unclipped: the caller clips it with clipBody() (and logs CDB DESIGNINFO_TASK_CLIPPED)
      */
     function buildDesignInfoMessage(o) {
-        var lines = ['The customer has sent design information. Check it on the Project Specification tab and the ' +
-            'attached files, then move the sub-status to Design Required when you\u2019re ready.', ''];
+        // 1.6.0: topLines first (the call request).
+        var lines = (o.topLines || []).concat((o.topLines || []).length ? [''] : []).concat(['The customer has sent design ' +
+            'information. Check it on the Project Specification tab and the attached files, then move the sub-status to Design ' +
+            'Required when you\u2019re ready.', '']);
         if ((o.failures || []).length) {
             lines.push('NOT SAVED (please enter by hand):');
             o.failures.forEach(function (f) { lines.push('- ' + f); });
@@ -437,6 +512,10 @@ define(['N/record', './cdb_lib_dates'], function (record, dates) {
         buildDesignInfoNoteTitle: buildDesignInfoNoteTitle,
         buildDesignInfoNote: buildDesignInfoNote,
         buildDesignInfoMessage: buildDesignInfoMessage,
+        // 1.7.0
+        buildDesignInfoReceivedTitle: buildDesignInfoReceivedTitle,
+        buildDesignInfoSendNoteTitle: buildDesignInfoSendNoteTitle,
+        buildDesignInfoBrief: buildDesignInfoBrief,
         clipBody: clipBody,
         createNote: createNote,
         NEW_ADDRESS_PREFIX: NEW_ADDRESS_PREFIX,

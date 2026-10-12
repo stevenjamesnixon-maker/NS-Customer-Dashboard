@@ -14,7 +14,7 @@ var di = amd.load('lib/cdb_lib_designinfo', {});
 var config = amd.load('lib/cdb_lib_config', {});
 var task = amd.load('lib/cdb_lib_task', {});
 
-var REGISTRY = fs.readFileSync(path.join(__dirname, '..', 'content', 'design-info-registry.csv'), 'utf8');
+var REGISTRY = fs.readFileSync(path.join(__dirname, 'fixtures', 'design-info-registry-2.3b.csv'), 'utf8');
 var ALLOW = config.designInfoAllowList();
 var DENY = config.DESIGNINFO_DENY;
 var HEADER = 'section,section_title,panel,qid,type,label,hint,options,field,required,when,why';
@@ -48,23 +48,23 @@ function sectionIds(f) {
 
 // ---------------------------------------------------------------- the committed registry (amendment 1 §2)
 
-test('the committed registry parses: every field quoted, 0 rejected, 48 questions in 7 sections', function () {
+test('the committed registry parses (2.4.0: v2, 16 columns): every field quoted, 0 rejected, 45 questions in 6 sections', function () {
     var r = parse(REGISTRY);
     assert.strictEqual(r.status, 'ok');
+    assert.strictEqual(r.headerVersion, 2);
     assert.deepStrictEqual(r.rejected, []);
-    assert.strictEqual(r.questions.length, 48);
+    assert.strictEqual(r.questions.length, 45);
     assert.deepStrictEqual(di.sectionsOf(r.questions).map(function (s) { return s.id; }),
         ['project', 'plans', 'insulation', 'heating', 'heatpump', 'other']);
     // Amendment 1 §2: every non-empty label, hint, options, when and why is quoted.
     REGISTRY.split('\n').slice(1).filter(function (l) { return l; }).forEach(function (line) {
         var cells = di.parseCsv(line).rows[0];
-        assert.strictEqual(cells.length, 12, line);
+        assert.strictEqual(cells.length, 16, line);
     });
     assert.ok(REGISTRY.indexOf(',"Your heat pump: make, model and where it will go",') > 0);
     assert.ok(REGISTRY.indexOf(',"Screed floors: liquid or hand-mixed, and the depth",') > 0);
     assert.ok(REGISTRY.indexOf(',"Joisted floors: joist type, direction and spacing, and any steels",') > 0);
-    assert.ok(REGISTRY.indexOf(',"Roughly how far from the heat pump, in metres?",') > 0);
-    assert.ok(REGISTRY.indexOf(',"Rooms heated by radiators from the heat pump, not underfloor heating",') > 0);
+    assert.ok(REGISTRY.indexOf(',"How far is the heat pump from your nearest neighbour\'s window or door?",') > 0);
 });
 
 test('the committed registry: the corrected labels, the heat rows\' floor condition, goods_date is Note only', function () {
@@ -73,16 +73,17 @@ test('the committed registry: the corrected labels, the heat rows\' floor condit
     assert.strictEqual(q.heat_user_hp.label, 'Your heat pump: make, model and where it will go');
     assert.strictEqual(q.screed.label, 'Screed floors: liquid or hand-mixed, and the depth');
     assert.strictEqual(q.joists.label, 'Joisted floors: joist type, direction and spacing, and any steels');
-    assert.strictEqual(q.mcs_distance.label, 'Roughly how far from the heat pump, in metres?');
-    assert.strictEqual(q.rad_area.label, 'Rooms heated by radiators from the heat pump, not underfloor heating');
+    assert.strictEqual(q.nb_distance.label, 'How far is the heat pump from your nearest neighbour\'s window or door?');
     ['heat_boiler', 'heat_user_hp', 'heat_other', 'cylinder'].forEach(function (id) {
-        assert.ok(/;fc=solid,joisted,overfloor,acoustic,unknown$/.test(q[id].whenText), id);
+        assert.ok(/;service=ufh_plus,hp;fc=solid,joisted,overfloor,acoustic,unknown$/.test(q[id].whenText), id);
     });
-    assert.strictEqual(q.heat_boiler.whenText, 'heat=boiler;fc=solid,joisted,overfloor,acoustic,unknown');
+    assert.strictEqual(q.heat_boiler.whenText, 'heat=boiler;service=ufh_plus,hp;fc=solid,joisted,overfloor,acoustic,unknown');
     assert.strictEqual(q.goods_date.store, 'note', 'amendment 1 §1');
     assert.strictEqual(q.goods_date.field, '');
     assert.strictEqual(q.build_stage.optionsFromField, true);
     assert.strictEqual(q.ins_choice.field, 'custbody_pq_cylinder_location', 'the EPC/SAP field, deliberately');
+    // 2.4.0: no images yet.
+    Object.keys(q).forEach(function (id) { assert.strictEqual(q[id].image, '', id); });
 });
 
 // ---------------------------------------------------------------- parseRegistry
@@ -127,7 +128,8 @@ test('registry: a bad row is rejected and listed, never the file', function () {
         'plans,P,main,w1,text,Bad when,,,note,N,service=,',
         'plans,P,main,w2,text,Unknown key,,,note,N,colour=red,',
         'plans,P,main,w3,text,Unknown value,,,note,N,heat=gas,',
-        'plans,P,main,s1,text,State on text,,,state,N,,',
+        // 2.3c amendments 1 and 3: state is allowed on text and long questions now; a date is still refused.
+        'plans,P,main,s1,date,State on a date,,,state,N,,',
         'plans,P,main,s2,yesno,State yesno,,,state,Y,,',
         'plans,P,main,r1,text,Bad required,,,note,maybe,,',
         'plans,P,main,Bad-Id,text,Upper case,,,note,N,,',
@@ -156,8 +158,9 @@ test('registry: a bad row is rejected and listed, never the file', function () {
 test('registry DENY-LIST (amendment 1 §7): custbody_opp_del_date is in the allow-list but every row writing it is rejected', function () {
     assert.ok(ALLOW.indexOf('custbody_opp_del_date') >= 0, 'FIELDS.OPPORTUNITY.DEL_DATE is in the allow-list');
     assert.ok(ALLOW.indexOf('custbody_build_stage') >= 0 && ALLOW.indexOf('custbody_pq_cylinder_location') >= 0);
+    // 2.3c (config 3.5.0): custbody_mis_opp_market is written now (the fill rule); custbody_heat_source_type_26 is denied.
     ['custbody_opp_del_date', 'custbody_opportunity_sub_status', 'custbody_mi_opp_fc', 'custbody_mi_heat_source',
-        'custbody_mis_opp_market', 'custbody_cad_des_contact', 'custbody_cdb_designinfo_state'].forEach(function (f) {
+        'custbody_heat_source_type_26', 'custbody_cad_des_contact', 'custbody_cdb_designinfo_state'].forEach(function (f) {
         var r = parse(reg(['project,P,main,x,date,X,,,' + f + ',N,,']));
         assert.strictEqual(r.questions.length, 0, f);
         assert.ok(/may never be written from this page/.test(r.rejected[0].reason), f);
@@ -188,11 +191,12 @@ test('buildFacts: each FC_MAP token, pairs, none, hp, unknown and an unlisted ID
 });
 
 test('buildFacts: each HEAT_MAP value, other for unmapped; the service; new build; the warnings', function () {
-    assert.strictEqual(facts({ heatSource: '11' }).heat, 'boiler');
-    assert.strictEqual(facts({ heatSource: '12' }).heat, 'nuheat_hp');
-    assert.strictEqual(facts({ heatSource: '13' }).heat, 'user_hp');
-    assert.strictEqual(facts({ heatSource: '14' }).heat, 'other');
-    assert.strictEqual(facts({ heatSource: '15' }).heat, 'other');
+    // 2.3c (designinfo 1.2.0 §B2): heat is a SET; with custbody_heat_source_type_26 empty it is the Sales MI's one value.
+    assert.deepStrictEqual(facts({ heatSource: '11' }).heat, ['boiler']);
+    assert.deepStrictEqual(facts({ heatSource: '12' }).heat, ['nuheat_hp']);
+    assert.deepStrictEqual(facts({ heatSource: '13' }).heat, ['user_hp']);
+    assert.deepStrictEqual(facts({ heatSource: '14' }).heat, ['other']);
+    assert.deepStrictEqual(facts({ heatSource: '15' }).heat, ['other']);
     assert.ok(facts({ heatSource: '15' }).warnings.some(function (w) { return /Heat source 15 is not in HEAT_MAP/.test(w); }));
     assert.strictEqual(facts({ heatSource: '14' }).warnings.some(function (w) { return /Heat source/.test(w); }), false);
     assert.strictEqual(facts({ valueProposition: '21' }).service, 'ufh');
@@ -211,7 +215,7 @@ test('buildFacts: each HEAT_MAP value, other for unmapped; the service; new buil
         'The heat source is a Nu-Heat heat pump, but the design service is not HP Design.') >= 0);
     // Unknowns are explicit values, never undefined.
     var f = di.buildFacts({}, {});
-    assert.deepStrictEqual([f.service, f.fc, f.heat, f.newbuild], ['unknown', ['unknown'], 'other', false]);
+    assert.deepStrictEqual([f.service, f.fc, f.heat, f.newbuild], ['unknown', ['unknown'], ['other'], false]);
 });
 
 // ---------------------------------------------------------------- whenMatches

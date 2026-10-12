@@ -45,12 +45,16 @@
  * card in progress says "Still to do: a few more details" (CDB DESIGNINFO_NO_REGISTRY, once). The card's button is the
  * customer's direct a=designinfo link, only while DESIGNINFO_REGISTRY is set.
  *
+ * 2.2.0 (release 2.3c): the cards from designinfo.stepsFor() — the requested steps (the state's rq), their progress and
+ * their minutes ("about N minutes"); the registry parses with the @setting options rows; the heat facts read
+ * custbody_heat_source_type_26 (the extras search).
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NScriptType MapReduceScript
  * @NModuleScope SameAccount
- * @version 2.1.0
+ * @version 2.2.0
  */
 define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_config',
     './lib/cdb_lib_token', './lib/cdb_lib_dates', './lib/cdb_lib_data', './lib/cdb_lib_render'],
@@ -58,7 +62,7 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
 
     'use strict';
 
-    var VERSION = '2.1.0';
+    var VERSION = '2.2.0';
 
     var CUST = config.FIELDS.CUSTOMER;
 
@@ -125,15 +129,16 @@ define(['N/search', 'N/record', 'N/email', 'N/runtime', 'N/log', './lib/cdb_lib_
         if (!cfg.DESIGNINFO_REGISTRY) {
             return null;
         }
-        reg = data.loadRegistry(cfg.DESIGNINFO_REGISTRY);
+        reg = data.loadRegistry(cfg.DESIGNINFO_REGISTRY, cfg);
         if (reg.status !== 'ok') {
             log.audit({ title: title('DESIGNINFO_NO_REGISTRY'), details: 'Digest: registry ' + reg.status + (reg.detail ? ' (' +
                 reg.detail + ')' : '') + '; design cards in progress say "a few more details" this run' });
             return null;
         }
         return reg.questions.map(function (q) {
-            return { section: q.section, sectionTitle: q.sectionTitle, qid: q.qid, type: q.type, required: q.required,
-                store: q.store, when: q.when };
+            // 2.2.0 (release 2.3c): and what stepsFor() and the card's minutes need — the short title, the minutes, the reveal.
+            return { section: q.section, sectionTitle: q.sectionTitle, stepShort: q.stepShort, stepMinutes: q.stepMinutes,
+                qid: q.qid, type: q.type, required: q.required, store: q.store, when: q.when, reveal: q.reveal };
         });
     }
 

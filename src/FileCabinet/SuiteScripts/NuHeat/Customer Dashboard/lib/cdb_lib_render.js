@@ -63,17 +63,59 @@
  * and the delivery-link email as the visual reference. emailRepCard() takes an optional role label ("YOUR PROJECT
  * ENGINEER"); headerRight() a 'design' kind ("Design questions? Call …").
  *
+ * 2.4.0 (release 2.3b, the stepper): designInfoPage() is replaced by designInfoStep() — one registry section per
+ * screen, a step bar (submits that save, by form="diform"; links on Review), the step's intro and minutes, the questions
+ * grouped by panel, Back (saves first) / Save and continue / Save and exit (header) — and designInfoReview() — every
+ * answer by step with Edit links, the steps still to do, Send. The file control: the files already sent, one input, "+
+ * Add another file" (a submit; with script, the next hidden input), "Take a photo" on a phone. The registry's
+ * placeholder goes in the box. Phone layout: max-width 600px, CSS only. page() takes headerExtra (empty elsewhere).
+ *
+ * 2.4.1 (2.3b amendment 1): Review's header link reads "Back to your projects" (STEP_TEXT.EXIT_REVIEW): Review has
+ * nothing to save. The step pages keep Save and exit.
+ *
  * House style is ES5 throughout: var, function, 'use strict'. Deliberate. Do not modernise.
  *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 2.3.0
+ * 2.5.0 (release 2.3c): the step's questions may sit in a reveal panel (id rp-<qid>, data-reveal) with an "If you chose …"
+ * heading for script-off; REVEAL_SCRIPT hides the false panels and toggles them on change (and pre-fills the house's
+ * element cards when the route or the age changes). New question kinds: the element card (preset select, exact U, notes,
+ * hidden source, source tag, "We have: …" for staff prose), the EPC block (postcode, Find my EPC, the address list, Use
+ * this certificate, the certificate summary, the hidden epc_number / epc_date), picture cards (an image with the label as
+ * its alt and visible text), choice options with sub-lines; every choice radio carries data-key. The card's "about N
+ * minutes" is the requested steps' sum (none: no time); the request email lists the requested steps' short titles.
+ *
+ * 2.5.1 (2.3c amendment 1): the request email's subtitle time is computed (m.minutes; none: SUB_NO_TIME).
+ *
+ * 2.5.2 (2.3c amendment 2): the reveal script's selectors single-quote their attribute values (2.5.0's \" was read as a
+ * bare " and the script did not parse); the step bar and Review's "still need you" use the short labels; the element
+ * cards as designed (a 2 x 2 grid, the title, the tag as a chip, "Which is closest?" or the row's hint); the route tiles
+ * 2 x 2; Review leaves out an optional question not answered.
+ *
+ * 2.6.0 (2.3c amendment 3): no design call is assumed — the step footer offers a call when sending or an email, Review asks
+ * "I'd like a call to talk through my design" (and the best time and number), the card has no call row, the read-only
+ * line and the email do not mention a call; the email's intro is the sender as the main contact (SURVEY, TALK_PHONE) and
+ * What happens next is three steps; the card's site address on its own lines and "You're having" in plain words; yes/no
+ * as two tiles with their radio; a card whose questions are all hidden by reveal is hidden (class rvhide, script-on only)
+ * and the first visible question has no divider (.first, kept by the script); a clause the server decided arrives fixed
+ * ([qid, keys, true|false]); the element card's select and exact U-value on one row; picture cards of one height; a
+ * hint's {first} is the PE's or AM's first name.
+ *
+ * 2.7.0 (2.3c amendment 4): an extension's elements as a 2 x 2 grid of cards (Same / Different at the top, the select,
+ * U-value and notes on Different), its other questions in a card above; "What we have so far" above a free-text box
+ * holding staff text; designInfoPdfXml() and pdfEsc() — the answers as BFO XML for N/render, every value escaped.
+ *
+ * 2.8.0 (2.3c amendment 5): designInfoThanks() — the thank-you page: the heading and the lead, the lines that apply (a
+ * call, steps still to do, failed uploads, big files), What happens next (the email's three steps, the first ticked),
+ * Back to your project and See what you sent, the questions line; no step bar, no form, no script.
+ *
+ * @version 2.8.0
  */
 define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
 
     'use strict';
 
-    var VERSION = '2.3.0';
+    var VERSION = '2.8.0';
 
     /** The canvas tokens, exactly. */
     var COLORS = {
@@ -554,7 +596,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             (opts.script ? '<script>document.documentElement.className+=" js";</script>' : '') +
             '</head><body>' +
             '<header class="top"><div class="wrap ' + width + '">' + logoHtml(opts.logoUrl) +
-            headerRight(opts.header || 'am', opts.am) + '</div></header>' +
+            headerRight(opts.header || 'am', opts.am) + (opts.headerExtra || '') + '</div></header>' +
             '<main class="wrap ' + width + '">' + opts.body + '</main>' +
             (opts.script ? '<script>' + opts.script + '</script>' : '') +
             '</body></html>';
@@ -1986,7 +2028,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '</td></tr></table></td>' +
             '<td align="left" valign="top" style="padding:0 0 16px 0;">' +
             emailP('0 0 2px 0', 17, COLORS.TEXT, title, true) +
-            emailP('0', 15, '#4a4650', text) + (extraHtml || '') + '</td></tr>\n';
+            (text ? emailP('0', 15, '#4a4650', text) : '') + (extraHtml || '') + '</td></tr>\n';
     }
 
     /**
@@ -2481,15 +2523,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         F_NEO_HUB: 'with a Neo hub',
         F_SERVICE: 'Design service',
         F_DESIGNER: 'Your design is with',
-        F_CALL: 'Design call',
         CHIP_CHECKED: 'Checked',
         CHIP_TODO: 'Needed to start',
         CHIP_DONE: 'Done',
         CHIP_OPTIONAL: 'Optional',
         REQUIRED: 'Needed',
         WHY: '? Why',
-        READ_ONLY: '(we’ll cover this on your call)',
+        READ_ONLY: '(your Project Engineer will check this with you)',
         GOODS_HAVE: 'We currently have: {date}',
+        // 2.7.0 (amendment 4 §9): staff text already in a free-text field (clipped at 300).
+        HAVE_SO_FAR: 'What we have so far: {text}',
         GOODS_ASK: 'Has this changed? Tell us the new date',
         NOTED: 'You sent us this on {date}. Anything new? Add it here.',
         NOTED_NO_DATE: 'You’ve sent us this already. Anything new? Add it here.',
@@ -2498,7 +2541,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         FILES_HAVE: 'Already sent:',
         FILE_N: 'File {n}',
         UPLOADS_OFF: 'We can’t take files here at the moment. Please email them to your Project Engineer instead.',
-        BIG_FILE: 'These files are bigger than 10 MB: {names}. Remove them and tick “I have files bigger than 10 MB”, ' +
+        BIG_FILE: 'These files are bigger than 10 MB: {names}. Remove them and tick “Some of my files are bigger than 10 MB”, ' +
             'and we’ll send you a secure way to send them.',
         SAVE_SECTION: 'Save this section',
         STILL_TO_DO: 'Still to do before your design can start: {list}.',
@@ -2524,24 +2567,25 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         VIEW_BANNER: 'Your design is being prepared. Need to change something?',
         SAVED: 'Saved.',
         SENT: 'Sent to {name}.',
-        SENT_NEXT: '{first} will read it all before your design call.',
-        SENT_NEXT_NO_NAME: 'We’ll read it all before your design call.',
+        SENT_NEXT: '{first} will read it all and be in touch.',
+        SENT_NEXT_NO_NAME: 'We’ll read it all and be in touch.',
         NOT_AVAILABLE: 'This isn’t available right now',
         NOTHING_NEEDED: 'Nothing is needed from you for this project.',
         NOT_HERE: 'That project isn’t waiting for design information.',
         // The project cards (brief §6).
+        // 2.5.0: {about} is the requested steps' minutes ("about 16 minutes"); with none, CARD_NEEDS_INFO_NO_TIME.
         CARD_NEEDS_INFO: 'We need some information about your property to start your design. Plans are the main thing. ' +
-            'It takes about 10 minutes, and you can do it in stages.',
+            'It takes {about}, and you can do it in stages.',
+        CARD_NEEDS_INFO_NO_TIME: 'We need some information about your property to start your design. Plans are the main ' +
+            'thing. You can do it in stages.',
         CARD_HAVE: 'Thanks, we have: {list}.',
         CARD_HAVE_NONE: 'Thanks for what you’ve sent so far.',
         CARD_TODO: 'Still to do: {list}.',
         CARD_TODO_FALLBACK: 'Still to do: a few more details.',
         CARD_READY: 'Everything’s here: press Send when you’re ready.',
-        CARD_SENT: 'Information received, {date}. {first} is reviewing it and will go through any questions on your design call.',
-        CARD_SENT_NO_NAME: 'Information received, {date}. We’re reviewing it and will go through any questions on your ' +
-            'design call.',
+        CARD_SENT: 'Information received, {date}. {first} is reviewing it and will be in touch with any questions.',
+        CARD_SENT_NO_NAME: 'Information received, {date}. We’re reviewing it and will be in touch with any questions.',
         CARD_DESIGNING: 'Your design is being prepared. We’ll email you when your installation drawings are ready.',
-        CARD_CALL: 'Design call: {date}',
         BADGE_NEEDS_INFO: 'We need information',
         BADGE_PARTIAL: 'In progress',
         BADGE_SENT: 'Information received',
@@ -2603,6 +2647,16 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             chip('optional', t.CHIP_OPTIONAL);
     }
 
+    /** 2.4.0: the registry's placeholder, as an attribute ('' when none). */
+    function placeholder(q) {
+        return q.placeholder ? ' placeholder="' + esc(q.placeholder) + '"' : '';
+    }
+
+    /** 2.6.0: a hint with {first} — the PE's or AM's first name ("your Project Engineer" without one). */
+    function hintText(q, m) {
+        return fill(q.hint, { first: ((m && m.recipient) || {}).firstName || 'your Project Engineer' });
+    }
+
     /** The "? Why" toggle: HTML/CSS only. */
     function whyToggle(q) {
         return q.why ? '<details class="why"><summary>' + esc(DESIGN_TEXT.WHY) + '</summary><p>' + esc(q.why) + '</p></details>' : '';
@@ -2620,7 +2674,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var id = 'di-' + q.qid;
         var off = m.mode === 'view' ? ' disabled' : '';
         var label = esc(q.label) + (q.required && !qm.readOnly ? '<span class="req">' + esc(t.REQUIRED) + '</span>' : '');
-        var hint = q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '';
+        var hint = q.hint ? '<p class="hint" style="margin:0">' + esc(hintText(q, m)) + '</p>' : '';
         var html = '<div class="dq" id="q-' + esc(q.qid) + '">';
         var n;
         var i;
@@ -2628,23 +2682,42 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         if (q.type === 'info') {
             return html + '<p style="margin:0;font-weight:600">' + esc(q.label) + '</p>' + hint + whyToggle(q) + '</div>';
         }
+        // 2.5.0 (release 2.3c): the element card and the EPC block.
+        if (q.type === 'element' && !qm.readOnly) {
+            return elementQuestion(qm, m);
+        }
+        if (q.type === 'epc') {
+            return epcQuestion(qm, m);
+        }
         if (qm.readOnly) {
             return html + '<p class="lbl" style="margin:0">' + esc(q.label) + '</p>' + whyToggle(q) +
                 '<p class="ro">' + esc(qm.readOnlyText || '—') + ' <span class="muted">' + esc(t.READ_ONLY) + '</span></p></div>';
         }
         if (q.type === 'yesno' || q.type === 'choice') {
-            html += '<fieldset><legend>' + label + '</legend>' + whyToggle(q) + fieldError(e, q.qid);
+            html += '<fieldset' + (qm.role ? ' data-role="' + esc(qm.role) + '"' : '') + '><legend>' + label + '</legend>' +
+                whyToggle(q) + fieldError(e, q.qid);
             if (q.type === 'yesno') {
-                html += '<div class="segs">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
-                    return '<label class="seg"><input class="sr" type="radio" name="' + esc(name) + '" value="' + o[0] + '"' +
-                        (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span class="s">' + esc(o[1]) +
-                        '</span></label>';
+                // 2.6.0: two tiles, each with its radio circle, side by side (as the choice tiles).
+                html += '<div class="opts opts2">' + [['yes', t.YES], ['no', t.NO]].map(function (o) {
+                    return '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + o[0] + '" data-key="' + o[0] +
+                        '"' + (qm.value === o[0] ? ' checked' : '') + off + describedBy(e, q.qid) + '><span><span class="ot">' +
+                        esc(o[1]) + '</span></span></label>';
+                }).join('') + '</div>';
+            } else if (q.pictures) {
+                // 2.5.0 (§B7): picture cards — the image (alt: the label), the radio, the label as visible text.
+                html += '<div class="pics">' + (qm.options || []).map(function (o) {
+                    return '<label class="pic"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
+                        (o.key ? ' data-key="' + esc(o.key) + '"' : '') + (String(qm.value) === String(o.value) ? ' checked' : '') +
+                        off + describedBy(e, q.qid) + '>' + (o.src ? '<img src="' + esc(o.src) + '" alt="' + esc(o.text) +
+                        '" loading="lazy">' : '') + '<span class="ot">' + esc(o.text) + '</span></label>';
                 }).join('') + '</div>';
             } else {
                 html += '<div class="opts">' + (qm.options || []).map(function (o) {
                     return '<label class="optc"><input type="radio" name="' + esc(name) + '" value="' + esc(o.value) + '"' +
+                        (o.key ? ' data-key="' + esc(o.key) + '"' : '') +
                         (String(qm.value) === String(o.value) ? ' checked' : '') + off + describedBy(e, q.qid) +
-                        '><span><span class="ot">' + esc(o.text) + '</span></span></label>';
+                        '><span><span class="ot">' + esc(o.text) + '</span>' + (o.sub ? '<span class="os">' + esc(o.sub) +
+                        '</span>' : '') + '</span></label>';
                 }).join('') + '</div>';
             }
             return html + hint + '</fieldset></div>';
@@ -2654,15 +2727,18 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             html += '<p style="margin:0">' + esc(fill(t.GOODS_HAVE, { date: qm.goodsHave })) + '</p>' +
                 '<p class="hint" style="margin:0">' + esc(t.GOODS_ASK) + '</p>';
         }
+        if (qm.staffText) {
+            html += '<p class="hint have" style="margin:0">' + esc(fill(t.HAVE_SO_FAR, { text: qm.staffText })) + '</p>';
+        }
         if (qm.notedText) {
             html += '<p class="hint" style="margin:0">' + esc(qm.notedText) + '</p>';
         }
         html += fieldError(e, q.qid);
         if (q.type === 'text') {
             html += '<input class="inp" type="text" id="' + esc(id) + '" name="' + esc(name) + '" value="' + esc(qm.value) +
-                '" maxlength="300"' + off + describedBy(e, q.qid) + '>';
+                '" maxlength="300"' + placeholder(q) + off + describedBy(e, q.qid) + '>';
         } else if (q.type === 'long') {
-            html += '<textarea class="inp" id="' + esc(id) + '" name="' + esc(name) + '" maxlength="4000"' + off +
+            html += '<textarea class="inp" id="' + esc(id) + '" name="' + esc(name) + '" maxlength="4000"' + placeholder(q) + off +
                 describedBy(e, q.qid) + '>' + esc(qm.value) + '</textarea>';
         } else if (q.type === 'date') {
             html += '<input class="inp" type="date" id="' + esc(id) + '" name="' + esc(name) + '" value="' + esc(qm.value) + '"' +
@@ -2687,11 +2763,155 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         return html + hint + '</div>';
     }
 
-    /** A section's own Save button (one form: the button names the section). */
-    function saveButton(m, sectionId) {
-        return m.mode === 'view' ? '' : '<div class="secsave"><button type="submit" class="out" name="sec" value="' +
-            esc(sectionId) + '">' + esc(DESIGN_TEXT.SAVE_SECTION) + '</button></div>';
+    /**
+     * 2.5.0 (§B8): an element card — the preset select ("Label — about U x.xx", then the specials), the exact U-value, the
+     * notes, the hidden source (q_<qid>_src), and the source tag. Staff prose on the field shows as "We have: …"; an EPC
+     * pre-fill that could not decide shows the certificate's words. data-fill carries the house card's route pre-fills.
+     * qm: { q, card: { key, u, notes, src }, elementOptions, tag, prose, epcSays, epcMissing, fillData }
+     */
+    function elementQuestion(qm, m, inCard) {
+        var q = qm.q;
+        var t = STEP_TEXT;
+        var e = m.errors || {};
+        var c = qm.card || { key: '', u: '', notes: '', src: 'you' };
+        var name = 'q_' + q.qid;
+        var id = 'di-' + q.qid;
+        var off = m.mode === 'view' ? ' disabled' : '';
+        var describe = c.key === 'describe';
+        var tag = qm.epcMissing ? t.EL_EPC_MISSING : (qm.tag || '');
+        // 2.5.1 (amendment 2): a card titled by its element, the source tag as a chip under the title, then the select
+        // (labelled by the row's hint, else "Which is closest?"), the exact U-value and the notes.
+        // 2.7.0 (amendment 4 §6): inside an extension's card (inCard) the card's Same / Different carries the title; the
+        // element's own legend stays for screen readers.
+        return '<div class="dq el' + (inCard ? ' elbody' : '') + '" id="q-' + esc(q.qid) + '"' + (qm.fillData ? ' data-fill="' +
+            esc(JSON.stringify(qm.fillData)) + '"' : '') + '><fieldset><legend class="' + (inCard ? 'sr' : 'eltitle') + '"' +
+            (inCard ? ' style="position:absolute"' : '') + '>' + esc(q.label) + (q.required ? '<span class="req">' +
+            esc(DESIGN_TEXT.REQUIRED) + '</span>' : '') + '</legend>' +
+            '<span class="chip chip-optional eltag" aria-live="polite"' + (tag ? '' : ' hidden') + '>' + esc(tag) + '</span>' +
+            whyToggle(q) + fieldError(e, q.qid) +
+            (qm.prose ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_HAVE, { text: qm.prose })) + '</p>' : '') +
+            (qm.epcSays ? '<p class="hint" style="margin:0">' + esc(fill(t.EL_EPC_SAYS, { text: qm.epcSays })) + '</p>' : '') +
+            // 2.6.0: the select and the exact U-value on one row, each with its label (stacked below 600 px).
+            '<div class="elrow"><div class="elsel"><label class="lbl" for="' + esc(id) + '">' + esc(q.hint || t.EL_CHOOSE) +
+            '</label>' +
+            '<select class="inp" id="' + esc(id) + '" name="' + esc(name) + '"' + off + describedBy(e, q.qid) + '><option value="">' +
+            esc(t.EL_PICK) + '</option>' + (qm.elementOptions || []).map(function (o) {
+                return '<option value="' + esc(o.value) + '"' + (o.value === c.key ? ' selected' : '') + '>' + esc(o.text) + '</option>';
+            }).join('') + '</select></div>' +
+            '<div class="elu"><label class="lbl" for="' + esc(id) + '-u">' + esc(t.EL_U) + '</label><span class="urow"><input ' +
+            'class="inp" type="text" inputmode="decimal" id="' + esc(id) + '-u" name="' + esc(name) + '_u" value="' + esc(c.u) +
+            '" maxlength="6"' + off + '> <span class="muted">' + esc(t.EL_U_UNIT) + '</span></span></div></div>' +
+            '<label class="lbl" for="' + esc(id) + '-notes">' + esc(describe ? t.EL_NOTES_REQ : t.EL_NOTES) + '</label>' +
+            '<input class="inp" type="text" id="' + esc(id) + '-notes" name="' + esc(name) + '_notes" value="' + esc(c.notes) +
+            '" maxlength="300"' + off + '>' +
+            '<input type="hidden" name="' + esc(name) + '_src" value="' + esc(c.src || 'you') + '">' +
+            '</fieldset></div>';
     }
+
+    /**
+     * 2.5.0 (§B9): the EPC block — unavailable: the line saying so; else the postcode and Find my EPC (nav=epc), the address
+     * list and Use this certificate (nav=epc_use, epc_cert), the certificate's summary (the rating badge, the number, valid
+     * until, the floor area, the age band) and the hidden epc_number / epc_date that ride until a save.
+     * qm.epc: { available, postcode, rows ([{value, text}]), cert ({ number, dateKey, rating, floorArea, ageBand }), notice,
+     *   number, dateKey, validText }
+     */
+    function epcQuestion(qm, m) {
+        var q = qm.q;
+        var t = STEP_TEXT;
+        var x = qm.epc || {};
+        var off = m.mode === 'view' ? ' disabled' : '';
+        var html = '<div class="dq epc" id="q-' + esc(q.qid) + '"><p class="lbl" style="margin:0">' + esc(q.label) + '</p>' +
+            whyToggle(q) + (q.hint ? '<p class="hint" style="margin:0">' + esc(q.hint) + '</p>' : '');
+        if (!x.available) {
+            return html + '<p class="hint" style="margin:0">' + esc(t.EPC_UNAVAILABLE) + '</p></div>';
+        }
+        if (x.notice) {
+            html += '<p class="notice" role="status" style="margin:0">' + esc(x.notice) + '</p>';
+        }
+        if (x.cert) {
+            html += '<div class="epcsum"><span class="epcr epcr-' + esc((x.cert.rating || 'x').toLowerCase()) + '" aria-label="' +
+                esc(t.EPC_RATING + ' ' + (x.cert.rating || '')) + '">' + esc(x.cert.rating || '?') + '</span><dl class="facts">' +
+                '<dt>' + esc(t.EPC_NUMBER) + '</dt><dd>' + esc(x.cert.number) + '</dd>' +
+                (x.validText ? '<dt>' + esc(t.EPC_VALID) + '</dt><dd>' + esc(x.validText) + '</dd>' : '') +
+                (x.cert.floorArea ? '<dt>' + esc(t.EPC_AREA) + '</dt><dd>' + esc(x.cert.floorArea) + ' m²</dd>' : '') +
+                (x.cert.ageBand ? '<dt>' + esc(t.EPC_AGE) + '</dt><dd>' + esc(x.cert.ageBand) + '</dd>' : '') + '</dl></div>' +
+                '<p class="hint" style="margin:0">' + esc(t.EPC_PREFILLED) + '</p>';
+        } else if (x.number) {
+            html += '<p style="margin:0">' + esc(fill(t.EPC_HELD, { number: x.number, valid: x.validText ? ', valid until ' +
+                x.validText : '' })) + '</p>';
+        }
+        if (x.number) {
+            html += '<input type="hidden" name="epc_number" value="' + esc(x.number) + '"><input type="hidden" name="epc_date" ' +
+                'value="' + esc(x.dateKey || '') + '">';
+        }
+        html += '<label class="lbl" for="di-epc-pc">' + esc(t.EPC_POSTCODE) + '</label><span class="urow"><input class="inp" ' +
+            'type="text" id="di-epc-pc" name="epc_postcode" value="' + esc(x.postcode || '') + '" maxlength="10" autocomplete=' +
+            '"postal-code" style="max-width:160px"' + off + '> <button type="submit" class="out" name="nav" value="epc"' + off + '>' +
+            esc(t.EPC_FIND) + '</button></span>';
+        if ((x.rows || []).length) {
+            html += '<label class="lbl" for="di-epc-cert">' + esc(t.EPC_ADDRESS) + '</label><select class="inp" id="di-epc-cert" ' +
+                'name="epc_cert"' + off + '>' + x.rows.map(function (r) {
+                    return '<option value="' + esc(r.value) + '">' + esc(r.text) + '</option>';
+                }).join('') + '</select><button type="submit" class="out addf" name="nav" value="epc_use"' + off + '>' +
+                esc(t.EPC_USE) + '</button>';
+        }
+        return html + '</div>';
+    }
+
+    /**
+     * 2.5.0 (§B5): a question inside its reveal panel — every panel renders (script off: under its "If you chose …" heading);
+     * REVEAL_SCRIPT hides the false ones.
+     */
+    function revealPanel(qm, inner) {
+        if (!qm.revealSpec) {
+            return inner;
+        }
+        return '<div class="rvp" id="rp-' + esc(qm.q.qid) + '" data-reveal="' + esc(JSON.stringify(qm.revealSpec)) + '">' +
+            (qm.revealHeading ? '<p class="rvif">' + esc(qm.revealHeading) + '</p>' : '') + inner + '</div>';
+    }
+
+    /**
+     * 2.5.0: the reveal script (no library) — each panel's alternatives against the checked radios' data-key (an absent
+     * question: true; a hidden one: false), in page order so hiding cascades; again on every change. Then the house's
+     * element cards: when the route (data-role="route") is typical or regs, a card still empty or pre-filled (its source not
+     * "you") takes the age band's or the regs row's value; a card the customer changes becomes "you".
+     */
+    var REVEAL_SCRIPT = [
+        // 2.5.1 (amendment 2): the attribute values inside these selectors are SINGLE-quoted (\' here, ' as served). 2.5.0
+        // wrote \" inside these single-quoted strings, which JavaScript reads as a bare ", so the served script did not parse
+        // (SyntaxError) and none of it ran. test/r2-5.test.js parses every inline script of every step with vm.Script.
+        '(function(){var f=document.getElementById("diform");if(!f||!f.querySelectorAll||!window.JSON)return;',
+        'var ps=f.querySelectorAll("[data-reveal]");',
+        'function key(q){var r=f.querySelectorAll("input[name=\'q_"+q+"\']"),i;if(!r.length)return null;',
+        'for(i=0;i<r.length;i++){if(r[i].checked)return r[i].getAttribute("data-key")||r[i].value;}return "";}',
+        'function hid(q){var p=document.getElementById("rp-"+q);return !!(p&&p.hidden);}',
+        'function vis(el){while(el&&el!==f){if(el.hidden)return false;el=el.parentNode;}return true;}',
+        'function role(n){var s=f.querySelectorAll("[data-role=\'"+n+"\'] input:checked"),i;',
+        'for(i=0;i<s.length;i++){if(vis(s[i]))return s[i].getAttribute("data-key")||"";}return "";}',
+        'function run(){var i,j,k,sp,ok,a,c,v;for(i=0;i<ps.length;i++){sp=JSON.parse(ps[i].getAttribute("data-reveal"));ok=false;',
+        'for(j=0;j<sp.length&&!ok;j++){a=sp[j];ok=true;for(k=0;k<a.length&&ok;k++){c=a[k];',
+        'if(c.length>2){if(!c[2])ok=false;continue;}v=key(c[0]);if(v===null)continue;if(hid(c[0])||c[1].indexOf(v)<0)ok=false;}}',
+        'ps[i].hidden=!ok;}cards();}',
+        // 2.6.0: a card with no visible question is hidden; the first visible question of each card has no divider.
+        'function cards(){var sc=f.querySelectorAll("section"),i,j,ch,fst,cl;for(i=0;i<sc.length;i++){ch=sc[i].children||[];fst=null;',
+        'for(j=0;j<ch.length;j++){cl=" "+(ch[j].className||"")+" ";if(cl.indexOf(" dq ")<0&&cl.indexOf(" rvp ")<0)continue;',
+        'ch[j].className=cl.replace(/ first /g," ").replace(/^ +| +$/g,"");if(!ch[j].hidden&&!fst)fst=ch[j];}',
+        'if(fst)fst.className+=" first";cl=(" "+(sc[i].className||"")+" ").replace(/ rvhide /g," ");',
+        'sc[i].className=(cl+(fst?"":"rvhide")).replace(/^ +| +$/g,"");}}',
+        'function opt(s,v,x){var o,i;for(i=0;i<s.options.length;i++){if(s.options[i].value===v)return;}',
+        'if(!x)return;o=document.createElement("option");o.value=v;o.text=x;s.appendChild(o);}',
+        'function prefill(){var r=role("route"),g=role("age"),cs=f.querySelectorAll(".el[data-fill]"),i,d,s,u,h,t,v,p;',
+        'for(i=0;i<cs.length;i++){d=JSON.parse(cs[i].getAttribute("data-fill"));s=cs[i].querySelector("select");',
+        'u=cs[i].querySelector("input[name$=\'_u\']");h=cs[i].querySelector("input[name$=\'_src\']");t=cs[i].querySelector(".eltag");',
+        'if(!s||!h)continue;if(h.value.indexOf("you")===0&&(s.value!==""||(u&&u.value!=="")))continue;',
+        'v=r==="typical"?d.age[g]:r==="regs"?d.regs:null;if(!v)continue;p=v.split("|");opt(s,p[1],p[2]);s.value=p[1];',
+        'if(u)u.value="";h.value=p[0];if(t){t.textContent=r==="typical"?(d.tags.age[g]||""):d.tags.regs;t.hidden=false;}}}',
+        'f.addEventListener("change",function(e){var n=e.target&&e.target.name||"";',
+        'if(/^q_.+(_u)?$/.test(n)&&e.target.closest&&e.target.closest(".el")){var c=e.target.closest(".el"),',
+        'h=c.querySelector("input[name$=\'_src\']"),t=c.querySelector(".eltag");if(h)h.value="you";',
+        'if(t){t.textContent="You chose this";t.hidden=false;}}',
+        'run();prefill();});run();})();'
+    ].join('');
 
     /** "Design questions? Call [name] on [phone]" — the page header's contact line. */
     function designQuestionsLine(r) {
@@ -2717,115 +2937,612 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         'm.style.display="block";m.focus();}});})();'
     ].join('');
 
+    // ---------------------------------------------------------------- 2.4.0: the stepper (release 2.3b)
+
+    /** 2.4.0: the stepper's wording. Plain text: escaped when used. */
+    var STEP_TEXT = {
+        STEP_OF: 'Step {n} of {total}',
+        ABOUT_ONE: 'about 1 minute',
+        ABOUT: 'about {m} minutes',
+        BACK: '← Back: {title}',
+        BACK_FIRST: '← Your projects',
+        AUTO: 'Saved automatically when you continue',
+        NEXT: 'Save and continue →',
+        NEXT_LAST: 'Review and send →',
+        SAVE_EXIT: 'Save and exit',
+        EXIT_REVIEW: 'Back to your projects',
+        // 2.6.0: no design call is assumed. {email}: a mailto link to the PE or AM (STUCK_NO_EMAIL without one).
+        STUCK: 'Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you send, or email ' +
+            '{name}.',
+        STUCK_NO_EMAIL: 'Stuck on anything? It’s fine to skip it. If you’d like to talk it through, ask for a call when you send.',
+        REVIEW_TITLE: 'Review and send',
+        // 2.8.0 (amendment 5): the thank-you page after a Send (Steve may adjust). {name}: the customer's first name;
+        // {first}: the PE's (or AM's) first name; {email}: their email (a mailto link); {list}: short step names.
+        THANKS_TITLE: 'Thank you',
+        THANKS_HEADING: 'Thank you, {name}. We\u2019ve got your design information.',
+        THANKS_HEADING_NO_NAME: 'Thank you. We\u2019ve got your design information.',
+        THANKS_LEAD: '{first} will look through everything you\u2019ve sent. As long as nothing\u2019s missing, our expert ' +
+            'system designers will then get to work on your design.',
+        THANKS_CALL: 'You asked for a call. {first} will be in touch to arrange it.',
+        THANKS_TODO: 'There are a few things still to tell us: {list}. You can add them any time from the link in your email, ' +
+            'and {first} will pick them up.',
+        THANKS_UPLOAD: 'One of your files didn\u2019t upload: {file}. Please email it to {first} at {email}.',
+        THANKS_UPLOAD_NO_EMAIL: 'One of your files didn\u2019t upload: {file}. Please email it to {first}.',
+        THANKS_BIG: '{first} will send you a secure link for your larger files.',
+        THANKS_NEXT: 'What happens next',
+        THANKS_DONE: 'done',
+        THANKS_BACK: 'Back to your project',
+        THANKS_REVIEW: 'See what you sent',
+        THANKS_QUESTIONS: 'Questions? Email {first} at {email}.',
+        THANKS_QUESTIONS_NO_EMAIL: 'Questions? Email {first}.',
+        THANKS_PE_FALLBACK: 'Your Project Engineer',
+        REVIEW_INTRO: 'Here’s everything you’ve told us. Check it, change anything with Edit, then send it.',
+        NEARLY_ONE: 'Nearly there. One step still needs you: {title}.',
+        NEARLY_MANY: 'Nearly there. {n} steps still need you: {list}.',
+        SEND_LATER: 'You can send now and finish the rest later.',
+        CALL_BOX: 'I’d like a call to talk through my design',
+        CALL_WHEN: 'Best time and number to call (optional)',
+        GO_TO: 'Go to {title}',
+        EDIT: 'Edit',
+        CHIP_CHECKED: 'Checked',
+        CHIP_DONE: 'Done',
+        CHIP_TODO: 'Still to do',
+        NOT_ANSWERED: 'Not answered yet',
+        NOTHING_YET: 'Nothing added.',
+        GIVEN: 'Given',
+        SEND_TO: 'Send to {first}',
+        SEND_TO_NO_NAME: 'Send it',
+        SEND_SUB: 'Sends what you’ve done so far',
+        VIEW_REVIEW: 'Your design is being prepared.',
+        ADD_FILE: '+ Add another file',
+        TAKE_PHOTO: 'Take a photo',
+        UPLOADED: 'uploaded {date}',
+        SAVED: 'Saved.',
+        W_FILES: 'We couldn’t save one of your files. Please try again, or email it to {name}.',
+        W_PARTIAL: 'Some answers couldn’t be saved to your project just now, but {name} has them.',
+        // 2.5.0 (release 2.3c): the element cards, the EPC lookup.
+        EL_CHOOSE: 'Which is closest?',
+        EL_PICK: 'Choose the closest',
+        EL_U: 'I know the exact U-value (optional)',
+        EL_U_UNIT: 'W/m²K',
+        EL_NOTES: 'Notes (optional)',
+        EL_NOTES_REQ: 'Notes: please describe it',
+        EL_HAVE: 'We have: {text}',
+        EL_EPC_SAYS: 'Your certificate says: {text}',
+        EL_EPC_MISSING: 'Not on your EPC: please check',
+        EPC_UNAVAILABLE: 'We can’t look up certificates right now. Choose ‘Typical for the age of my property’ or ‘I’ll ' +
+            'describe it’ instead.',
+        EPC_NONE: 'No certificate found for that postcode. Choose ‘Typical for the age of my property’ or ‘I’ll describe ' +
+            'it’ instead.',
+        EPC_POSTCODE: 'Postcode',
+        EPC_FIND: 'Find my EPC',
+        EPC_ADDRESS: 'Your address',
+        EPC_USE: 'Use this certificate',
+        EPC_RATING: 'Energy rating',
+        EPC_NUMBER: 'Certificate',
+        EPC_VALID: 'Valid until',
+        EPC_AREA: 'Floor area',
+        EPC_AGE: 'Age band',
+        EPC_HELD: 'We have certificate {number}{valid}.',
+        EPC_PREFILLED: 'We’ve filled in what your certificate says below. Check each one and change anything that’s wrong.'
+    };
+
+    /** 2.4.0: the stepper's own rules, after designCss(); the phone layout at max-width 600px, CSS only. */
+    function stepperCss() {
+        var c = COLORS;
+        var teal = config.EMAIL_STANDARD.TEAL;
+        return [
+            '.sbar{list-style:none;margin:0;padding:0;display:flex;align-items:flex-start;gap:0;overflow-x:auto}',
+            '.sbar li{flex:1 1 0;display:flex;flex-direction:column;align-items:center;position:relative;min-width:64px}',
+            '.sbar li + li::before{content:"";position:absolute;top:15px;right:50%;width:100%;height:3px;background:' + c.BORDER +
+                ';z-index:0}',
+            '.sbar li.sdone + li::before,.sbar li.sdone::before{background:' + teal + '}',
+            '.sstop{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;text-decoration:none;' +
+                'color:' + c.TEXT + ';background:none;border:0;padding:0;font:inherit;cursor:pointer;text-align:center}',
+            '.scirc{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:16px;border:2px solid ' +
+                c.BORDER + ';background:#fff;font-weight:700;font-size:15px}',
+            '.sdone .scirc{background:' + teal + ';border-color:' + teal + ';color:#fff}',
+            '.scur .scirc{border-color:' + c.PURPLE + ';background:' + c.PURPLE + ';color:#fff}',
+            '.stitle{font-size:13px;line-height:1.3;max-width:120px}',
+            '.scur .stitle{font-weight:700}',
+            '.scurt{display:none;font-weight:700;font-size:15px}',
+            '.eyebrow{margin:0;font-size:13px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:' + teal + '}',
+            '.navrow{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}',
+            '.navrow .auto{font-size:14px;color:' + c.MUTED + '}',
+            '.stuck{margin:0;font-size:15px;color:#3e3b39}',
+            '.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #ece8e3;border-radius:8px;font-size:14px}',
+            '.ftype{flex-shrink:0;font-size:11px;font-weight:700;text-transform:uppercase;background:' + c.TIP + ';border-radius:4px;' +
+                'padding:2px 6px}',
+            '.fname{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+            '.fwhen{flex-shrink:0;color:' + c.MUTED + '}',
+            '.fphoto{display:none}',
+            '.addf{align-self:flex-start}',
+            '.rv{margin:0;display:flex;flex-direction:column;gap:6px;font-size:15px}',
+            '.rv dt{color:' + c.MUTED + '}.rv dd{margin:0 0 6px;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}',
+            '.rvhead{display:flex;align-items:center;justify-content:space-between;gap:12px}',
+            '.rvhead h2{margin:0}',
+            '.amber{background:#fdf0d8;color:#6e4400;border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}',
+            '.amber p{margin:0}',
+            '.hdrx{display:flex;align-items:center;gap:16px}',
+            '@media (max-width:600px){' +
+                '.sbar li{min-width:0}.sbar li .stitle{display:none}' +
+                '.scurt{display:block;margin-bottom:6px}' +
+                '.navrow{flex-direction:column;align-items:stretch}' +
+                '.navrow .cta,.navrow .out,.addf{width:100%}' +
+                '.fphoto{display:flex}' +
+                '.facts{grid-template-columns:minmax(0,1fr)}' +
+                '}'
+        ].join('\n');
+    }
+
+    /** 2.5.0: the reveal panels, the element cards, the EPC block, the picture cards. */
+    function revealCss() {
+        var c = COLORS;
+        return [
+            '.rvp{display:flex;flex-direction:column;gap:6px;padding-top:14px;border-top:1px solid #ece8e3}',
+            '.rvif{margin:0;font-size:13px;font-weight:700;color:' + c.MUTED + '}',
+            '.js .rvif{display:none}',
+            '.rvp[hidden]{display:none}',
+            '.rvp > .dq{border-top:0;padding-top:0}',
+            '.el fieldset{display:flex;flex-direction:column;gap:6px;margin:0}',
+            '.el{border:1px solid ' + c.BORDER + ';border-radius:10px;padding:14px 16px;background:#fff}',
+            '.rvp > .dq.el{border-top:1px solid ' + c.BORDER + ';padding-top:14px}',
+            '.eltitle{font-size:17px;font-weight:700;padding:0}',
+            '.eltag{align-self:flex-start;margin-left:0}',
+            '.eltag[hidden]{display:none}',
+            '.elgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}',
+            '.elgrid > .rvp{border-top:0;padding-top:0}',
+            // 2.7.0 (amendment 4 §6): an extension's element cards — Same / Different as two small tiles at the top.
+            '.extcard{border:1px solid ' + c.BORDER + ';border-radius:10px;padding:14px 16px;background:#fff;display:flex;' +
+                'flex-direction:column;gap:8px}',
+            '.extcard > .dq{border-top:0;padding-top:0}',
+            '.extcard > .dq legend{font-size:17px;font-weight:700}',
+            '.extcard .opts{grid-template-columns:1fr 1fr;gap:8px}',
+            '.extcard .optc{padding:8px 10px;font-size:15px}',
+            '.extcard .el.elbody,.extcard .rvp > .dq.el{border:0;padding:0;border-top:0}',
+            '[data-role=route] .opts{grid-template-columns:1fr 1fr}',
+            '@media (max-width:700px){.elgrid{grid-template-columns:minmax(0,1fr)}}',
+            '@media (max-width:600px){[data-role=route] .opts{grid-template-columns:minmax(0,1fr)}}',
+            '.urow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+            '.os{display:block;font-size:14px;color:' + c.MUTED + '}',
+            '.pics{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;align-items:stretch}',
+            '.pic{display:flex;flex-direction:column;justify-content:flex-start;gap:6px;border:1px solid ' + c.BORDER +
+                ';border-radius:8px;padding:8px;cursor:pointer}',
+            // 2.6.0: one picture box on every card, so the captions line up; the picture carries its own caption.
+            '.pic img{display:block;width:100%;height:170px;object-fit:contain;margin:0 auto;border-radius:4px}',
+            '.pic .ot{font-size:15px;font-weight:400}',
+            '@media (max-width:600px){.pic img{height:140px}}',
+            '.opts2{grid-template-columns:1fr 1fr}',
+            '.elrow{display:flex;gap:12px;align-items:flex-end}',
+            '.elsel{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}',
+            '.elu{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}',
+            '.elu .inp{width:140px}',
+            '@media (max-width:600px){.elrow{flex-direction:column;align-items:stretch}.elu .inp{width:100%}}',
+            '.js .card.rvhide{display:none}',
+            '.card > .first{border-top:0;padding-top:0}',
+            'html:not(.js) .card > :first-child{border-top:0;padding-top:0}',
+            '.callreq{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 14px}',
+            '.callreq .callwhen{flex:1 1 100%;display:flex;flex-direction:column;gap:6px}',
+            '.js #di-call:not(:checked) ~ .callwhen{display:none}',
+            '.pic:has(input:checked){border-color:' + c.PURPLE + ';box-shadow:0 0 0 2px ' + c.PURPLE + '}',
+            '.epcsum{display:flex;gap:16px;align-items:flex-start}',
+            '.epcr{display:flex;align-items:center;justify-content:center;min-width:44px;height:44px;border-radius:8px;' +
+                'font-weight:700;font-size:22px;color:#fff;background:#6b6b6b}',
+            '.epcr-a,.epcr-b{background:#008054}.epcr-c{background:#19b459}.epcr-d{background:#8dce46;color:#2b2a2e}',
+            '.epcr-e{background:#ffd500;color:#2b2a2e}.epcr-f{background:#fcaa65;color:#2b2a2e}.epcr-g{background:#ef3c39}'
+        ].join('\n');
+    }
+
+    /** 2.5.1: "About 2 minutes" — aboutText() with a capital, to start a sentence. */
+    function aboutTextCap(minutes) {
+        var t = aboutText(minutes);
+        return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+    }
+
+    /** "about 2 minutes" ('' with none). */
+    function aboutText(minutes) {
+        var n = parseInt(minutes, 10) || 0;
+        return n <= 0 ? '' : n === 1 ? STEP_TEXT.ABOUT_ONE : fill(STEP_TEXT.ABOUT, { m: n });
+    }
+
+    /** The extension badge text: "PDF", "DWG", ... ("FILE" without one). */
+    function fileBadge(name) {
+        var m = /\.([A-Za-z0-9]{1,5})$/.exec(String(name || ''));
+        return m ? m[1].toUpperCase() : 'FILE';
+    }
+
     /**
-     * 2.3 (brief §4.4): the design information page. One form (multipart): each section's Save button posts sec=<id>,
-     * "Save and finish later" sec=all, "Send" send=1; the server saves whatever changed. View mode: everything
-     * disabled, no buttons, the "being prepared" banner.
-     *
-     * @param {Object} m - { logoUrl, recipient ({ name, firstName, phone, email, role 'pe'|'am' }), opp ({ id, tranId,
-     *   title, siteAddress }), project ({ havingText, thermostatsText, neoHub, serviceText, callKey }), token, actionUrl,
-     *   backUrl, mode ('edit'|'view'), sections ([{ id, title, status, questions: [qm] }], section 0 first), errors,
-     *   notice, confirmation (null or { lines: [text] }), completeness ({ complete, missing }), maxFiles, accept,
-     *   uploadsEnabled, drawingsUrl }
+     * 2.4.0 (brief §4): the file control — the files already sent as rows (no Remove: they are the PE's record), ONE
+     * input by default, more revealed by "+ Add another file" (a submit, more=<qid>: the server saves and re-renders with
+     * one more; with script the next hidden input is shown instead), and on a phone a "Take a photo" input (camera). Every
+     * input is one of f_<qid>_1..max, so the server is unchanged: f_<qid>_1..max-1 are the files, f_<qid>_<max> the photo.
      */
-    function designInfoPage(m) {
+    function fileControl(qm, m, off) {
+        var q = qm.q;
+        var t = STEP_TEXT;
+        var max = parseInt(m.maxFiles, 10) || 6;
+        var regular = max > 1 ? max - 1 : 1;
+        var shown = Math.max(1, Math.min(regular, parseInt((m.more || {})[q.qid], 10) || 1));
+        var id = 'di-' + q.qid;
+        var html = '';
+        var i;
+        if ((qm.uploaded || []).length) {
+            html += qm.uploaded.map(function (f) {
+                return '<div class="frow"><span class="ftype">' + esc(fileBadge(f.name)) + '</span><span class="fname" title="' +
+                    esc(f.name) + '">' + esc(f.name) + '</span>' + (f.dateText ? '<span class="fwhen">' +
+                    esc(fill(t.UPLOADED, { date: f.dateText })) + '</span>' : '') + '</div>';
+            }).join('');
+        }
+        if (!m.uploadsEnabled) {
+            return html + '<p class="hint" style="margin:0">' + esc(DESIGN_TEXT.UPLOADS_OFF) + '</p>';
+        }
+        html += '<input type="hidden" name="more_' + esc(q.qid) + '" value="' + shown + '">';
+        for (i = 1; i <= regular; i++) {
+            html += '<input class="fin" type="file" id="' + esc(id) + '-' + i + '" name="f_' + esc(q.qid) + '_' + i + '" accept="' +
+                esc(m.accept) + '" aria-label="' + esc(q.label + ', ' + fill(DESIGN_TEXT.FILE_N, { n: i })) + '"' +
+                (i > shown ? ' hidden' : '') + off + '>';
+        }
+        if (shown < regular) {
+            html += '<button type="submit" class="out addf" name="more" value="' + esc(q.qid) + '" data-qid="' + esc(q.qid) + '"' +
+                off + '>' + esc(t.ADD_FILE) + '</button>';
+        }
+        if (max > 1) {
+            html += '<label class="out addf fphoto" for="' + esc(id) + '-photo">' + esc(t.TAKE_PHOTO) + '</label>' +
+                '<input class="sr" type="file" id="' + esc(id) + '-photo" name="f_' + esc(q.qid) + '_' + max + '" accept="image/*" ' +
+                'capture="environment"' + off + '>';
+        }
+        return html;
+    }
+
+    /**
+     * 2.4.0: the script — the 10 MB warning (2.3) and "+ Add another file" without a round trip: the next hidden input is
+     * shown and the button hidden when none is left. Without script both still work (the server checks; the button posts).
+     */
+    var STEPPER_SCRIPT = DESIGN_SCRIPT + [
+        '(function(){if(!document.querySelectorAll)return;var bs=document.querySelectorAll("button[data-qid]"),i;',
+        'for(i=0;i<bs.length;i++){bs[i].addEventListener("click",function(e){var q=this.getAttribute("data-qid"),',
+        'ins=document.querySelectorAll("input[name^=\\"f_"+q+"_\\"][hidden]");if(!ins.length)return;e.preventDefault();',
+        'ins[0].hidden=false;ins[0].focus();var h=document.querySelector("input[name=\\"more_"+q+"\\"]");',
+        'if(h){h.value=String((parseInt(h.value,10)||1)+1);}if(ins.length<2){this.hidden=true;}});}})();'
+    ].join('');
+
+    /**
+     * The step bar: every step, then Review. In a step's form each stop is a submit (goto=<id>, form="diform"), so
+     * moving on saves what was typed; on Review (no form fields) each is a link. Done steps tick and turn teal.
+     */
+    function stepBar(m, inForm) {
+        var stops = (m.steps || []).concat([{ id: 'review', title: STEP_TEXT.REVIEW_TITLE, status: '', href: m.reviewHref }]);
+        var current = '';
+        var html = stops.map(function (s, i) {
+            var cls = (s.status === 'done' ? 'sdone' : '') + (s.id === m.currentId ? ' scur' : '');
+            var inner = '<span class="scirc" aria-hidden="true">' + (s.status === 'done' ? '✓' : (i + 1)) + '</span>' +
+                '<span class="stitle">' + esc(s.short || s.title) + '</span>';
+            var label = esc(fill(STEP_TEXT.STEP_OF, { n: i + 1, total: stops.length }) + ': ' + s.title +
+                (s.status === 'done' ? ', done' : ''));
+            if (s.id === m.currentId) {
+                current = s.short || s.title;
+            }
+            return '<li class="' + cls + '">' + (inForm ? '<button type="submit" class="sstop" form="diform" name="goto" value="' +
+                esc(s.id) + '" aria-label="' + label + '"' + (s.id === m.currentId ? ' aria-current="step"' : '') + '>' + inner +
+                '</button>' : '<a class="sstop" href="' + esc(s.href) + '" aria-label="' + label + '"' +
+                (s.id === m.currentId ? ' aria-current="step"' : '') + '>' + inner + '</a>') + '</li>';
+        }).join('');
+        return '<nav aria-label="Steps"><p class="scurt">' + esc(current) + '</p><ol class="sbar">' + html + '</ol></nav>';
+    }
+
+    /** The read-only facts of step 1 (2.3's "Your project, as we have it"). */
+    function projectFacts(m) {
         var t = DESIGN_TEXT;
         var r = m.recipient || {};
-        var sections = m.sections || [];
-        var first = sections[0];
-        var rest = sections.slice(1);
-        var e = m.errors || {};
-        var hasErrors = Object.keys(e).length > 0;
-        var facts = [];
-        var body;
-        var how;
-        var aside;
-
-        function factRowHtml(label, value) {
+        function row(label, value) {
             return value ? '<dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd>' : '';
         }
+        return '<section class="card" aria-labelledby="h-facts"><h2 id="h-facts">' + esc(t.PROJECT_HEADING) + '</h2><dl class="facts">' +
+            row(t.F_PROJECT, m.opp.title || m.opp.tranId) + row(t.F_REFERENCE, m.opp.title ? m.opp.tranId : '') +
+            // 2.6.0: the full site address, on its own lines.
+            (m.opp.siteAddress ? '<dt>' + esc(t.F_SITE) + '</dt><dd>' + String(m.opp.siteAddress).split(/\s*\r?\n\s*/).filter(function (x) {
+                return !!x;
+            }).map(function (x) { return esc(x); }).join('<br>') + '</dd>' : '') + row(t.F_HAVING, m.project.havingText) +
+            row(t.F_THERMOSTATS, [m.project.thermostatsText, m.project.neoHub ? t.F_NEO_HUB : ''].filter(function (x) {
+                return !!x;
+            }).join(' ')) + row(t.F_SERVICE, m.project.serviceText) + row(t.F_DESIGNER, r.name) + '</dl></section>';
+    }
 
-        facts.push(factRowHtml(t.F_PROJECT, m.opp.title || m.opp.tranId));
-        facts.push(factRowHtml(t.F_REFERENCE, m.opp.title ? m.opp.tranId : ''));
-        facts.push(factRowHtml(t.F_SITE, String(m.opp.siteAddress || '').replace(/\s*\r?\n\s*/g, ', ')));
-        facts.push(factRowHtml(t.F_HAVING, m.project.havingText));
-        facts.push(factRowHtml(t.F_THERMOSTATS, [m.project.thermostatsText, m.project.neoHub ? t.F_NEO_HUB : '']
-            .filter(function (x) { return !!x; }).join(' ')));
-        facts.push(factRowHtml(t.F_SERVICE, m.project.serviceText));
-        facts.push(factRowHtml(t.F_DESIGNER, r.name));
-        facts.push(factRowHtml(t.F_CALL, m.project.callKey ? shortDate(m.project.callKey) : ''));
-
-        body = '<div style="display:flex;flex-direction:column;gap:8px">' +
-            '<a href="' + esc(m.backUrl) + '" style="font-size:15px;text-decoration:none">← Your projects</a>' +
-            '<h1>' + esc(t.TITLE) + '</h1>' +
-            '<p class="lead" style="margin:0">' + esc(oppLine(m.opp)) + '</p></div>';
+    /** The banners shared by the step and the review: saved, warnings, errors. */
+    function stepNotices(m) {
+        var html = '';
         if (m.confirmation) {
-            body += '<div class="donep" role="status">' + m.confirmation.lines.map(function (l) {
+            html += '<div class="donep" role="status">' + m.confirmation.lines.map(function (l) {
                 return '<p>' + esc(l) + '</p>';
             }).join('') + '</div>';
         }
         if (m.notice) {
-            body += '<div class="notice" role="status">' + esc(m.notice) + '</div>';
+            html += '<div class="notice" role="status">' + esc(m.notice) + '</div>';
         }
-        if (hasErrors) {
-            body += '<div class="notice" role="alert">Please check the highlighted answers below. Nothing has been saved yet.</div>';
+        if (m.errors && Object.keys(m.errors).length) {
+            html += '<div class="notice" role="alert">Please check the highlighted answers below. Nothing has been saved yet.</div>';
         }
-        if (m.mode === 'view') {
+        return html;
+    }
+
+    /** "Save and exit" in the header (a submit of the step's form, by its form attribute). */
+    function saveExit(m) {
+        // The form's default button (Enter in a text box) is its first submit button in document order: a hidden "next"
+        // ahead of Save and exit, so Enter continues rather than leaving.
+        return m.mode === 'view' ? '' : '<button type="submit" class="sr" form="diform" name="nav" value="next" tabindex="-1" ' +
+            'aria-hidden="true">' + esc(STEP_TEXT.NEXT) + '</button><button type="submit" class="out" form="diform" name="nav" ' +
+            'value="exit">' + esc(STEP_TEXT.SAVE_EXIT) + '</button>';
+    }
+
+    /**
+     * 2.4.0 (brief §3.3): one step of the design information page.
+     * @param {Object} m - { logoUrl, recipient ({ name, firstName, phone, email, role }), opp ({ id, tranId, title,
+     *   siteAddress }), project ({ havingText, thermostatsText, neoHub, serviceText, callKey }), token, actionUrl, backUrl,
+     *   mode, errors, notice, confirmation, maxFiles, accept, uploadsEnabled, steps: [{ id, title, status, href }],
+     *   currentId, firstId, reviewHref, step: { id, title, intro, minutes, n (1-based), questions: [qm],
+     *   prev: { id, title }|null, last: boolean }, more (qid -> file inputs shown), callKey }
+     */
+    function designInfoStep(m) {
+        var t = STEP_TEXT;
+        var st = m.step;
+        var total = (m.steps || []).length + 1;
+        var r = m.recipient || {};
+        var off = '';
+        var panels = [];
+        var byPanel = {};
+        var body;
+        var about = aboutText(st.minutes);
+        var stuck;
+
+        st.questions.forEach(function (qm) {
+            var p = qm.q.panel || 'main';
+            if (!byPanel[p]) {
+                byPanel[p] = [];
+                panels.push(p);
+            }
+            byPanel[p].push(qm);
+        });
+
+        body = stepBar(m, true) + stepNotices(m) +
+            '<p id="di-big" class="notice" role="alert" tabindex="-1" data-msg="' + esc(DESIGN_TEXT.BIG_FILE) + '"></p>' +
+            '<section class="card" aria-labelledby="h-step"><p class="eyebrow">' +
+            esc(fill(t.STEP_OF, { n: st.n, total: total }) + (about ? ' · ' + about : '')) + '</p>' +
+            '<h1 id="h-step">' + esc(st.title) + '</h1>' + (st.intro ? '<p class="lead" style="margin:0">' + esc(st.intro) + '</p>' : '') +
+            '</section>' + (st.id === m.firstId ? projectFacts(m) : '') +
+            '<form id="diform" class="fcol" method="post" enctype="multipart/form-data" action="' + esc(m.actionUrl) +
+            '" accept-charset="utf-8">' +
+            '<input type="hidden" name="t" value="' + esc(m.token) + '">' +
+            '<input type="hidden" name="a" value="designinfo">' +
+            '<input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
+            '<input type="hidden" name="step" value="' + esc(st.id) + '">';
+        panels.forEach(function (p) {
+            // 2.5.1: a panel of element cards is a 2 x 2 grid (one column below 700 px).
+            var grid = byPanel[p].every(function (qm) { return qm.q.type === 'element'; });
+            // 2.7.0 (amendment 4 §6): an extension's panel — its other questions in one card, then its elements as a grid of
+            // cards, each with Same / Different at the top and, on Different, the select, U-value and notes.
+            var pairs = extPairs(byPanel[p]);
+            if (pairs.cards.length) {
+                body += questionsCard(pairs.rest, m, off, false) + questionsCard(pairs.cards, m, off, true);
+                return;
+            }
+            // 2.6.0: every question hidden by its reveal -> the card is hidden (rvhide: with script only, so a script-off page
+            // still shows it with its "If you chose …" headings); the first visible question has no divider (.first). The
+            // page's script keeps both right as the answers change.
+            var shown = byPanel[p].filter(function (qm) { return qm.q.revealed !== false; });
+            body += '<section class="card' + (grid ? ' elgrid' : '') + (shown.length ? '' : ' rvhide') + '">' +
+                byPanel[p].map(function (qm) {
+                    var html = revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
+                    return qm === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+                }).join('') + '</section>';
+        });
+        // The nav row: Back saves first; on the first step it is a link to the dashboard.
+        body += '<div class="navrow">' + (st.prev ? '<button type="submit" class="out" name="nav" value="back">' +
+            esc(fill(t.BACK, { title: st.prev.title })) + '</button>' : '<a class="out" href="' + esc(m.backUrl) + '">' +
+            esc(t.BACK_FIRST) + '</a>') + '<span class="auto">' + esc(t.AUTO) + '</span>' +
+            '<button type="submit" class="cta" name="nav" value="next">' + esc(st.last ? t.NEXT_LAST : t.NEXT) + '</button></div>';
+        // 2.6.0: no design call assumed — ask for a call when sending, or email the PE or AM (a mailto link, as the header).
+        stuck = r.email ? esc(t.STUCK).replace('{name}', '<a href="mailto:' + esc(r.email) + '">' + esc(r.firstName || r.name ||
+            r.email) + '</a>') : esc(t.STUCK_NO_EMAIL);
+        body += '<p class="stuck">' + stuck + '</p></form>';
+
+        return page({ title: st.title + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design', width: 'w1120',
+            body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(), script: STEPPER_SCRIPT +
+                (st.questions.some(function (qm) { return qm.revealSpec || qm.q.type === 'element'; }) ? REVEAL_SCRIPT : ''),
+            headerExtra: saveExit(m) });
+    }
+
+    /**
+     * 2.7.0 (amendment 4 §6): an extension panel's questions split into its element cards (each "<ext>_<element>_same"
+     * choice with its "<ext>_<element>" element question) and the rest, in order. { cards: [{ same, el }], rest: [qm] }.
+     */
+    function extPairs(list) {
+        var byQid = {};
+        var used = {};
+        var cards = [];
+        list.forEach(function (qm) { byQid[qm.q.qid] = qm; });
+        list.forEach(function (qm) {
+            var el = /_same$/.test(qm.q.qid) && qm.q.type === 'choice' ? byQid[qm.q.qid.replace(/_same$/, '')] : null;
+            if (el && el.q.type === 'element' && el.q.ext) {
+                cards.push({ same: qm, el: el });
+                used[qm.q.qid] = true;
+                used[el.q.qid] = true;
+            }
+        });
+        return { cards: cards, rest: list.filter(function (qm) { return !used[qm.q.qid]; }) };
+    }
+
+    /**
+     * 2.6.0 / 2.7.0: one card of questions (rvhide when every one is hidden by its reveal; the first shown one .first), or
+     * (grid) a 2 x 2 grid of extension element cards.
+     */
+    function questionsCard(list, m, off, grid) {
+        var shown;
+        var html;
+        if (!list.length) {
+            return '';
+        }
+        if (grid) {
+            shown = list.filter(function (c) { return c.same.q.revealed !== false; });
+            return '<section class="card elgrid extgrid' + (shown.length ? '' : ' rvhide') + '">' + list.map(function (c) {
+                html = revealPanel(c.same, '<div class="extcard">' + designQuestion(c.same, m) +
+                    revealPanel(c.el, elementQuestion(c.el, m, true)) + '</div>');
+                return c === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+            }).join('') + '</section>';
+        }
+        shown = list.filter(function (qm) { return qm.q.revealed !== false; });
+        return '<section class="card' + (shown.length ? '' : ' rvhide') + '">' + list.map(function (qm) {
+            html = revealPanel(qm, qm.q.type === 'files' ? designFileQuestion(qm, m, off) : designQuestion(qm, m));
+            return qm === shown[0] ? html.replace(/^<div class="/, '<div class="first ') : html;
+        }).join('') + '</section>';
+    }
+
+    /**
+     * 2.8.0 (amendment 5): the thank-you page after a Send — the same header, cards and footer as the form, no step bar, no
+     * form and no script. The heading and the lead, then only the lines that apply (a call asked for, steps still to do, an
+     * upload that failed — one line per file — big files), What happens next (the request email's three steps, the first
+     * ticked), Back to your project and See what you sent, and the questions line. Every value escaped.
+     * @param {Object} m - { logoUrl, recipient, backUrl, reviewUrl, thanks: { name, call, todo: [short], failed: [file name],
+     *   bigFiles } }
+     */
+    function designInfoThanks(m) {
+        var t = STEP_TEXT;
+        var r = m.recipient || {};
+        var th = m.thanks || {};
+        var first = r.firstName || r.name || t.THANKS_PE_FALLBACK;
+        var email = r.email ? '<a href="mailto:' + esc(r.email) + '">' + esc(r.email) + '</a>' : '';
+        var lines = [];
+        var body;
+        // The email link goes in after escaping, through a marker no value can hold (file names are plain text: control
+        // characters stripped).
+        function withEmail(text, vals) {
+            var v = { email: '\u0001' };
+            Object.keys(vals).forEach(function (k) { v[k] = String(vals[k]).replace(/\u0001/g, ''); });
+            return esc(fill(text, v)).replace('\u0001', email);
+        }
+        if (th.call) {
+            lines.push(esc(fill(t.THANKS_CALL, { first: first })));
+        }
+        if ((th.todo || []).length) {
+            lines.push(esc(fill(t.THANKS_TODO, { list: th.todo.join(', '), first: first })));
+        }
+        (th.failed || []).forEach(function (f) {
+            lines.push(withEmail(email ? t.THANKS_UPLOAD : t.THANKS_UPLOAD_NO_EMAIL, { file: f, first: first }));
+        });
+        if (th.bigFiles) {
+            lines.push(esc(fill(t.THANKS_BIG, { first: first })));
+        }
+        body = '<section class="card" aria-labelledby="h-thanks"><h1 id="h-thanks">' + esc(th.name ? fill(t.THANKS_HEADING,
+            { name: th.name }) : t.THANKS_HEADING_NO_NAME) + '</h1><p class="lead" style="margin:0">' +
+            esc(fill(t.THANKS_LEAD, { first: first })) + '</p>' + lines.map(function (l) { return '<p class="thx">' + l + '</p>'; })
+            .join('') + '</section>' +
+            '<section class="card" aria-labelledby="h-next"><h2 id="h-next">' + esc(t.THANKS_NEXT) + '</h2><ol class="nextsteps">' +
+            ((config.DESIGNINFO_EMAIL || {}).TIPS || []).map(function (tip, i) {
+                return '<li' + (i === 0 ? ' class="done"' : '') + '><span class="ncirc" aria-hidden="true">' + (i === 0 ? '\u2713' :
+                    String(i + 1)) + '</span><span><strong>' + esc(tip[0]) + '</strong>' + (i === 0 ? '<span class="sr" ' +
+                    'style="position:absolute"> (' + esc(t.THANKS_DONE) + ')</span>' : '') + '</span></li>';
+            }).join('') + '</ol></section>' +
+            '<div class="navrow"><a class="cta" href="' + esc(m.backUrl) + '">' + esc(t.THANKS_BACK) + '</a><a class="out" href="' +
+            esc(m.reviewUrl) + '">' + esc(t.THANKS_REVIEW) + '</a></div>' +
+            '<p class="stuck">' + withEmail(email ? t.THANKS_QUESTIONS : t.THANKS_QUESTIONS_NO_EMAIL, { first: first }) + '</p>';
+        return page({ title: t.THANKS_TITLE + ' \u00b7 ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design',
+            width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + thanksCss() });
+    }
+
+    /** 2.8.0: the thank-you page's own rules — the three steps with their circles, the first ticked. */
+    function thanksCss() {
+        var c = COLORS;
+        return [
+            '.thx{margin:0}',
+            '.nextsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}',
+            '.nextsteps li{display:flex;align-items:center;gap:12px;min-width:0}',
+            '.ncirc{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;' +
+                'justify-content:center;font-weight:700;border:2px solid ' + c.BORDER + ';color:' + c.MUTED + '}',
+            '.nextsteps li.done .ncirc{background:' + c.PURPLE + ';border-color:' + c.PURPLE + ';color:#fff}',
+            '.stuck a{overflow-wrap:anywhere}'
+        ].join('\n');
+    }
+
+    /** A files question in the stepper: label, why, hint, then the file control. */
+    function designFileQuestion(qm, m, off) {
+        var q = qm.q;
+        return '<div class="dq" id="q-' + esc(q.qid) + '"><label class="lbl" for="di-' + esc(q.qid) + '-1">' + esc(q.label) +
+            (q.required ? '<span class="req">' + esc(DESIGN_TEXT.REQUIRED) + '</span>' : '') + '</label>' + whyToggle(q) +
+            (q.hint ? '<p class="hint" style="margin:0">' + esc(hintText(q, m)) + '</p>' : '') + fieldError(m.errors || {}, q.qid) +
+            fileControl(qm, m, off) + '</div>';
+    }
+
+    /** Review: a section's rows in question order; the unanswered ones only in a step still to do. */
+    function rowsOf(s) {
+        // 2.5.1: an optional question not answered is left out ("Not answered yet" is for a needed one).
+        return (s.rows || []).filter(function (x) { return !!x.value || (s.status === 'todo' && x.required !== false); });
+    }
+
+    /**
+     * 2.4.0 (brief §3.4): Review and send. Every shown step with its answers and an Edit link; the steps still to do
+     * flagged at the top; Send (send=1) at the foot. View mode: no Edit, no Send, "Your design is being prepared".
+     * @param {Object} m - { ..., steps, reviewHref, review: [{ id, title, status, href, rows: [{label, value}]
+     *   in question order, value '' when unanswered }], todo: [{ id, title, href }], callKey, drawingsUrl, confirmation }
+     */
+    function designInfoReview(m) {
+        var t = STEP_TEXT;
+        var r = m.recipient || {};
+        var view = m.mode === 'view';
+        var first = r.firstName || '';
+        var how;
+        var body = stepBar(m, false) + stepNotices(m) +
+            '<section class="card"><h1>' + esc(t.REVIEW_TITLE) + '</h1><p class="lead" style="margin:0">' + esc(oppLine(m.opp)) +
+            '</p>' + (view ? '' : '<p class="q-help">' + esc(t.REVIEW_INTRO) + '</p>') + '</section>';
+
+        if (view) {
             how = r.email ? 'Send a note to <a href="mailto:' + esc(r.email) + '">' + esc(r.name || r.email) + '</a>' : '';
             if (r.phone) {
                 how += (how ? ' or call ' : 'Call ') + esc(r.name || 'us') + ' on <a href="' + esc(telHref(r.phone)) + '">' +
                     esc(r.phone) + '</a>';
             }
-            body += '<div class="notice" role="status">' + esc(t.VIEW_BANNER) + (how ? ' ' + how + '.' : '') + '</div>';
+            body += '<div class="notice" role="status">' + esc(t.VIEW_REVIEW) + (how ? ' Need to change something? ' + how + '.' : '') +
+                '</div>';
+        } else if ((m.todo || []).length) {
+            // 2.5.1: the short labels, as the step bar.
+            body += '<div class="amber" role="status"><p><strong>' + esc(m.todo.length === 1 ? fill(t.NEARLY_ONE, {
+                title: m.todo[0].short || m.todo[0].title }) : fill(t.NEARLY_MANY, { n: m.todo.length, list: m.todo.map(function (x) {
+                return x.short || x.title; }).join(', ') })) +
+                '</strong></p><p>' + esc(t.SEND_LATER) + '</p><p><a class="out" href="' + esc(m.todo[0].href) + '">' +
+                esc(fill(t.GO_TO, { title: m.todo[0].short || m.todo[0].title })) + '</a></p></div>';
         }
-        body += '<p id="di-big" class="notice" role="alert" tabindex="-1" data-msg="' + esc(t.BIG_FILE) + '"></p>';
 
-        body += '<form id="diform" method="post" enctype="multipart/form-data" action="' + esc(m.actionUrl) +
-            '" accept-charset="utf-8">' +
-            '<input type="hidden" name="t" value="' + esc(m.token) + '">' +
-            '<input type="hidden" name="a" value="designinfo">' +
-            '<input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
-            '<div class="layout"><div class="fcol">';
-
-        // The project card, with section 0's questions.
-        body += '<section class="card" aria-labelledby="h-project"><h2 id="h-project">' + esc(t.PROJECT_HEADING) +
-            chipFor('', true) + '</h2><dl class="facts">' + facts.join('') + '</dl>' +
-            (first ? first.questions.map(function (qm) { return designQuestion(qm, m); }).join('') + saveButton(m, first.id) : '') +
-            '</section>';
-
-        rest.forEach(function (s, i) {
-            body += '<section class="card" id="sec-' + esc(s.id) + '" aria-labelledby="h-' + esc(s.id) + '"><h2 id="h-' + esc(s.id) +
-                '"><span class="num">' + (i + 1) + '</span>' + esc(s.title) + chipFor(s.status, false) + '</h2>' +
-                s.questions.map(function (qm) { return designQuestion(qm, m); }).join('') + saveButton(m, s.id) + '</section>';
+        (m.review || []).forEach(function (s) {
+            var chipHtml = s.status === 'done' ? chip('done', t.CHIP_DONE) : s.status === 'todo' ? chip('todo', t.CHIP_TODO) :
+                chip('checked', t.CHIP_CHECKED);
+            body += '<section class="card" aria-labelledby="rv-' + esc(s.id) + '"><div class="rvhead"><h2 id="rv-' + esc(s.id) + '">' +
+                esc(s.title) + chipHtml + '</h2>' + (view ? '' : '<a href="' + esc(s.href) + '">' + esc(t.EDIT) +
+                '<span class="sr" style="position:absolute"> ' + esc(s.title) + '</span></a>') + '</div>' +
+                (rowsOf(s).length ? '<dl class="rv">' + rowsOf(s).map(function (x) {
+                    return x.value ? '<dt>' + esc(x.label) + '</dt><dd>' + esc(x.value) + '</dd>' : '<dt>' + esc(x.label) +
+                        '</dt><dd class="muted" style="font-weight:400">' + esc(t.NOT_ANSWERED) + '</dd>';
+                }).join('') + '</dl>' : '<p class="muted" style="margin:0">' + esc(t.NOTHING_YET) + '</p>') + '</section>';
         });
 
-        if (m.mode !== 'view') {
-            body += '<section class="card" aria-label="Send"><p style="margin:0;font-size:17px;font-weight:600">' +
-                esc(m.completeness.complete ? t.ALL_HERE : fill(t.STILL_TO_DO, { list: m.completeness.missing.join(', ') })) +
-                '</p><div class="submitrow"><button type="submit" class="cta" name="send" value="1">' +
-                esc(r.role === 'pe' ? t.SEND_PE : t.SEND_AM) + '</button>' +
-                '<button type="submit" class="out" name="sec" value="all">' + esc(t.SAVE_LATER) + '</button></div></section>';
-        }
-        body += '</div>';
+        body += '<section class="card"><div class="goes"><span class="cap">' + esc(DESIGN_TEXT.GOES_TO) + '</span><span class="amn">' +
+            esc(r.name || (r.role === 'pe' ? DESIGN_TEXT.ROLE_PE : DESIGN_TEXT.ROLE_AM)) + '</span></div>' +
+            (view ? '' : '<form id="diform" method="post" enctype="multipart/form-data" action="' + esc(m.actionUrl) +
+                '" accept-charset="utf-8"><input type="hidden" name="t" value="' + esc(m.token) + '">' +
+                '<input type="hidden" name="a" value="designinfo"><input type="hidden" name="opp" value="' + esc(m.opp.id) + '">' +
+                '<input type="hidden" name="step" value="review">' +
+                // 2.6.0: the call request — the box, then its time and number (shown with script only while ticked).
+                '<div class="callreq"><input type="checkbox" id="di-call" name="call" value="yes"' + ((m.call || {}).want ?
+                ' checked' : '') + '><label class="chk" for="di-call">' + esc(t.CALL_BOX) + '</label><div class="callwhen">' +
+                '<label class="lbl" for="di-callwhen">' + esc(t.CALL_WHEN) + '</label><input class="inp" type="text" ' +
+                'id="di-callwhen" name="call_when" maxlength="100" value="' + esc((m.call || {}).when || '') + '"></div></div>' +
+                '<div class="submitrow"><button type="submit" class="cta" name="send" ' +
+                'value="1">' + esc(first ? fill(t.SEND_TO, { first: first }) : t.SEND_TO_NO_NAME) + '</button><span class="meta">' +
+                esc(t.SEND_SUB) + '</span></div></form>') +
+            (m.drawingsUrl ? '<p class="q-help"><a href="' + esc(m.drawingsUrl) + '" target="_blank" rel="noopener">' +
+                esc(DESIGN_TEXT.DRAWINGS_LINK) + '</a></p>' : '') + '</section>';
 
-        aside = '<aside class="card" aria-label="About this page"><div class="goes"><span class="cap">' + esc(t.GOES_TO) +
-            '</span><span class="amn">' + esc(r.name || (r.role === 'pe' ? t.ROLE_PE : t.ROLE_AM)) + '</span><span class="meta">' +
-            esc(r.role === 'pe' ? t.ROLE_PE : t.ROLE_AM) + '</span></div>' +
-            '<h2>' + esc(t.PROGRESS) + '</h2><ul class="prog">' + rest.map(function (s) {
-                return '<li><span>' + esc(s.title) + '</span>' + chipFor(s.status, false) + '</li>';
-            }).join('') + '</ul>' +
-            '<h3>' + esc(t.SERVICES_HEADING) + '</h3>' + t.SERVICES.map(function (sv) {
-                return '<p class="q-help"><strong>' + esc(sv[0]) + ':</strong> ' + esc(sv[1]) + '</p>';
-            }).join('') +
-            '<h3>' + esc(t.WHY_HEADING) + '</h3><p class="q-help">' + esc(t.WHY_TEXT) + '</p>' +
-            (m.drawingsUrl ? '<h3>' + esc(t.DRAWINGS_HEADING) + '</h3><p class="q-help"><a href="' + esc(m.drawingsUrl) +
-                '" target="_blank" rel="noopener">' + esc(t.DRAWINGS_LINK) + '</a></p>' : '') +
-            '</aside>';
-
-        body += aside + '</div></form>';
-
-        return page({ title: t.TITLE, logoUrl: m.logoUrl, am: r, header: 'design', width: 'w1120', body: body,
-            css: '\n' + designCss(), script: m.mode === 'view' ? '' : DESIGN_SCRIPT });
+        return page({ title: t.REVIEW_TITLE + ' · ' + DESIGN_TEXT.TITLE, logoUrl: m.logoUrl, am: r, header: 'design',
+            width: 'w1120', body: body, css: '\n' + designCss() + '\n' + stepperCss() + '\n' + revealCss(),
+            script: view ? '' : 'document.documentElement.className+="";',
+            headerExtra: view ? '' : '<a class="out" href="' + esc(m.backUrl) + '">' + esc(STEP_TEXT.EXIT_REVIEW) + '</a>' });
     }
 
     /**
@@ -2847,7 +3564,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         var lines = [];
         var p = g.progress;
         if (g.key === 'needs_info') {
-            lines.push(t.CARD_NEEDS_INFO);
+            lines.push(g.minutes > 0 ? fill(t.CARD_NEEDS_INFO, { about: aboutText(g.minutes) }) : t.CARD_NEEDS_INFO_NO_TIME);
         } else if (g.key === 'info_partial') {
             lines.push((p && p.done.length ? fill(t.CARD_HAVE, { list: p.done.join(', ') }) : t.CARD_HAVE_NONE) + ' ' +
                 (!p ? t.CARD_TODO_FALLBACK : p.missing.length ? fill(t.CARD_TODO, { list: p.missing.join(', ') }) : t.CARD_READY));
@@ -2857,9 +3574,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         } else if (g.key === 'designing') {
             lines.push(t.CARD_DESIGNING);
         }
-        if (g.callKey && g.key !== 'fc_none') {
-            lines.push(fill(t.CARD_CALL, { date: shortDate(g.callKey) }));
-        }
+        // 2.6.0 (amendment 3): no design call is assumed; the card has no call row.
         return lines;
     }
 
@@ -2928,7 +3643,7 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
      *   opp ({ tranId, title, siteAddress }), havingText, callKey ('' or the design call, today or later), goodsKey,
      *   link (the direct link), dashboardLink, sender ({ name, firstName, phone, email, photoUrl }: the card; email
      *   already DESIGN_EMAIL_ADDRESS when it applies), senderRole ('pe'|'am'), peName (the PE's name for the AM
-     *   variant, '' when none), steps ({ insulation: boolean, heatPump: boolean }) }
+     *   variant, '' when none), askList (2.5.0: the requested steps' short titles), minutes (2.5.1: their minutes summed) }
      * @returns {string}
      */
     function designInfoRequestEmail(m) {
@@ -2946,19 +3661,25 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             .filter(function (x) { return !!x; }).join(' · ');
 
         html += emailLogo(m.logoUrl);
-        html += emailBand(t.EYEBROW, name ? fill(t.HEADING, { name: name }) : t.HEADING_NO_NAME, t.SUB);
+        // 2.5.1: the subtitle's time is the asked steps' minutes summed, as the card's; none: SUB_NO_TIME.
+        html += emailBand(t.EYEBROW, name ? fill(t.HEADING, { name: name }) : t.HEADING_NO_NAME, m.minutes > 0 ?
+            fill(t.SUB, { about: aboutTextCap(m.minutes) }) : t.SUB_NO_TIME);
         if (isHttpsUrl(hero)) {
             html += '<tr><td align="center" valign="top"><img src="' + esc(hero) + '" width="' + config.EMAIL_HERO_WIDTH +
                 '" height="' + config.EMAIL_HERO_HEIGHT + '" alt="" border="0" class="fluid" style="display:block;width:100%;' +
                 'max-width:600px;height:auto;"></td></tr>\n';
         }
 
-        // The personal paragraph: the PE's own words, or the account manager's.
+        // The personal paragraph: the PE's own words, or the account manager's. 2.6.0: the main contact through design and
+        // delivery, the survey (its minutes), and how to talk it through (the sender's phone, else reply). No call assumed.
         personal = fill(m.senderRole === 'pe' ? t.PERSONAL_PE : t.PERSONAL_AM, { sender: senderFirst,
-            pe: m.peName || t.PE_NONE });
+            pe: m.peName || t.PE_NONE, system: m.system || t.SYSTEM_UNKNOWN });
         html += '<tr><td align="left" valign="top" class="pad" style="padding:28px 48px 4px 48px;">' +
             emailP('0 0 12px 0', 17, COLORS.TEXT, name ? fill(t.HELLO, { name: name }) : t.HELLO_NO_NAME) +
-            emailP('0', 17, COLORS.TEXT, personal) + '</td></tr>\n';
+            emailP('0 0 12px 0', 17, COLORS.TEXT, personal) +
+            emailP('0 0 12px 0', 17, COLORS.TEXT, m.minutes > 0 ? fill(t.SURVEY, { n: m.minutes }) : t.SURVEY_NO_TIME) +
+            emailP('0', 17, COLORS.TEXT, sender.phone ? fill(t.TALK_PHONE, { phone: sender.phone }) : t.TALK_NO_PHONE) +
+            '</td></tr>\n';
 
         // "Your project".
         if (ref) {
@@ -2966,9 +3687,6 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         }
         if (m.havingText) {
             facts += factRow(t.FACT_HAVING, '<b>' + esc(m.havingText) + '</b>');
-        }
-        if (m.callKey) {
-            facts += factRow(t.FACT_CALL, '<b>' + esc(shortDate(m.callKey)) + '</b>');
         }
         if (m.goodsKey) {
             facts += factRow(t.FACT_GOODS, '<b>' + esc(shortDate(m.goodsKey)) + '</b>');
@@ -2988,23 +3706,15 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             '<a href="' + esc(m.dashboardLink) + '" target="_blank" style="' + EF + 'font-size:15px;color:' + COLORS.PURPLE +
             ';text-decoration:underline;">' + fontHtml(COLORS.PURPLE, esc(t.DASHBOARD_LINK)) + '</a></td></tr>\n';
 
-        // What we'll ask: the plans; the insulation unless UFH Design; where things go (+ the heat pump).
+        // What we'll ask: 2.5.0 — the requested steps' short titles, in step order (designinfo.stepsFor()).
         html += '<tr><td align="center" valign="top" class="pad" style="padding:24px 48px 8px 48px;">\n' +
             emailH2(t.ASK_HEADING, std.PURPLE) +
             '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0">\n';
-        n += 1;
-        html += stepRow(n, t.STEP1_TITLE, t.STEP1_TEXT);
-        if (m.steps && m.steps.insulation) {
+        (m.askList || []).forEach(function (title) {
             n += 1;
-            html += stepRow(n, t.STEP2_TITLE, t.STEP2_TEXT);
-        }
-        n += 1;
-        html += stepRow(n, t.STEP3_TITLE, t.STEP3_TEXT + (m.steps && m.steps.heatPump ? ' ' + t.STEP3_HP : ''));
-        html += '</table>\n' +
-            '<table role="presentation" width="100%" align="center" cellpadding="0" cellspacing="0" border="0" bgcolor="#fff5dc" ' +
-            'style="background-color:#fff5dc;border-radius:6px;"><tr><td align="left" valign="top" bgcolor="#fff5dc" ' +
-            'style="padding:12px 14px;' + EF + 'font-size:15px;line-height:21px;color:' + COLORS.TEXT + ';">' +
-            fontHtml(COLORS.TEXT, esc(t.NOTE)) + '</td></tr></table>\n</td></tr>\n';
+            html += stepRow(n, title, '');
+        });
+        html += '</table>\n</td></tr>\n';
 
         // What happens next: three tips, three across (stacked on phones).
         html += '<tr><td align="center" valign="top" bgcolor="' + std.PANEL + '" class="pad" style="background-color:' + std.PANEL +
@@ -3026,6 +3736,59 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
             after: emailPersonal(t.PERSONAL),
             footerLine: esc(t.FOOTER)
         });
+    }
+
+
+    // ---------------------------------------------------------------- 2.7.0 (2.3c amendment 4 §8): the answers as a PDF
+
+    /**
+     * Pure: a value for BFO XML — control characters (not allowed in XML 1.0) dropped, the five XML characters escaped,
+     * line breaks as <br/>.
+     */
+    function pdfEsc(value) {
+        return String(value === null || value === undefined ? '' : value)
+            .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+            .replace(/\r\n?|\n/g, '<br/>');
+    }
+
+    /**
+     * Pure (amendment 4 §8): the design information PDF as BFO XML (N/render xmlToPdf) — laid out like Review: a heading,
+     * the project lines, the call request, then a heading per step with its question and answer rows (the EPC, the element
+     * lines and the file names are rows like any other), then the other facts. No pictures, no script. Every value escaped.
+     * @param {Object} m - { heading, lines: [text], call: '' | text, sections: [{ title, status, rows: [{ label, value }] }],
+     *   facts: [text], footer }
+     * @returns {string}
+     */
+    function designInfoPdfXml(m) {
+        var x = '<?xml version="1.0"?>\n<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">\n<pdf><head>' +
+            '<style type="text/css">body{font-family:Helvetica,sans-serif;font-size:10pt;color:#1f2933}' +
+            'h1{font-size:16pt;margin:0 0 6pt 0}h2{font-size:12pt;margin:14pt 0 4pt 0}' +
+            'td{padding:3pt 4pt;vertical-align:top;border-bottom:0.5pt solid #d9dee3}td.l{width:40%;color:#52606d}' +
+            'p{margin:0 0 3pt 0}p.call{font-weight:bold;margin:6pt 0}p.m{color:#52606d}</style></head><body>';
+        x += '<h1>' + pdfEsc(m.heading) + '</h1>';
+        (m.lines || []).forEach(function (l) { x += '<p class="m">' + pdfEsc(l) + '</p>'; });
+        if (m.call) {
+            x += '<p class="call">' + pdfEsc(m.call) + '</p>';
+        }
+        (m.sections || []).forEach(function (sec) {
+            x += '<h2>' + pdfEsc(sec.title) + (sec.status ? ' (' + pdfEsc(sec.status === 'done' ? 'done' : sec.status === 'todo' ?
+                'to do' : 'optional') + ')' : '') + '</h2>';
+            if (!(sec.rows || []).length) {
+                x += '<p class="m">' + pdfEsc(STEP_TEXT.NOTHING_YET) + '</p>';
+                return;
+            }
+            x += '<table width="100%">' + sec.rows.map(function (r) {
+                return '<tr><td class="l">' + pdfEsc(r.label) + '</td><td>' + pdfEsc(r.value) + '</td></tr>';
+            }).join('') + '</table>';
+        });
+        if ((m.facts || []).length) {
+            x += '<h2>' + pdfEsc('Also') + '</h2>' + m.facts.map(function (l) { return '<p>' + pdfEsc(l) + '</p>'; }).join('');
+        }
+        if (m.footer) {
+            x += '<p class="m" style="margin-top:14pt">' + pdfEsc(m.footer) + '</p>';
+        }
+        return x + '</body></pdf>';
     }
 
     return {
@@ -3078,10 +3841,17 @@ define(['./cdb_lib_dates', './cdb_lib_config'], function (dates, config) {
         deliveryLinkEmail: deliveryLinkEmail,
         // 2.3
         DESIGN_TEXT: DESIGN_TEXT,
-        designInfoPage: designInfoPage,
+        designInfoStep: designInfoStep,
+        designInfoReview: designInfoReview,
+        STEP_TEXT: STEP_TEXT,
         designInfoMessagePage: designInfoMessagePage,
         designCardLines: designCardLines,
         designInfoRequestSubject: designInfoRequestSubject,
-        designInfoRequestEmail: designInfoRequestEmail
+        designInfoRequestEmail: designInfoRequestEmail,
+        // 2.7.0
+        pdfEsc: pdfEsc,
+        designInfoPdfXml: designInfoPdfXml,
+        // 2.8.0
+        designInfoThanks: designInfoThanks
     };
 });

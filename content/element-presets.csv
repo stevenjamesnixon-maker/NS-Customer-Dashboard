@@ -1,0 +1,33 @@
+element,key,label,u
+walls,stone,"Stone, as built",1.7
+walls,solid_brick,"Solid brick, as built",2.1
+walls,cavity_unfilled_pre76,"Cavity, unfilled (before 1976)",1.6
+walls,cavity_unfilled_76_90,"Cavity, unfilled (1976–1990)",1.0
+walls,cavity_filled,"Cavity, filled",0.55
+walls,timber_old,"Timber frame, older",2.5
+walls,solid_ins_50,"Solid with internal or external insulation (about 50 mm)",0.6
+walls,solid_ins_100,"Solid with internal or external insulation (100 mm or more)",0.3
+walls,modern_91_02,"Modern masonry (1991–2002)",0.6
+walls,modern_03_11,"Modern (2003–2011)",0.35
+walls,modern_12,"Modern (2012 or later)",0.28
+windows,single,Single glazed,4.8
+windows,secondary,Secondary glazing,2.4
+windows,double_pre02,Double glazed (before 2002),3.1
+windows,double_02,Double glazed (2002 onwards),2.0
+windows,double_lowe,"Double glazed (modern, low-E)",1.4
+windows,triple,Triple glazed,1.2
+roof,none,No loft insulation,2.3
+roof,mm50,About 50 mm insulation,0.68
+roof,mm100,About 100 mm insulation,0.4
+roof,mm150,About 150 mm insulation,0.3
+roof,mm200,About 200 mm insulation,0.25
+roof,mm270,270 mm or more,0.16
+roof,flat_ins,"Flat roof, insulated",0.25
+roof,flat_limited,"Flat roof, little or no insulation",1.5
+roof,dwelling_above,Another home above (no heat loss through it),0
+floor,solid_unins,"Solid concrete, uninsulated",0.7
+floor,solid_ins,"Solid concrete, insulated",0.25
+floor,susp_unins,"Suspended timber, uninsulated",0.8
+floor,susp_ins,"Suspended timber, insulated",0.3
+floor,above_unheated,Above an unheated space (garage or cellar),0.5
+floor,dwelling_below,Another home below (no heat loss through it),0

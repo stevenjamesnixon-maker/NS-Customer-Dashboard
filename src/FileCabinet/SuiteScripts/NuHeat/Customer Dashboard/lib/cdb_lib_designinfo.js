@@ -33,24 +33,112 @@
  * the audit trail and the Task is a snapshot; at most 20 files, names clipped to 60; over 3,500 characters the files
  * drop to the last 5 (CDB DESIGNINFO_STATE_TRIMMED); never over the field. Version 1 states are migrated on read.
  *
+ * 1.1.0 (release 2.3b, the stepper): the registry v2 header (step_intro, step_minutes, image, placeholder; a v1 header
+ * still parses), each section's intro and minutes from its first row (sectionsOf() carries them), and
+ * unknownStateQids() for answers stored under qids the registry no longer has.
+ *
+ * 1.2.0 (release 2.3c): the registry v3 header (reveal, short; v1 and v2 still parse) and its new forms — literal options
+ * with keys (key=Label|…), @setting:KEY and @preset:ELEMENT options, field `state` for a choice, @element:<element>[:extN]
+ * and @epc, the element and epc types; parseReveal() / revealMap() (the `reveal` column: alternatives |, clauses ;, the
+ * missing-question rule); the heat facts as a SET from custbody_heat_source_type_26 (DI_HEAT26_MAP, the Sales MI as the
+ * fallback) and the hp set, with `when` testing membership; stepsFor() (the ONE list of steps for the stepper, Review,
+ * the request page, the email and the cards); the state's rq (the steps the request asked about); the element cards'
+ * pure parts (parsePresets, parseAgeBands, parseEpcMap, elementLine, parseElementLine, elementTargets, epcElement,
+ * ageBandKey, fillPrefill) and parseOptionsSetting().
+ *
+ * 1.2.1 (2.3c amendment 1): `when` takes a negated clause, key!=v1,v2 (true when the facts hold none of the values;
+ * the cylinder row: heat!=nuheat_hp); field `state` for a text question (kept in the state, clipped at STATE_TEXT_MAX);
+ * a preset's U may be 0 (another home above or below), shown as "U 0.00" — the exact U-value box keeps its 0.05 minimum.
+ *
+ * 1.3.0 (2.3c amendment 3, six steps): a `reveal` may name an EARLIER question in ANY section (the property type and new
+ * build or renovation moved to Your project, and step 2 reveals on them); field `state` for a `long` too (clipped at
+ * STATE_TEXT_MAX); a literal choice's stored value may be its KEY (plans_changed's old yes/no); the state's call request
+ * (c: { y, t }); systemWords() — "Underfloor heating and a heat pump" from the facts; unknownStateSteps() — saved steps and
+ * rq entries the registry no longer has (plans).
+ *
+ * 1.4.0 (2.3c amendment 4): systemWords().system; epcEntries() reads an element's descriptions from the certificate in
+ * any shape (arrays, flat hyphen/underscore/camel keys, "|" or ";" joins), with their ratings; epcElement() takes the
+ * first description that maps (matching ignores case, punctuation and repeated spaces, whole words) and returns the
+ * notes ("EPC: …", "Not on your EPC."); standardHeights(), fillText(); freeTextParts() / freeTextWrite() / textHash() /
+ * dayMonth() for staff text in free-text fields; the state's w (the form's writes) and eu (the EPC's unmatched
+ * elements).
+ *
+ * 1.5.0 (2.3c amendment 5): the state's uf — the files that failed in the last Send's post (at most 5, names to 100),
+ * for the thank-you page.
+ *
  * @NApiVersion 2.1
  * @NModuleScope SameAccount
- * @version 1.0.2
+ * @version 1.5.0
  */
 define([], function () {
 
     'use strict';
 
-    var VERSION = '1.0.2';
+    var VERSION = '1.5.0';
 
     /** The registry's columns, all required, in the documented order. Extra columns are ignored. */
     var COLUMNS = ['section', 'section_title', 'panel', 'qid', 'type', 'label', 'hint', 'options', 'field', 'required',
         'when', 'why'];
 
-    var TYPES = ['info', 'text', 'long', 'date', 'yesno', 'choice', 'files'];
+    /**
+     * 1.1.0 (release 2.3b): the registry v2 columns, after `why`. All four or none: a v1 file (12 columns) still parses
+     * and reads them as empty; a header with some but not all of them is neither shape and is invalid. step_intro and
+     * step_minutes are read from each section's FIRST row; image is accepted and not used yet; placeholder goes in the
+     * input box (the hint stays under the label).
+     */
+    var COLUMNS_V2 = ['step_intro', 'step_minutes', 'image', 'placeholder'];
 
-    /** Where an answer goes. */
-    var STORE = { NOTE: 'note', STATE: 'state', FIELD: 'field' };
+    /**
+     * 1.2.0 (release 2.3c): the registry v3 columns, after the v2 four. Both or neither: a v2 file reads them as empty. reveal
+     * (parseReveal()) shows a question on the customer's own earlier answers; short is the step bar's and the email's label,
+     * read from a section's first row like step_intro, falling back to section_title.
+     */
+    var COLUMNS_V3 = ['reveal', 'short'];
+
+    var TYPES = ['info', 'text', 'long', 'date', 'yesno', 'choice', 'files', 'element', 'epc'];
+
+    /**
+     * Where an answer goes. 1.2.0: ELEMENT — an element card, routed to the New / Existing fields by elementTargets();
+     * EPC — the EPC lookup, which writes custbody_epc_number and custbody_epc_date itself.
+     */
+    var STORE = { NOTE: 'note', STATE: 'state', FIELD: 'field', ELEMENT: 'element', EPC: 'epc' };
+
+    /** 1.2.0: the `options` prefixes for options from a settings row and from content/element-presets.csv. */
+    var FROM_SETTING = '@setting:';
+    var FROM_PRESET = '@preset:';
+
+    /** 1.2.0: the four building elements an element card can be, and the `field` forms. */
+    var ELEMENTS = ['walls', 'windows', 'roof', 'floor'];
+    var ELEMENT_FIELD = '@element:';
+    var EPC_FIELD = '@epc';
+
+    /** 1.2.0: the specials in every element card's list, after the presets (typical: renovation only). */
+    var ELEMENT_SPECIALS = [
+        { key: 'typical', label: 'Typical for the age of my property' },
+        { key: 'regs', label: 'Built to current Building Regulations' },
+        { key: 'unsure', label: 'Not sure' },
+        { key: 'describe', label: 'I\'ll describe it' }
+    ];
+
+    /** 1.2.0: an element card's sources (the hidden q_<qid>_src) and the line's U-value sources. */
+    var ELEMENT_SRC = ['epc', 'age', 'regs', 'you'];
+    var U_SOURCES = ['customer', 'EPC', 'typical', 'regs', 'preset'];
+    var U_MIN = 0.05;
+    var U_MAX = 6.0;
+    var ELEMENT_NOTES_MAX = 300;
+
+    /** 1.2.0: the routing — main house and new build fields by market, extensions always New (brief §B8). */
+    var ELEMENT_FIELDS = {
+        new: { walls: 'custbody_new_walls_2026', windows: 'custbody_new_windows_2026', roof: 'custbody_new_roofs_2026',
+            floor: 'custbody_new_floors_2026' },
+        existing: { walls: 'custbody_existing_walls_2026', windows: 'custbody_existing_windows_2026',
+            roof: 'custbody_existing_roofs_2026', floor: 'custbody_existing_floors_2026' }
+    };
+    var ELEMENT_NAMES = { walls: 'Walls', windows: 'Windows', roof: 'Roof', floor: 'Floor' };
+
+    /** 1.2.0: the heat keys DI_HEAT26_MAP may give, and the heat pump keys among them (each also adds nuheat_hp). */
+    var HEAT26_VALUES = ['ashp', 'gshp_loop', 'gshp_bore', 'user_hp', 'boiler'];
+    var HP_VALUES = ['ashp', 'gshp_loop', 'gshp_bore'];
 
     /** The `options` value that sources a choice's options from the field's own select list. */
     var FROM_FIELD = '@field';
@@ -59,13 +147,16 @@ define([], function () {
     var FC_FLOORS = ['solid', 'joisted', 'overfloor', 'acoustic'];
     var FC_SINGLES = ['none', 'hp', 'unknown'];
     var HEAT_VALUES = ['boiler', 'nuheat_hp', 'user_hp', 'other'];
+    /** 1.2.0: every value the heat fact SET can hold (the Sales MI's four and the heat pump types). */
+    var HEAT_SET_VALUES = HEAT_VALUES.concat(HP_VALUES);
     var SERVICE_VALUES = ['ufh', 'ufh_plus', 'hp'];
 
     /** The `when` keys and the values each takes. */
     var WHEN_VALUES = {
         service: SERVICE_VALUES.concat(['unknown']),
         fc: FC_FLOORS.concat(FC_SINGLES),
-        heat: HEAT_VALUES,
+        heat: HEAT_SET_VALUES,
+        hp: HP_VALUES.concat(['unknown']),
         newbuild: ['yes', 'no']
     };
 
@@ -106,6 +197,14 @@ define([], function () {
     var STATE_TRIM_AT = 3500;
     var STATE_TRIM_FILES = 5;
     var STATE_HARD_MAX = 3900;
+    /** 1.2.1: a text answer kept in the state (field `state`) is clipped to this. */
+    var STATE_TEXT_MAX = 200;
+    /** 1.3.0: the call request's "Best time and number to call". */
+    var CALL_WHEN_MAX = 100;
+
+    /** 1.5.0 (amendment 5): the failed uploads the state keeps for the thank-you page — at most 5, each name to 100. */
+    var FAILED_UPLOADS_MAX = 5;
+    var FAILED_UPLOAD_NAME = 100;
 
     /** The four project-card states (brief §6), plus the FC-none card, which shows "In design" as before. */
     var CARD = { NEEDS_INFO: 'needs_info', INFO_PARTIAL: 'info_partial', INFO_SENT: 'info_sent', DESIGNING: 'designing',
@@ -206,9 +305,10 @@ define([], function () {
 
     /**
      * Pure: `key=value[,value][;key=value…]` — AND across ;, OR within ,. Keys and values are WHEN_VALUES;
-     * anything else is a syntax error. '' is no condition.
+     * anything else is a syntax error. '' is no condition. 1.2.1: `key!=value[,value]` negates a clause — true when the
+     * facts hold NONE of the values.
      * @param {string} text
-     * @returns {{ok: boolean, clauses: Array<{key: string, values: string[]}>, error: string}}
+     * @returns {{ok: boolean, clauses: Array<{key: string, values: string[], not: boolean}>, error: string}}
      */
     function parseWhen(text) {
         var t = trim(text);
@@ -224,7 +324,7 @@ define([], function () {
         }
         parts = t.split(';');
         for (i = 0; i < parts.length; i++) {
-            m = /^\s*([a-z_]+)\s*=\s*([^=]+?)\s*$/i.exec(parts[i]);
+            m = /^\s*([a-z_]+)\s*(!?=)\s*([^=!]+?)\s*$/i.exec(parts[i]);
             if (!m) {
                 return { ok: false, clauses: [], error: 'when: "' + trim(parts[i]) + '" is not key=value' };
             }
@@ -232,20 +332,28 @@ define([], function () {
             if (!WHEN_VALUES.hasOwnProperty(key)) {
                 return { ok: false, clauses: [], error: 'when: unknown key "' + key + '"' };
             }
-            values = m[2].split(',').map(function (v) { return trim(v).toLowerCase(); });
+            values = m[3].split(',').map(function (v) { return trim(v).toLowerCase(); });
             for (j = 0; j < values.length; j++) {
                 if (!contains(WHEN_VALUES[key], values[j])) {
                     return { ok: false, clauses: [], error: 'when: "' + values[j] + '" is not a value of ' + key };
                 }
             }
-            clauses.push({ key: key, values: values });
+            clauses.push({ key: key, values: values, not: m[2] === '!=' });
         }
         return { ok: true, clauses: clauses, error: '' };
     }
 
+    /** Pure (1.2.0): a value as a list — an array as it is, a non-empty string as one item, else empty. */
+    function asList(v) {
+        if (Array.isArray(v)) {
+            return v;
+        }
+        return v === null || v === undefined || v === '' ? [] : [v];
+    }
+
     /**
      * Pure: does a `when` hold for these facts? An empty when is true. fc matches when ANY of the facts' tokens
-     * is listed. An unknown service matches as UFH Design + (and also matches an explicit `unknown`).
+     * is listed; 1.2.0: so do heat and hp (sets). An unknown service matches as UFH Design + (and also matches an explicit `unknown`).
      * @param {string|Object} when - the text, or parseWhen()'s result, or a question (its .when)
      * @param {Object} facts - buildFacts()
      * @returns {boolean} false for a when that does not parse
@@ -265,10 +373,16 @@ define([], function () {
                 ok = contains(c.values, f.service) || (f.service === 'unknown' && contains(c.values, UNKNOWN_SERVICE_AS));
             } else if (c.key === 'fc') {
                 ok = (f.fc || []).some(function (tok) { return contains(c.values, tok); });
-            } else if (c.key === 'heat') {
-                ok = contains(c.values, f.heat);
+            } else if (c.key === 'heat' || c.key === 'hp') {
+                // 1.2.0: the heat facts are SETS — true when the set holds any value listed. A plain string (a caller
+                // before 1.2.0) is a set of one.
+                ok = asList(f[c.key]).some(function (h) { return contains(c.values, h); });
             } else {
                 ok = contains(c.values, f.newbuild ? 'yes' : 'no');
+            }
+            // 1.2.1: a negated clause holds when the positive one does not.
+            if (c.not) {
+                ok = !ok;
             }
             if (!ok) {
                 return false;
@@ -285,25 +399,36 @@ define([], function () {
      * @param {string} text - the CSV
      * @param {string[]} allow - the field IDs a question may write (the values of config.FIELDS.OPPORTUNITY)
      * @param {string[]} [deny] - field IDs no question may write, even when allowed (config.DESIGNINFO_DENY)
+     * @param {Object} [opts] - 1.2.0: { settings: { KEY: raw text } — the settings rows @setting:KEY may name (any other
+     *   KEY rejects the row) }
      * @returns {{status: string, questions: Object[], rejected: Array<{line: number, qid: string, reason: string}>,
-     *            detail: string}}
+     *            detail: string, headerVersion: number}}
      *   status 'ok' (at least one question), 'empty' (no text, or no rows), 'invalid' (a column is missing or the
      *   CSV does not parse). Each question: { section, sectionTitle, panel, qid, type, label, hint, options
-     *   (labels, or null), optionsFromField, field ('' unless store is field), store (STORE), required, whenText,
-     *   when (parseWhen()), why, line }. File order.
+     *   (labels, or null), optionKeys (1.2.0: the keys `reveal` compares), optionIds / optionSubs / optionFiles
+     *   (@setting), optionsFromField, optionsFromSetting (the KEY, or ''), pictures, presetElement, element, ext, field
+     *   ('' unless store is field), store (STORE), required, whenText, when (parseWhen()), revealText, reveal
+     *   (parseReveal(), or null), why, line, stepIntro, stepMinutes, stepShort }. File order.
      */
-    function parseRegistry(text, allow, deny) {
-        var out = { status: 'empty', questions: [], rejected: [], detail: '' };
+    function parseRegistry(text, allow, deny, opts) {
+        var out = { status: 'empty', questions: [], rejected: [], detail: '', headerVersion: 0 };
+        var o = opts || {};
         var csv;
         var header;
         var col = {};
         var missing = [];
         var seen = {};
         var titles = {};
+        var steps = {};
+        var earlier = {};
+        var v2;
+        var v3;
         var i;
         var r;
         var q;
         var reason;
+        var minutes;
+        var rv;
 
         if (trim(text) === '') {
             out.detail = 'the registry is empty';
@@ -331,9 +456,19 @@ define([], function () {
             out.detail = 'missing column' + (missing.length > 1 ? 's' : '') + ': ' + missing.join(', ');
             return out;
         }
+        v2 = COLUMNS_V2.filter(function (c) { return col.hasOwnProperty(c); });
+        v3 = COLUMNS_V3.filter(function (c) { return col.hasOwnProperty(c); });
+        if ((v2.length && v2.length < COLUMNS_V2.length) || (v3.length && v3.length < COLUMNS_V3.length) ||
+                (v3.length && !v2.length)) {
+            out.status = 'invalid';
+            out.detail = 'neither the v1, the v2 nor the v3 header: missing ' + COLUMNS_V2.concat(v3.length ? COLUMNS_V3 : [])
+                .filter(function (c) { return !col.hasOwnProperty(c); }).join(', ');
+            return out;
+        }
+        out.headerVersion = v3.length ? 3 : v2.length ? 2 : 1;
 
         function cell(row, name) {
-            return trim(row[col[name]]);
+            return col.hasOwnProperty(name) ? trim(row[col[name]]) : '';
         }
 
         for (i = 1; i < csv.rows.length; i++) {
@@ -351,25 +486,63 @@ define([], function () {
                 label: cell(r, 'label'),
                 hint: cell(r, 'hint'),
                 options: null,
+                optionKeys: null,
+                optionIds: null,
+                optionSubs: null,
+                optionFiles: null,
                 optionsFromField: false,
+                optionsFromSetting: '',
+                pictures: false,
+                presetElement: '',
+                element: '',
+                ext: '',
                 field: '',
                 store: STORE.NOTE,
                 required: false,
                 whenText: cell(r, 'when'),
                 when: null,
-                why: cell(r, 'why')
+                revealText: cell(r, 'reveal'),
+                reveal: null,
+                why: cell(r, 'why'),
+                image: cell(r, 'image'),
+                placeholder: cell(r, 'placeholder'),
+                stepIntro: '',
+                stepMinutes: 0,
+                stepShort: ''
             };
-            reason = rowProblem(q, cell(r, 'field'), cell(r, 'options'), cell(r, 'required'), allow, deny, seen);
+            // 1.1.0: a section's intro and minutes come from its FIRST row in the file, used or not; 1.2.0: and its short.
+            if (!steps.hasOwnProperty(q.section)) {
+                minutes = cell(r, 'step_minutes');
+                steps[q.section] = { intro: cell(r, 'step_intro'), minutes: /^\d+$/.test(minutes) ? parseInt(minutes, 10) : 0,
+                    short: cell(r, 'short') };
+            }
+            reason = rowProblem(q, cell(r, 'field'), cell(r, 'options'), cell(r, 'required'), allow, deny, seen, o);
+            if (!reason && cell(r, 'step_minutes') !== '' && !/^\d+$/.test(cell(r, 'step_minutes'))) {
+                reason = 'step_minutes must be a whole number, not "' + cell(r, 'step_minutes') + '"';
+            }
+            if (!reason && q.revealText !== '') {
+                // 1.3.0: any earlier question of the file, in any section.
+                rv = parseReveal(q.revealText, earlier);
+                if (rv.ok) {
+                    q.reveal = rv;
+                } else {
+                    reason = rv.error;
+                }
+            }
             if (reason) {
                 out.rejected.push({ line: q.line, qid: q.qid, reason: reason });
                 continue;
             }
             seen[q.qid] = true;
+            earlier[q.qid] = q;
             // A section's title is its first row's.
             if (!titles.hasOwnProperty(q.section)) {
                 titles[q.section] = q.sectionTitle || q.section;
             }
             q.sectionTitle = titles[q.section];
+            q.stepIntro = steps[q.section].intro;
+            q.stepMinutes = steps[q.section].minutes;
+            q.stepShort = steps[q.section].short || q.sectionTitle;
             out.questions.push(q);
         }
         out.status = out.questions.length ? 'ok' : 'empty';
@@ -379,11 +552,80 @@ define([], function () {
         return out;
     }
 
+    /**
+     * Pure (1.2.0): a settings row of options — a JSON array of { id, key, label, sub (optional), file (optional: a
+     * picture's file ID) }. id and key are unique; key is lower-case letters, digits and _; label is not empty.
+     * @returns {{ok: boolean, options: Array<{id: string, key: string, label: string, sub: string, file: string}>,
+     *   error: string}}
+     */
+    function parseOptionsSetting(raw) {
+        var v;
+        var ids = {};
+        var keys = {};
+        var list = [];
+        var i;
+        var x;
+        if (trim(raw) === '') {
+            return { ok: false, options: [], error: 'the setting is empty' };
+        }
+        try {
+            v = JSON.parse(String(raw));
+        } catch (e) {
+            return { ok: false, options: [], error: 'the setting is not JSON' };
+        }
+        if (!Array.isArray(v) || !v.length) {
+            return { ok: false, options: [], error: 'the setting is not a JSON array of options' };
+        }
+        for (i = 0; i < v.length; i++) {
+            x = v[i];
+            if (!x || typeof x !== 'object' || trim(x.id) === '' || !/^[a-z0-9_]+$/.test(trim(x.key)) ||
+                    typeof x.label !== 'string' || trim(x.label) === '') {
+                return { ok: false, options: [], error: 'option ' + (i + 1) + ' needs an id, a key (a-z, 0-9, _) and a label' };
+            }
+            if (ids[trim(x.id)] || keys[trim(x.key)]) {
+                return { ok: false, options: [], error: 'option ' + (i + 1) + ' repeats an id or a key' };
+            }
+            if (x.file !== undefined && x.file !== null && x.file !== '' && !/^\d+$/.test(trim(x.file))) {
+                return { ok: false, options: [], error: 'option ' + (i + 1) + ': file must be a file ID' };
+            }
+            ids[trim(x.id)] = true;
+            keys[trim(x.key)] = true;
+            list.push({ id: trim(x.id), key: trim(x.key), label: trim(x.label), sub: typeof x.sub === 'string' ? trim(x.sub) : '',
+                file: x.file === undefined || x.file === null ? '' : trim(x.file) });
+        }
+        return { ok: true, options: list, error: '' };
+    }
+
+    /**
+     * Pure (1.2.0): literal options, `key=Label|key=Label` — an option without key= gets the key o<index> (0-based, as the
+     * index posted before 1.2.0). Keys unique.
+     * @returns {{labels: string[], keys: string[], error: string}}
+     */
+    function parseLiteralOptions(options) {
+        var labels = [];
+        var keys = [];
+        var error = '';
+        options.split('|').map(trim).filter(function (x) { return x !== ''; }).forEach(function (part, n) {
+            var m = /^([a-z0-9_]+)\s*=\s*(.+)$/.exec(part);
+            var key = m ? m[1] : 'o' + n;
+            var label = m ? trim(m[2]) : part;
+            if (contains(keys, key)) {
+                error = error || 'option key "' + key + '" is repeated';
+            }
+            keys.push(key);
+            labels.push(label);
+        });
+        return { labels: labels, keys: keys, error: error };
+    }
+
     /** One row's checks, filling q as it goes; '' when the row is usable, else why not. */
-    function rowProblem(q, field, options, required, allow, deny, seen) {
+    function rowProblem(q, field, options, required, allow, deny, seen, opts) {
         var id = /^[a-z0-9_]+$/;
         var parsed;
-        var labels;
+        var lit;
+        var key;
+        var setting;
+        var m;
         if (!id.test(q.qid)) {
             return 'qid "' + q.qid + '" must be lower-case letters, digits and _';
         }
@@ -403,11 +645,27 @@ define([], function () {
             return 'no label';
         }
         // The field.
-        if (field === '' || field.toLowerCase() === 'note') {
+        if (q.type === 'element') {
+            m = /^@element:([a-z]+)(?::(ext\d+))?$/.exec(field);
+            if (!m || !contains(ELEMENTS, m[1])) {
+                return 'an element question needs field @element:<walls|windows|roof|floor>[:extN]';
+            }
+            q.store = STORE.ELEMENT;
+            q.element = m[1];
+            q.ext = m[2] || '';
+        } else if (q.type === 'epc') {
+            if (field !== EPC_FIELD) {
+                return 'an epc question needs field @epc';
+            }
+            q.store = STORE.EPC;
+        } else if (field.indexOf('@') === 0) {
+            return 'field "' + field + '" is for an ' + (field === EPC_FIELD ? 'epc' : 'element') + ' question only';
+        } else if (field === '' || field.toLowerCase() === 'note') {
             q.store = STORE.NOTE;
         } else if (field.toLowerCase() === 'state') {
-            if (q.type !== 'yesno') {
-                return 'field "state" is for yesno questions only';
+            // 1.2.1: and a text question (a short answer the Task needs later, clipped at STATE_TEXT_MAX).
+            if (q.type !== 'yesno' && q.type !== 'choice' && q.type !== 'text' && q.type !== 'long') {
+                return 'field "state" is for yesno, choice, text and long questions only';
             }
             q.store = STORE.STATE;
         } else {
@@ -430,13 +688,38 @@ define([], function () {
                     return 'options "@field" needs a field';
                 }
                 q.optionsFromField = true;
-            } else {
-                labels = options.split('|').map(trim).filter(function (x) { return x !== ''; });
-                if (!labels.length) {
-                    return 'a choice needs options: labels separated by |, or @field';
+            } else if (options.indexOf(FROM_SETTING) === 0) {
+                key = options.slice(FROM_SETTING.length);
+                if (!(opts.settings || {}).hasOwnProperty(key)) {
+                    return 'options "' + options + '": ' + key + ' is not an options setting the dashboard reads';
                 }
-                q.options = labels;
+                setting = parseOptionsSetting(opts.settings[key]);
+                if (!setting.ok) {
+                    return 'options "' + options + '": ' + setting.error;
+                }
+                q.optionsFromSetting = key;
+                q.options = setting.options.map(function (x) { return x.label; });
+                q.optionKeys = setting.options.map(function (x) { return x.key; });
+                q.optionIds = setting.options.map(function (x) { return x.id; });
+                q.optionSubs = setting.options.map(function (x) { return x.sub; });
+                q.optionFiles = setting.options.map(function (x) { return x.file; });
+                q.pictures = q.optionFiles.some(function (f) { return f !== ''; });
+            } else {
+                lit = parseLiteralOptions(options);
+                if (!lit.labels.length) {
+                    return 'a choice needs options: labels separated by |, @field or @setting:KEY';
+                }
+                if (lit.error) {
+                    return lit.error;
+                }
+                q.options = lit.labels;
+                q.optionKeys = lit.keys;
             }
+        } else if (q.type === 'element') {
+            if (options !== FROM_PRESET + q.element) {
+                return 'an element question needs options ' + FROM_PRESET + q.element;
+            }
+            q.presetElement = q.element;
         }
         // Required.
         if (required === '' || /^n$/i.test(required)) {
@@ -454,17 +737,176 @@ define([], function () {
         return '';
     }
 
+    // ---------------------------------------------------------------- 1.2.0: reveal
+
+    /** Pure (1.2.0): the answer keys a question can have — yes/no, or a choice's option keys; null when it has none. */
+    function answerKeys(q) {
+        if (q.type === 'yesno') {
+            return ['yes', 'no'];
+        }
+        if (q.type === 'choice' && q.optionKeys) {
+            return q.optionKeys;
+        }
+        return null;
+    }
+
+    /**
+     * Pure (1.2.0): the `reveal` column. Alternatives separated by |; each is clauses joined by ;; a clause is
+     * qid=key1,key2. The question shows when ANY alternative has ALL its clauses true. Checked here: each qid is an
+     * EARLIER question (1.3.0: of any section; earlier: qid -> question), with answer keys, and each key is one of them.
+     * @returns {{ok: boolean, alternatives: Array<Array<{qid: string, keys: string[]}>>, error: string}}
+     */
+    function parseReveal(text, earlier) {
+        var t = trim(text);
+        var alternatives = [];
+        var error = '';
+        if (t === '') {
+            return { ok: true, alternatives: [], error: '' };
+        }
+        t.split('|').forEach(function (alt) {
+            var clauses = [];
+            if (error) {
+                return;
+            }
+            trim(alt).split(';').forEach(function (part) {
+                var m = /^\s*([a-z0-9_]+)\s*=\s*([^=]+?)\s*$/.exec(part);
+                var q;
+                var keys;
+                var allowed;
+                if (error) {
+                    return;
+                }
+                if (!m) {
+                    error = 'reveal: "' + trim(part) + '" is not qid=key';
+                    return;
+                }
+                q = (earlier || {})[m[1]];
+                if (!q) {
+                    error = 'reveal: "' + m[1] + '" is not an earlier question';
+                    return;
+                }
+                allowed = answerKeys(q);
+                if (!allowed) {
+                    error = 'reveal: "' + m[1] + '" is a ' + q.type + ' question (a reveal needs a yesno or a choice with keys)';
+                    return;
+                }
+                keys = m[2].split(',').map(trim);
+                keys.forEach(function (k) {
+                    if (!error && !contains(allowed, k)) {
+                        error = 'reveal: "' + k + '" is not a key of ' + m[1] + ' (' + allowed.join(', ') + ')';
+                    }
+                });
+                clauses.push({ qid: m[1], keys: keys });
+            });
+            alternatives.push(clauses);
+        });
+        return error ? { ok: false, alternatives: [], error: error } : { ok: true, alternatives: alternatives, error: '' };
+    }
+
+    /**
+     * Pure (1.2.0): a question's answer as its key — yesno: yes/no; a literal choice: the key of the label stored or
+     * posted (a stored label may carry a " · …" suffix, as the insulation route's EPC note does); @setting: the key of the
+     * id. '' when there is none or it is not an option.
+     * @param {Object} q
+     * @param {string} value - the stored label (literal), the id (@setting), yes/no
+     */
+    function keyOfValue(q, value) {
+        var v = trim(value);
+        var i;
+        if (v === '') {
+            return '';
+        }
+        if (q.type === 'yesno') {
+            return v === 'yes' || v === 'no' ? v : '';
+        }
+        if (q.type !== 'choice' || !q.optionKeys) {
+            return '';
+        }
+        if (q.optionsFromSetting) {
+            i = (q.optionIds || []).indexOf(v);
+            return i >= 0 ? q.optionKeys[i] : '';
+        }
+        for (i = 0; i < (q.options || []).length; i++) {
+            if (v === q.options[i] || v.indexOf(q.options[i] + ' · ') === 0) {
+                return q.optionKeys[i];
+            }
+        }
+        // 1.3.0: a value stored as a KEY (a question that was a yes/no: plans_changed's old 'yes' / 'no').
+        return contains(q.optionKeys, v) && !/^o\d+$/.test(v) ? v : '';
+    }
+
+    /**
+     * Pure (1.2.0): which of the shown questions are revealed. A question without a reveal is revealed. A clause on a
+     * question ABSENT for this opportunity (not in `questions`: its `when` is false) is TRUE; on a question present but
+     * itself hidden by its reveal, FALSE — so hiding cascades. Questions are evaluated in order (a reveal names earlier
+     * questions only).
+     * @param {Object[]} questions - the shown questions (visibleQuestions()), in registry order
+     * @param {function(Object): string} keyOf - a question's current answer key ('' for none)
+     * @returns {Object} qid -> boolean
+     */
+    function revealMap(questions, keyOf) {
+        var present = {};
+        var out = {};
+        (questions || []).forEach(function (q) { present[q.qid] = q; });
+        (questions || []).forEach(function (q) {
+            var alts = q.reveal && q.reveal.alternatives && q.reveal.alternatives.length ? q.reveal.alternatives : null;
+            if (!alts) {
+                out[q.qid] = true;
+                return;
+            }
+            out[q.qid] = alts.some(function (clauses) {
+                return clauses.every(function (c) {
+                    if (!present.hasOwnProperty(c.qid)) {
+                        return true;
+                    }
+                    if (out[c.qid] === false) {
+                        return false;
+                    }
+                    return contains(c.keys, keyOf(present[c.qid]));
+                });
+            });
+        });
+        return out;
+    }
+
+    /**
+     * Pure (1.2.0): the "If you chose …" heading a reveal panel shows when script is off — worded from the option labels.
+     * '' for no reveal.
+     */
+    function revealHeading(q, byQid) {
+        var alts = q.reveal && q.reveal.alternatives ? q.reveal.alternatives : [];
+        var parts = alts.map(function (clauses) {
+            return clauses.map(function (c) {
+                var src = (byQid || {})[c.qid];
+                return c.keys.map(function (k) {
+                    var i;
+                    if (!src) {
+                        return k;
+                    }
+                    if (src.type === 'yesno') {
+                        return '“' + (k === 'yes' ? 'Yes' : 'No') + '”';
+                    }
+                    i = (src.optionKeys || []).indexOf(k);
+                    return '“' + (i >= 0 ? src.options[i] : k) + '”';
+                }).join(' or ') + (src ? ' to “' + src.label + '”' : '');
+            }).join(' and ');
+        });
+        return parts.length ? 'If you chose ' + parts.join('; or if you chose ') : '';
+    }
+
     /**
      * Pure: the registry's sections, in file order, each with its questions.
      * @param {Object[]} questions
-     * @returns {Array<{id: string, title: string, questions: Object[]}>}
+     * @returns {Array<{id: string, title: string, short: string, intro: string, minutes: number, questions: Object[]}>} 1.1.0:
+     *   intro and minutes are the section's step_intro and step_minutes; 1.2.0: short its short (else its title)
      */
     function sectionsOf(questions) {
         var list = [];
         var byId = {};
         (questions || []).forEach(function (q) {
             if (!byId[q.section]) {
-                byId[q.section] = { id: q.section, title: q.sectionTitle, questions: [] };
+                byId[q.section] = { id: q.section, title: q.sectionTitle, short: q.stepShort || q.sectionTitle,
+                    intro: q.stepIntro || '', minutes: q.stepMinutes || 0, questions: [] };
                 list.push(byId[q.section]);
             }
             byId[q.section].questions.push(q);
@@ -608,34 +1050,85 @@ define([], function () {
     }
 
     /**
-     * Pure (brief §3.2): the facts the registry's `when` reads.
+     * Pure (1.2.0): DI_HEAT26_MAP {"<custbody_heat_source_type_26 list id>": "ashp|gshp_loop|gshp_bore|user_hp|boiler"}.
+     * Bad entries are ignored and listed.
+     */
+    function parseHeat26Map(raw) {
+        return parseValueMap(raw, HEAT26_VALUES);
+    }
+
+    /**
+     * Pure (1.2.0): a multi-select's value as IDs — an array (record.getValue), or a string joined by commas or by
+     * NetSuite's \u0005 (a search column, a posted multi-select). Blanks dropped.
+     * @returns {string[]}
+     */
+    function idsOf(value) {
+        var list = Array.isArray(value) ? value : String(value === null || value === undefined ? '' : value).split(/[,\u0005]/);
+        return list.map(function (x) { return trim(x); }).filter(function (x) { return x !== ''; });
+    }
+
+    /**
+     * Pure (brief §3.2; 1.2.0 §B2): the facts the registry's `when` reads.
      *
-     * @param {Object} opp - plain values read from the record, IDs as strings: { valueProposition, fc, heatSource,
-     *   market, subStatus, manifolds (custbody_manifold_locations_2026's current text, '' when none) }
-     * @param {Object} cfg - FC_MAP, HEAT_MAP, VP_MAP, NEWBUILD_MARKET_IDS, NEEDINFO_SUBSTATUS, DESIGN_SUBSTATUS
-     * @returns {{service: string, fc: string[], heat: string, newbuild: boolean, manifoldsText: string,
-     *            substatusMode: string, warnings: string[], mapProblems: string[]}}
-     *   service ufh | ufh_plus | hp | unknown; fc tokens (['unknown'] when unmapped); heat boiler | nuheat_hp |
-     *   user_hp | other; substatusMode 'edit' (NEEDINFO), 'view' (DESIGN) or ''.
+     * @param {Object} opp - plain values read from the record, IDs as strings: { valueProposition, fc, heatSource (the
+     *   Sales MI), heatSource26 (custbody_heat_source_type_26: an array, or a comma string), market, subStatus,
+     *   manifolds (custbody_manifold_locations_2026's current text, '' when none) }
+     * @param {Object} cfg - FC_MAP, HEAT_MAP, VP_MAP, DI_HEAT26_MAP, NEWBUILD_MARKET_IDS, NEEDINFO_SUBSTATUS, DESIGN_SUBSTATUS
+     * @returns {{service: string, fc: string[], heat: string[], hp: string[], heatFrom: string, unmapped26: string[],
+     *            newbuild: boolean, manifoldsText: string, substatusMode: string, warnings: string[], mapProblems: string[]}}
+     *   service ufh | ufh_plus | hp | unknown; fc tokens (['unknown'] when unmapped); 1.2.0: heat a SET — from
+     *   custbody_heat_source_type_26 through DI_HEAT26_MAP (ashp, gshp_loop, gshp_bore, user_hp, boiler; any heat pump
+     *   also adds nuheat_hp), else (heatFrom 'mi') the Sales MI's one value through HEAT_MAP (boiler | nuheat_hp | user_hp |
+     *   other); hp the heat pump types in heat, or ['unknown'] for a Nu-Heat heat pump of no known type; substatusMode
+     *   'edit' (NEEDINFO), 'view' (DESIGN) or ''.
      */
     function buildFacts(opp, cfg) {
         var o = opp || {};
         var c = cfg || {};
         var maps = parseMaps(c);
+        var h26 = parseHeat26Map(c.DI_HEAT26_MAP);
         var vp = trim(o.valueProposition);
         var fcId = trim(o.fc);
         var heatId = trim(o.heatSource);
-        var facts = {
+        var heat = [];
+        var unmapped26 = [];
+        var facts;
+        idsOf(o.heatSource26).forEach(function (id) {
+            if (h26.map.hasOwnProperty(id)) {
+                if (!contains(heat, h26.map[id])) {
+                    heat.push(h26.map[id]);
+                }
+            } else {
+                unmapped26.push(id);
+            }
+        });
+        if (heat.some(function (h) { return contains(HP_VALUES, h); })) {
+            heat.push('nuheat_hp');
+        }
+        facts = {
             service: vp !== '' && maps.vp.hasOwnProperty(vp) ? maps.vp[vp] : 'unknown',
             fc: fcTokens(maps, fcId),
-            heat: heatId !== '' && maps.heat.hasOwnProperty(heatId) ? maps.heat[heatId] : 'other',
+            heat: [],
+            hp: [],
+            heatFrom: heat.length ? '26' : 'mi',
+            unmapped26: unmapped26,
             newbuild: trim(o.market) !== '' && contains(c.NEWBUILD_MARKET_IDS, trim(o.market)),
             manifoldsText: trim(o.manifolds),
             substatusMode: contains(c.NEEDINFO_SUBSTATUS, o.subStatus) ? 'edit' :
                 contains(c.DESIGN_SUBSTATUS, o.subStatus) ? 'view' : '',
             warnings: [],
-            mapProblems: maps.problems
+            mapProblems: maps.problems.concat(h26.status === 'invalid' ? ['DI_HEAT26_MAP ignored: ' + h26.detail] :
+                h26.rejected.length ? ['DI_HEAT26_MAP entries ignored: ' + h26.rejected.join('; ')] : [])
         };
+        // The Sales MI fallback: custbody_heat_source_type_26 empty, or nothing in it mapped.
+        if (!heat.length) {
+            heat = [heatId !== '' && maps.heat.hasOwnProperty(heatId) ? maps.heat[heatId] : 'other'];
+        }
+        facts.heat = HEAT_SET_VALUES.filter(function (h) { return contains(heat, h); });
+        facts.hp = HP_VALUES.filter(function (h) { return contains(heat, h); });
+        if (!facts.hp.length && contains(heat, 'nuheat_hp')) {
+            facts.hp = ['unknown'];
+        }
         if (facts.service === 'unknown') {
             facts.warnings.push('Design service unknown: value proposition ' + (vp || '(blank)') + ' is not in VP_MAP, ' +
                 'so the customer was shown the UFH Design + questions.');
@@ -643,14 +1136,17 @@ define([], function () {
         if (facts.fc.length === 1 && facts.fc[0] === 'unknown') {
             facts.warnings.push('Floor construction unknown: FC ' + (fcId || '(blank)') + ' is not in FC_MAP.');
         }
-        if (heatId === '' || !maps.heat.hasOwnProperty(heatId)) {
+        if (facts.heatFrom === 'mi' && (heatId === '' || !maps.heat.hasOwnProperty(heatId))) {
             facts.warnings.push('Heat source ' + (heatId ? heatId + ' is not in HEAT_MAP' : 'not set') +
                 ', so it was treated as "other".');
         }
-        if (facts.service === 'hp' && facts.heat !== 'nuheat_hp') {
+        if (facts.service === 'hp' && !contains(facts.heat, 'nuheat_hp')) {
             facts.warnings.push('The design service is HP Design, but the heat source is not a Nu-Heat heat pump.');
-        } else if (facts.heat === 'nuheat_hp' && facts.service !== 'hp' && facts.service !== 'unknown') {
+        } else if (contains(facts.heat, 'nuheat_hp') && facts.service !== 'hp' && facts.service !== 'unknown') {
             facts.warnings.push('The heat source is a Nu-Heat heat pump, but the design service is not HP Design.');
+        }
+        if (facts.service === 'hp' && !facts.hp.length) {
+            facts.warnings.push('HP Design but no heat pump in Heat Source Type.');
         }
         return facts;
     }
@@ -665,10 +1161,78 @@ define([], function () {
         });
     }
 
+    /**
+     * 1.2.0: the questions whose answer must be a number above 0 (decimals allowed). The registry has no column for it, so
+     * the rule is here, by qid: the MCS distance to the neighbour's window.
+     */
+    var NUMBER_QIDS = ['distance'];
+
+    /** Pure (1.2.0): is this the number question? */
+    function isNumberQuestion(q) {
+        return !!q && q.type === 'text' && contains(NUMBER_QIDS, q.qid);
+    }
+
+    /** 1.2.0: the steps every request asks about, never offered as tick boxes. */
+    var ALWAYS_STEPS = ['project', 'other'];
+
+    /**
+     * Pure (1.2.0 §B3): THE list of steps — for the stepper and its step bar, Review, the request page's "will be asked
+     * about", the request email's "What we'll ask" and the cards' progress. A step is a section with at least one question
+     * whose `when` holds (reveal never removes a step), kept only when `requested` names it; project and other are always
+     * kept; an empty or missing `requested` keeps every step (2.3 and 2.3b requests).
+     * @param {Object[]} questions - the registry's
+     * @param {Object} facts - buildFacts()
+     * @param {string[]} [requested] - the state's rq
+     * @returns {Array<{id: string, title: string, short: string, intro: string, minutes: number, questions: Object[]}>}
+     */
+    function stepsFor(questions, facts, requested) {
+        var req = Array.isArray(requested) ? requested : [];
+        return sectionsOf(visibleQuestions(questions, facts)).filter(function (sec) {
+            return !req.length || contains(ALWAYS_STEPS, sec.id) || contains(req, sec.id);
+        });
+    }
+
+    /** Pure (1.2.0): the questions of stepsFor(), flat, in registry order. */
+    function stepQuestions(steps) {
+        var out = [];
+        (steps || []).forEach(function (st) { out = out.concat(st.questions); });
+        return out;
+    }
+
+    /** Pure (1.2.0): the minutes of stepsFor()'s steps, summed (the card's "about N minutes"; 0: no time is shown). */
+    function stepsMinutes(steps) {
+        return (steps || []).reduce(function (n, st) { return n + (parseInt(st.minutes, 10) || 0); }, 0);
+    }
+
     // ---------------------------------------------------------------- the state
 
     function emptyState() {
-        return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '' };
+        return { v: STATE_VERSION, sections: {}, answers: {}, noted: {}, files: [], requested: '', sent: '', lastTaskAt: '',
+            rq: [], call: '', callWhen: '', marks: {}, epcUnmatched: [], changedSince: [], newPlans: false, failedUploads: [] };
+    }
+
+    /**
+     * Pure (1.1.0): the qids a stored state holds answers or noted marks for that the registry no longer has (the v2
+     * registry removed fc_unknown, the old mcs_* rows, ...). They are ignored, never deleted; the caller logs them once
+     * (CDB DESIGNINFO_STATE_QID_UNKNOWN).
+     * @returns {string[]}
+     */
+    function unknownStateQids(state, questions) {
+        var known = {};
+        var out = [];
+        var k;
+        (questions || []).forEach(function (q) { known[q.qid] = true; });
+        for (k in ((state && state.answers) || {})) {
+            if (state.answers.hasOwnProperty(k) && !known[k]) {
+                out.push(k);
+            }
+        }
+        for (k in ((state && state.noted) || {})) {
+            if (state.noted.hasOwnProperty(k) && !known[k] && out.indexOf(k) < 0) {
+                out.push(k);
+            }
+        }
+        return out;
     }
 
     /** The section status codes as stored (v2) and as used. */
@@ -754,6 +1318,29 @@ define([], function () {
         s.requested = str(v.req);
         s.sent = str(v.sent);
         s.lastTaskAt = str(v.task);
+        // 1.3.0: the customer's call request on Review (c: { y: 1, t: 'best time and number' }).
+        if (v.c && typeof v.c === 'object') {
+            s.call = v.c.y === 1 ? 'yes' : '';
+            s.callWhen = str(v.c.t).slice(0, CALL_WHEN_MAX);
+        }
+        // 1.4.0: the form's last write to each free-text field (w: { qid: [hash, length, 1 when plain] }) and the house
+        // elements the EPC left unmatched (eu).
+        for (k in plainObject(v.w)) {
+            if (v.w.hasOwnProperty(k) && Array.isArray(v.w[k]) && typeof v.w[k][0] === 'string' && typeof v.w[k][1] === 'number') {
+                s.marks[k] = { h: v.w[k][0], n: v.w[k][1], p: v.w[k][2] === 1 ? 1 : 0 };
+            }
+        }
+        s.epcUnmatched = (Array.isArray(v.eu) ? v.eu : []).filter(function (x) { return contains(ELEMENTS, x); });
+        // 1.4.0: the steps changed since the last Send (cs) and new plans uploaded since it (np), for the Task.
+        s.changedSince = (Array.isArray(v.cs) ? v.cs : []).filter(function (x) {
+            return typeof x === 'string' && /^[a-z0-9_]+$/.test(x);
+        });
+        s.newPlans = v.np === 1;
+        // 1.5.0: the files that failed to upload in the last Send's post (uf), for the thank-you page.
+        s.failedUploads = (Array.isArray(v.uf) ? v.uf : []).filter(function (x) { return typeof x === 'string' && x; })
+            .slice(0, FAILED_UPLOADS_MAX).map(function (x) { return x.slice(0, FAILED_UPLOAD_NAME); });
+        // 1.2.0: the steps the last request asked about (optional; none: every step).
+        s.rq = (Array.isArray(v.rq) ? v.rq : []).filter(function (x) { return typeof x === 'string' && /^[a-z0-9_]+$/.test(x); });
         return { state: s, status: 'ok', detail: '' };
     }
 
@@ -763,7 +1350,8 @@ define([], function () {
 
     /**
      * Pure (1.0.2): the state as stored — version 2, compact: s (sections: at, st), a (answers), n (qids answered in a
-     * Note; left out when none), f (the newest STATE_FILES files, names clipped to STATE_FILE_NAME), req, sent, task.
+     * Note; left out when none), f (the newest STATE_FILES files, names clipped to STATE_FILE_NAME), req, sent, task;
+     * 1.2.0: rq (the steps requested; left out when none — the size guard keeps it).
      * Times to the minute. opts.files caps the files (the size guard's trim).
      */
     function stateText(state, opts) {
@@ -797,6 +1385,31 @@ define([], function () {
         out.req = shortIso(st.requested);
         out.sent = shortIso(st.sent);
         out.task = shortIso(st.lastTaskAt);
+        if (st.call === 'yes') {
+            out.c = { y: 1, t: String(st.callWhen || '').slice(0, CALL_WHEN_MAX) };
+        }
+        if ((st.rq || []).length) {
+            out.rq = st.rq.slice();
+        }
+        // 1.4.0: w and eu, left out when empty.
+        for (k in (st.marks || {})) {
+            if (st.marks.hasOwnProperty(k) && st.marks[k]) {
+                out.w = out.w || {};
+                out.w[k] = [st.marks[k].h, st.marks[k].n].concat(st.marks[k].p === 1 ? [1] : []);
+            }
+        }
+        if ((st.epcUnmatched || []).length) {
+            out.eu = st.epcUnmatched.slice();
+        }
+        if ((st.changedSince || []).length) {
+            out.cs = st.changedSince.slice();
+        }
+        if (st.newPlans) {
+            out.np = 1;
+        }
+        if ((st.failedUploads || []).length) {
+            out.uf = st.failedUploads.slice(0, FAILED_UPLOADS_MAX).map(function (x) { return String(x).slice(0, FAILED_UPLOAD_NAME); });
+        }
         return JSON.stringify(out);
     }
 
@@ -824,11 +1437,12 @@ define([], function () {
         return { text: text, trimmed: true };
     }
 
-    /** Pure: a section has been saved at least once. */
-    function anySectionSaved(state) {
+    /** Pure: a section has been saved at least once. 1.2.0: only the steps listed, when `ids` is given (stepsFor()). */
+    function anySectionSaved(state, ids) {
         var k;
         for (k in (state && state.sections) || {}) {
-            if (state.sections.hasOwnProperty(k) && state.sections[k] && state.sections[k].saved) {
+            if (state.sections.hasOwnProperty(k) && state.sections[k] && state.sections[k].saved &&
+                    (!ids || contains(ids, k))) {
                 return true;
             }
         }
@@ -863,7 +1477,8 @@ define([], function () {
      * @returns {string} 'done' | 'todo' | 'optional'
      */
     function sectionStatus(questions, values, state) {
-        var required = (questions || []).filter(function (q) { return q.required && !q.unavailable; });
+        // 1.2.0: a question hidden by its reveal (q.revealed false) does not count.
+        var required = (questions || []).filter(function (q) { return q.required && !q.unavailable && q.revealed !== false; });
         if (!required.length) {
             return 'optional';
         }
@@ -894,9 +1509,12 @@ define([], function () {
         var s = state || emptyState();
         var sections = sectionsOf(questions).map(function (sec) {
             var saved = (s.sections || {})[sec.id];
+            // 1.2.0: never saved — 'todo' when a required question shows whatever the answers (no reveal).
             var status = saved && saved.status ? saved.status :
-                sec.questions.some(function (q) { return q.required; }) ? 'todo' : 'optional';
-            return { id: sec.id, title: sec.title, status: status, saved: !!(saved && saved.saved) };
+                sec.questions.some(function (q) { return q.required && !(q.reveal && q.reveal.alternatives &&
+                    q.reveal.alternatives.length); }) ? 'todo' : 'optional';
+            return { id: sec.id, title: sec.title, short: sec.short, minutes: sec.minutes, status: status,
+                saved: !!(saved && saved.saved) };
         });
         var counted = sections.filter(function (x) { return x.status !== 'optional'; });
         var done = sections.filter(function (x) { return x.status === 'done' || (x.status === 'optional' && x.saved); })
@@ -922,7 +1540,688 @@ define([], function () {
         if (o.state && o.state.sent) {
             return CARD.INFO_SENT;
         }
-        return anySectionSaved(o.state) ? CARD.INFO_PARTIAL : CARD.NEEDS_INFO;
+        // 1.2.0: only a requested step's save counts (o.stepIds, from stepsFor(); none: any).
+        return anySectionSaved(o.state, o.stepIds) ? CARD.INFO_PARTIAL : CARD.NEEDS_INFO;
+    }
+
+    // ---------------------------------------------------------------- 1.2.0: the element cards (brief §B8)
+
+    /** Pure (1.2.1): a U-value as shown — "0.00" for 0 (another home above or below), else uText(). */
+    function uShow(u) {
+        var t = uText(u);
+        return t === '0' ? '0.00' : t;
+    }
+
+    /** Pure: a U-value as text ("0.55", "1.7"), '' when it is not a number in range. */
+    function uText(u) {
+        var n = typeof u === 'number' ? u : parseFloat(trim(u));
+        if (isNaN(n) || !/^\s*\d*\.?\d+\s*$/.test(String(u)) && typeof u !== 'number') {
+            return '';
+        }
+        return String(Math.round(n * 1000) / 1000);
+    }
+
+    /** Pure: is this an exact U-value the card takes (0.05–6.0 W/m²K)? */
+    function uInRange(text) {
+        var n = parseFloat(trim(text));
+        return /^\d*\.?\d+$/.test(trim(text)) && n >= U_MIN && n <= U_MAX;
+    }
+
+    /** Pure: one of the content CSVs as objects keyed by its header; null header cells ignored. */
+    function csvObjects(text) {
+        var csv = parseCsv(text);
+        var header;
+        if (csv.error) {
+            return { error: 'the CSV does not parse: ' + csv.error, header: [], rows: [] };
+        }
+        header = (csv.rows[0] || []).map(function (h) { return trim(h).toLowerCase(); });
+        return { error: '', header: header, rows: csv.rows.slice(1).map(function (r, i) {
+            var o = { line: i + 2 };
+            header.forEach(function (h, n) { o[h] = trim(r[n]); });
+            o.blank = r.every(function (c) { return trim(c) === ''; });
+            return o;
+        }).filter(function (o) { return !o.blank; }) };
+    }
+
+    function missingColumns(header, wanted) {
+        return wanted.filter(function (c) { return !contains(header, c); });
+    }
+
+    /**
+     * Pure: content/element-presets.csv — element,key,label,u. A bad row is rejected and listed; the rest are used, in
+     * file order per element.
+     * @returns {{status: string, byElement: Object, rejected: Array<{line, reason}>, detail: string}} byElement: element ->
+     *   [{ key, label, u (text) }]
+     */
+    function parsePresets(text) {
+        var out = { status: 'empty', byElement: {}, rejected: [], detail: '' };
+        var c = csvObjects(text);
+        var miss;
+        ELEMENTS.forEach(function (e) { out.byElement[e] = []; });
+        if (c.error || trim(text) === '') {
+            out.status = c.error ? 'invalid' : 'empty';
+            out.detail = c.error || 'the presets file is empty';
+            return out;
+        }
+        miss = missingColumns(c.header, ['element', 'key', 'label', 'u']);
+        if (miss.length) {
+            out.status = 'invalid';
+            out.detail = 'missing column(s): ' + miss.join(', ');
+            return out;
+        }
+        c.rows.forEach(function (r) {
+            var list = out.byElement[r.element];
+            var reason = !list ? 'unknown element "' + r.element + '"' :
+                !/^[a-z0-9_]+$/.test(r.key) ? 'key "' + r.key + '" must be lower-case letters, digits and _' :
+                    contains(ELEMENT_SPECIALS.map(function (x) { return x.key; }), r.key) ? 'key "' + r.key + '" is a special' :
+                        list.some(function (x) { return x.key === r.key; }) ? 'duplicate key "' + r.key + '"' :
+                            r.label === '' ? 'no label' : !(uInRange(r.u) || /^0*\.?0+$/.test(r.u)) ?
+                                'u "' + r.u + '" is not a U-value (0, or 0.05–6.0)' : '';
+            if (reason) {
+                out.rejected.push({ line: r.line, reason: reason });
+                return;
+            }
+            list.push({ key: r.key, label: r.label, u: uText(r.u) });
+        });
+        out.status = ELEMENTS.some(function (e) { return out.byElement[e].length; }) ? 'ok' : 'empty';
+        return out;
+    }
+
+    /** Pure: a preset of an element by key, or null. */
+    function presetOf(presets, element, key) {
+        return ((presets && presets.byElement && presets.byElement[element]) || []).filter(function (p) {
+            return p.key === key;
+        })[0] || null;
+    }
+
+    /**
+     * Pure: content/age-bands.csv — key,label,walls,windows,roof,floor. Each element value is a preset key of that
+     * element or a U-value. The rows regs_new and regs_ext are the Building Regulations rows.
+     * @returns {{status, bands: Object, rejected, detail}} bands: key -> { key, label, walls: { preset ('' for a number), u,
+     *   label }, ... }
+     */
+    function parseAgeBands(text, presets) {
+        var out = { status: 'empty', bands: {}, rejected: [], detail: '' };
+        var c = csvObjects(text);
+        var miss;
+        if (c.error || trim(text) === '') {
+            out.status = c.error ? 'invalid' : 'empty';
+            out.detail = c.error || 'the age bands file is empty';
+            return out;
+        }
+        miss = missingColumns(c.header, ['key', 'label'].concat(ELEMENTS));
+        if (miss.length) {
+            out.status = 'invalid';
+            out.detail = 'missing column(s): ' + miss.join(', ');
+            return out;
+        }
+        c.rows.forEach(function (r) {
+            var band = { key: r.key, label: r.label };
+            var reason = !/^[a-z0-9_]+$/.test(r.key) ? 'key "' + r.key + '" must be lower-case letters, digits and _' :
+                out.bands.hasOwnProperty(r.key) ? 'duplicate key "' + r.key + '"' : r.label === '' ? 'no label' : '';
+            ELEMENTS.forEach(function (e) {
+                var p;
+                if (reason) {
+                    return;
+                }
+                if (uInRange(r[e])) {
+                    band[e] = { preset: '', u: uText(r[e]), label: '' };
+                    return;
+                }
+                p = presetOf(presets, e, r[e]);
+                if (!p) {
+                    reason = e + ' "' + r[e] + '" is neither a ' + e + ' preset nor a U-value';
+                    return;
+                }
+                band[e] = { preset: p.key, u: p.u, label: p.label };
+            });
+            if (reason) {
+                out.rejected.push({ line: r.line, reason: reason });
+                return;
+            }
+            out.bands[r.key] = band;
+        });
+        out.status = Object.keys(out.bands).length ? 'ok' : 'empty';
+        return out;
+    }
+
+    /**
+     * Pure: content/epc-element-map.csv — element,pattern,preset,priority. Patterns are case-insensitive substrings; the
+     * lowest priority wins. A preset that is not one of the element's is rejected.
+     * @returns {{status, rows: Array<{element, pattern, preset, priority}>, rejected, detail}}
+     */
+    function parseEpcMap(text, presets) {
+        var out = { status: 'empty', rows: [], rejected: [], detail: '' };
+        var c = csvObjects(text);
+        var miss;
+        if (c.error || trim(text) === '') {
+            out.status = c.error ? 'invalid' : 'empty';
+            out.detail = c.error || 'the EPC map is empty';
+            return out;
+        }
+        miss = missingColumns(c.header, ['element', 'pattern', 'preset', 'priority']);
+        if (miss.length) {
+            out.status = 'invalid';
+            out.detail = 'missing column(s): ' + miss.join(', ');
+            return out;
+        }
+        c.rows.forEach(function (r) {
+            var reason = !contains(ELEMENTS, r.element) ? 'unknown element "' + r.element + '"' :
+                r.pattern === '' ? 'no pattern' : !/^\d+$/.test(r.priority) ? 'priority must be a whole number' :
+                    !presetOf(presets, r.element, r.preset) ? 'preset "' + r.preset + '" is not a ' + r.element + ' preset' : '';
+            if (reason) {
+                out.rejected.push({ line: r.line, reason: reason });
+                return;
+            }
+            out.rows.push({ element: r.element, pattern: r.pattern.toLowerCase(), preset: r.preset,
+                priority: parseInt(r.priority, 10) });
+        });
+        out.status = out.rows.length ? 'ok' : 'empty';
+        return out;
+    }
+
+    /** Pure: "average thermal transmittance 0.28 W/m²K" -> '0.28'; '' when the text has none in range. */
+    function uFromEpcText(text) {
+        var m = /average thermal transmittance\s*(?:=\s*)?(\d*\.?\d+)/i.exec(String(text || ''));
+        return m && uInRange(m[1]) ? uText(m[1]) : '';
+    }
+
+    /**
+     * Pure (1.4.0, amendment 4): EPC text compared ignoring case, punctuation and repeated spaces — lower-case words
+     * separated by one space, padded, so a pattern matches whole words ("50 mm loft" never inside "150 mm loft").
+     */
+    function epcNorm(text) {
+        return ' ' + String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/^ +| +$/g, '') + ' ';
+    }
+
+    /** 1.4.0: the certificate's 1–5 efficiency scale, as the register words it. */
+    var EPC_RATING_WORDS = { 1: 'Very poor', 2: 'Poor', 3: 'Average', 4: 'Good', 5: 'Very good' };
+
+    /** Pure (1.4.0): an element's efficiency rating as words ("4" or "Good" -> "Good"); '' for none or N/A. */
+    function epcRating(value) {
+        var t = trim(value === null || value === undefined ? '' : String(value));
+        if (/^[1-5]$/.test(t)) {
+            return EPC_RATING_WORDS[t];
+        }
+        if (!/^[a-z][a-z ]*$/i.test(t) || /^n ?a$/i.test(t)) {
+            return '';
+        }
+        return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    }
+
+    /** 1.4.0: the certificate's keys per element — the GOV.UK API's arrays (and its single window object). */
+    var EPC_ARRAY_KEYS = { walls: ['walls'], windows: ['windows', 'window'], roof: ['roofs', 'roof'], floor: ['floors', 'floor'] };
+    /** 1.4.0: and the flat keys other shapes use ("walls-description", "walls_description", "wallsDescription"). */
+    var EPC_FLAT_BASES = { walls: ['walls', 'wall'], windows: ['windows', 'window'], roof: ['roof', 'roofs'], floor: ['floor', 'floors'] };
+
+    function epcDescriptionText(d) {
+        if (typeof d === 'string') {
+            return d;
+        }
+        return d && typeof d === 'object' && typeof d.value === 'string' ? d.value : '';
+    }
+
+    function epcSplit(text) {
+        return String(text || '').split(/\s*[|;]\s*/).map(trim).filter(function (x) { return x !== ''; });
+    }
+
+    /**
+     * Pure (1.4.0, amendment 4): one element's descriptions on a certificate, in the certificate's order (the main
+     * building first), each { text, rating }. Read from the certificate itself (`raw`, epc_lib's certificate().raw) in
+     * any of the shapes seen — an array of { description, energy_efficiency_rating } (the GOV.UK API), a single object, a
+     * flat "<element>-description" / "_description" / "Description" string (with "-energy-eff" ratings) — then, failing
+     * those, epc_lib's mapped "<element>Description" (`data`). Several entries joined with "|" or ";" are split; an entry
+     * repeated with the same rating is kept once.
+     * @returns {Array<{text: string, rating: string}>}
+     */
+    function epcEntries(raw, data, element) {
+        var r = raw && typeof raw === 'object' ? raw : {};
+        var out = [];
+        var seen = {};
+        function add(text, rating) {
+            var t = trim(text);
+            var k = epcNorm(t) + '|' + rating;
+            if (t === '' || seen[k]) {
+                return;
+            }
+            seen[k] = true;
+            out.push({ text: t, rating: rating });
+        }
+        function ratingOf(x) {
+            return epcRating(x.energy_efficiency_rating !== undefined ? x.energy_efficiency_rating :
+                x['energy-efficiency-rating'] !== undefined ? x['energy-efficiency-rating'] : x.energyEfficiencyRating);
+        }
+        (EPC_ARRAY_KEYS[element] || []).forEach(function (k) {
+            var v = r[k];
+            (Array.isArray(v) ? v : v && typeof v === 'object' ? [v] : []).forEach(function (x) {
+                if (x && typeof x === 'object') {
+                    epcSplit(epcDescriptionText(x.description)).forEach(function (t) { add(t, ratingOf(x)); });
+                } else if (typeof x === 'string') {
+                    epcSplit(x).forEach(function (t) { add(t, ''); });
+                }
+            });
+        });
+        if (!out.length) {
+            (EPC_FLAT_BASES[element] || []).forEach(function (base) {
+                [['-description', '-energy-eff'], ['_description', '_energy_eff'], ['Description', 'EnergyEff']].forEach(function (k) {
+                    var texts = epcSplit(epcDescriptionText(r[base + k[0]]));
+                    var ratings = String(r[base + k[1]] || '').split(/\s*[|;]\s*/);
+                    texts.forEach(function (t, i) {
+                        add(t, epcRating(ratings.length === texts.length ? ratings[i] : ratings.length === 1 ? ratings[0] : ''));
+                    });
+                });
+            });
+        }
+        if (!out.length && data && typeof data === 'object') {
+            epcSplit(data[{ walls: 'wallsDescription', windows: 'windowsDescription', roof: 'roofDescription',
+                floor: 'floorDescription' }[element]]).forEach(function (t) { add(t, ''); });
+        }
+        return out;
+    }
+
+    /** 1.4.0: the card's notes when the certificate says nothing about the element. */
+    var EPC_NOT_ON = 'Not on your EPC.';
+
+    /**
+     * Pure (brief §B9; 1.4.0, amendment 4): one element's EPC descriptions -> a card. `input` is epcEntries()'s list, or
+     * a string of entries joined with ";" or "|" (as epc_lib's mapped text). The card takes the FIRST entry (the main
+     * building) that maps to a preset — patterns matched ignoring case, punctuation and repeated spaces (epcNorm), the
+     * lowest priority winning within an entry; Not sure only when NONE maps. An entry stating an average thermal
+     * transmittance gives the U-value (source EPC). `notes` is always the certificate's own words: "EPC: <entry> (<rating>);
+     * <entry>…", clipped at ELEMENT_NOTES_MAX, or "Not on your EPC." when it has none.
+     * @returns {{key: string, u: string, text: string, notes: string, missing: boolean, mixed: boolean, matched: boolean}}
+     *   matched: a preset or a U-value came from the certificate; mixed: the entries map to different presets.
+     */
+    function epcElement(input, map, element) {
+        var entries = Array.isArray(input) ? input.filter(function (x) { return x && trim(x.text) !== ''; }) :
+            epcSplit(input).map(function (t) { return { text: t, rating: '' }; });
+        var key = '';
+        var u = '';
+        var presets = [];
+        if (!entries.length) {
+            return { key: 'unsure', u: '', text: '', notes: EPC_NOT_ON, missing: true, mixed: false, matched: false };
+        }
+        entries.forEach(function (entry) {
+            var low = epcNorm(entry.text);
+            var best = null;
+            var eu = uFromEpcText(entry.text);
+            if (eu) {
+                u = u || eu;
+                return;
+            }
+            ((map && map.rows) || []).forEach(function (r) {
+                if (r.element === element && low.indexOf(epcNorm(r.pattern)) >= 0 && (!best || r.priority < best.priority)) {
+                    best = r;
+                }
+            });
+            if (best) {
+                key = key || best.preset;
+                if (!contains(presets, best.preset)) {
+                    presets.push(best.preset);
+                }
+            }
+        });
+        return { key: key || 'unsure', u: u, text: entries.map(function (x) { return x.text; }).join('; '),
+            notes: plainValue('EPC: ' + entries.map(function (x) {
+                return trim(x.text) + (x.rating ? ' (' + x.rating + ')' : '');
+            }).join('; '), ELEMENT_NOTES_MAX),
+            missing: false, mixed: presets.length > 1, matched: !!key || !!u };
+    }
+
+    /** The age question's bands by their first year. */
+    var AGE_BAND_STARTS = [['pre1920', -Infinity], ['1920', 1920], ['1950', 1950], ['1976', 1976], ['1991', 1991],
+        ['2003', 2003], ['2012', 2012]];
+
+    /**
+     * Pure (brief §B9): an EPC construction age band -> the age question's key, from the START year ("England and Wales:
+     * 1950-1966" -> 1950; "before 1900" -> 1899; "2012 onwards" -> 2012). No year -> 'unsure'.
+     */
+    function ageBandKey(constructionAgeBand) {
+        var t = String(constructionAgeBand || '');
+        var m = /(\d{4})/.exec(t);
+        var year;
+        var key = 'unsure';
+        if (!m) {
+            return key;
+        }
+        year = parseInt(m[1], 10) - (/before\s+\d{4}/i.test(t) ? 1 : 0);
+        AGE_BAND_STARTS.forEach(function (b) {
+            if (year >= b[1]) {
+                key = b[0];
+            }
+        });
+        return key;
+    }
+
+    /**
+     * Pure (brief §B8): an element's line, as the field holds it — 'Cavity, filled · U 0.55 (typical) · notes: …'. uSource
+     * is 'customer' when an exact U was typed, else 'EPC' | 'typical' | 'regs' | 'preset'. '' when all are empty.
+     */
+    function elementLine(o) {
+        var x = o || {};
+        var parts = [];
+        var label = trim(x.label).replace(/\s*·\s*/g, ', ');
+        var u = uText(x.u);
+        var notes = trim(String(x.notes || '').replace(/[\r\n]+/g, ' '));
+        if (label) {
+            parts.push(label);
+        }
+        if (u) {
+            parts.push('U ' + uShow(u) + ' (' + (contains(U_SOURCES, x.uSource) ? x.uSource : 'preset') + ')');
+        }
+        if (notes) {
+            parts.push('notes: ' + notes);
+        }
+        return parts.join(' · ');
+    }
+
+    /**
+     * Pure: an element line back as its parts, or null when it is not one of ours (staff prose). A line counts as ours
+     * when it has the U part or the notes part, or its label is one of `labels` (the presets', the specials', "Typical
+     * for …"). An "Extension N: " prefix is not part of the line (splitExtensionLines()).
+     * @returns {{label: string, u: string, uSource: string, notes: string}|null}
+     */
+    function parseElementLine(text, labels) {
+        var t = trim(text);
+        var m = /^(.*?)(?:(?:^| · )U (\d*\.?\d+) \((customer|EPC|typical|regs|preset)\))?(?:(?:^| · )notes: (.*))?$/.exec(t);
+        var label;
+        if (t === '' || /\n/.test(t) || !m) {
+            return null;
+        }
+        label = trim(m[1]);
+        if (!m[2] && m[4] === undefined && !contains(labels || [], label) && !/^Typical for /.test(label)) {
+            return null;
+        }
+        if (label.indexOf(' · ') >= 0) {
+            return null;
+        }
+        return { label: label, u: m[2] ? uText(m[2]) : '', uSource: m[3] || '', notes: m[4] === undefined ? '' : trim(m[4]) };
+    }
+
+    /** Pure: two element lines are the same when (label, u, notes) are — a change of source alone is not a change. */
+    function sameElement(a, b, labels) {
+        var pa = parseElementLine(a, labels);
+        var pb = parseElementLine(b, labels);
+        if (!pa || !pb) {
+            return sameText(a, b);
+        }
+        return pa.label === pb.label && pa.u === pb.u && pa.notes === pb.notes;
+    }
+
+    /** Pure: a New field's text as { main: the lines without a prefix, ext1: ..., ext2: ... } ("Extension N: …"). */
+    function splitExtensionLines(text) {
+        var out = { main: '' };
+        String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach(function (line) {
+            var m = /^Extension (\d+): (.*)$/.exec(trim(line));
+            if (m) {
+                out['ext' + m[1]] = trim(m[2]);
+            } else if (trim(line) !== '') {
+                out.main = out.main ? out.main + '\n' + trim(line) : trim(line);
+            }
+        });
+        return out;
+    }
+
+    /** Pure: the field an element answer goes to — market 'new': New; 'reno': Existing for the house, New for extensions. */
+    function elementField(market, element, ext) {
+        if (ext) {
+            return ELEMENT_FIELDS.new[element];
+        }
+        if (market === 'new') {
+            return ELEMENT_FIELDS.new[element];
+        }
+        return market === 'reno' ? ELEMENT_FIELDS.existing[element] : '';
+    }
+
+    /**
+     * Pure (brief §B8): where the element answers go. A new build: the New fields. A renovation: the house to the Existing
+     * fields; each extension's "Different" element to the matching New field, prefixed "Extension N: ", two joined by a
+     * newline. An extension "Same as the main house" has no answer here and writes nothing. Empty lines write nothing.
+     * @param {Object} facts - { market: 'new' | 'reno' } (the customer's answer to the market question)
+     * @param {Object} answers - qid -> { element, ext ('' for the house, 'ext1', 'ext2'), line }
+     * @returns {Object} fieldId -> the text
+     */
+    function elementTargets(facts, answers) {
+        var market = (facts || {}).market;
+        var byField = {};
+        var order = [];
+        var out = {};
+        var qid;
+        var a;
+        var f;
+        for (qid in (answers || {})) {
+            if (!answers.hasOwnProperty(qid)) {
+                continue;
+            }
+            a = answers[qid];
+            f = elementField(market, a.element, a.ext);
+            if (!f || trim(a.line) === '' || (a.ext && market !== 'reno')) {
+                continue;
+            }
+            if (!byField[f]) {
+                byField[f] = [];
+                order.push(f);
+            }
+            byField[f].push({ ext: a.ext, line: trim(a.line) });
+        }
+        order.forEach(function (fid) {
+            out[fid] = byField[fid].sort(function (x, y) {
+                return x.ext === y.ext ? 0 : x.ext < y.ext ? -1 : 1;
+            }).map(function (x) {
+                return x.ext ? 'Extension ' + x.ext.replace(/^ext/, '') + ': ' + x.line : x.line;
+            }).join('\n');
+        });
+        return out;
+    }
+
+    /** Pure: an age band's label inside a sentence ("Before 1920" -> "before 1920"). */
+    function bandText(band) {
+        var l = String((band && band.label) || '');
+        return /^[A-Z][a-z]/.test(l) ? l.charAt(0).toLowerCase() + l.slice(1) : l;
+    }
+
+    /** Pure: the special of a key, or null. */
+    function specialOf(key) {
+        return ELEMENT_SPECIALS.filter(function (x) { return x.key === key; })[0] || null;
+    }
+
+    /**
+     * Pure: the hidden q_<qid>_src — "kind" or "kind:key:u", the source of the values the card was given and those values
+     * (the pre-fill's fingerprint). Anything else reads as 'you'.
+     */
+    function parseSrc(raw) {
+        var parts = String(raw || '').split(':');
+        var kind = contains(ELEMENT_SRC, parts[0]) ? parts[0] : 'you';
+        return { kind: kind, key: /^[a-z0-9_]*$/.test(parts[1] || '') ? (parts[1] || '') : '', u: uText(parts[2] || '') };
+    }
+
+    /** Pure: the source still holds when the card is as it was given (same key, same U); else the customer changed it. */
+    function cardSource(card) {
+        var fp = parseSrc(card.src);
+        if (fp.kind === 'you' || String(card.src || '').indexOf(':') < 0) {
+            return fp.kind;
+        }
+        return fp.key === (card.key || '') && fp.u === uText(card.u || '') ? fp.kind : 'you';
+    }
+
+    /**
+     * Pure (brief §B8): a card -> elementLine()'s parts. card { key, u (the exact U box), notes, src }; ctx { presets, element,
+     * band (the age band: for typical), regs (the regs row) }.
+     */
+    function composeElement(card, ctx) {
+        var c = card || {};
+        var x = ctx || {};
+        var src = cardSource(c);
+        var typed = uText(c.u);
+        var srcU = { epc: 'EPC', age: 'typical', regs: 'regs' }[src] || '';
+        var p = presetOf(x.presets, x.element, c.key);
+        var label = '';
+        var u = '';
+        var uSource = '';
+        var b;
+        if (p) {
+            label = p.label;
+            u = p.u;
+            uSource = srcU || 'preset';
+        } else if (c.key === 'typical') {
+            b = x.band && x.band[x.element];
+            label = x.band ? 'Typical for ' + bandText(x.band) : specialOf('typical').label;
+            u = b ? b.u : '';
+            uSource = 'typical';
+        } else if (c.key === 'regs') {
+            b = x.regs && x.regs[x.element];
+            label = specialOf('regs').label;
+            u = b ? b.u : '';
+            uSource = 'regs';
+        } else if (specialOf(c.key)) {
+            label = specialOf(c.key).label;
+        }
+        if (typed) {
+            u = typed;
+            uSource = src !== 'you' && srcU ? srcU : 'customer';
+        }
+        return { label: label, u: u, uSource: u ? uSource : '', notes: trim(c.notes) };
+    }
+
+    /**
+     * Pure: a stored line -> the card it came from (for the page): the preset or special by its label, the exact U when the
+     * customer typed one (or a U that is not the preset's), the source. null when the line is staff prose.
+     */
+    function cardOfLine(line, ctx) {
+        var x = ctx || {};
+        var labels = elementLabels(x.presets, x.element);
+        var parsed = parseElementLine(line, labels);
+        var list = ((x.presets && x.presets.byElement && x.presets.byElement[x.element]) || []);
+        var p;
+        var key = '';
+        var src;
+        var u;
+        if (!parsed) {
+            return null;
+        }
+        p = list.filter(function (y) { return y.label === parsed.label; })[0];
+        if (p) {
+            key = p.key;
+        } else if (/^Typical for /.test(parsed.label)) {
+            key = 'typical';
+        } else {
+            ELEMENT_SPECIALS.forEach(function (sp) {
+                if (sp.label === parsed.label) {
+                    key = sp.key;
+                }
+            });
+        }
+        src = { EPC: 'epc', typical: 'age', regs: 'regs' }[parsed.uSource] || 'you';
+        // The U box holds a U the customer typed, or one that is not the preset's own (an EPC's average U).
+        u = parsed.uSource === 'customer' || (parsed.u && !(p && p.u === parsed.u) && key !== 'typical' && key !== 'regs') ?
+            parsed.u : '';
+        return { key: key, u: u, notes: parsed.notes, src: srcString(src, key, u) };
+    }
+
+    /** Pure: the hidden src value for a card: "kind:key:u" (a fingerprint), or "you". */
+    function srcString(kind, key, u) {
+        return kind === 'you' ? 'you' : kind + ':' + (key || '') + ':' + (uText(u) || '');
+    }
+
+    /** Pure: the labels an element's lines may carry (its presets', the specials'). */
+    function elementLabels(presets, element) {
+        return ((presets && presets.byElement && presets.byElement[element]) || []).map(function (p) { return p.label; })
+            .concat(ELEMENT_SPECIALS.map(function (x) { return x.label; }));
+    }
+
+    /**
+     * Pure (brief §B8): pre-fill a card — only when it is empty or its values still came from an earlier pre-fill; never over
+     * the customer's own choice. Notes are never touched. Returns the card to show (a copy).
+     * @param {Object} card - { key, u, notes, src }
+     * @param {Object} fill - { kind: 'epc'|'age'|'regs', key, u }
+     */
+    function fillPrefill(card, fill) {
+        var c = card || {};
+        var out = { key: c.key || '', u: c.u || '', notes: c.notes || '', src: c.src || '' };
+        var empty = out.key === '' && uText(out.u) === '';
+        if (!fill || (!empty && cardSource(out) === 'you')) {
+            return out;
+        }
+        out.key = fill.key || '';
+        out.u = fill.u || '';
+        out.src = srcString(fill.kind, out.key, out.u);
+        return out;
+    }
+
+    /**
+     * Pure: what a route pre-fills on a card. 'age' (the typical route): the band's value — its preset, or the U on the
+     * typical special; 'regs': the regs row's value on the regs special (a preset value as that preset).
+     * @returns {{kind, key, u}|null}
+     */
+    function bandFill(kind, row, element) {
+        var v = row && row[element];
+        if (!v) {
+            return null;
+        }
+        if (v.preset) {
+            return { kind: kind, key: v.preset, u: '' };
+        }
+        return { kind: kind, key: kind === 'age' ? 'typical' : 'regs', u: '' };
+    }
+
+    /** Pure: the card's source tag. */
+    function sourceTag(card, band) {
+        var k = cardSource(card || {});
+        if (!(card && (card.key || uText(card.u)))) {
+            return '';
+        }
+        return k === 'epc' ? 'From your EPC' : k === 'age' ? 'Typical for ' + (band ? bandText(band) : 'the age of your property') :
+            k === 'regs' ? 'Building Regulations' : 'You chose this';
+    }
+
+    // ---------------------------------------------------------------- 1.3.0: plain words, old steps
+
+    /**
+     * Pure (1.3.0): what the customer is having, in plain words — UFH when the floor construction says so (a floor token, or an
+     * unknown FC on a known design service), a heat pump when the heat set holds nuheat_hp.
+     * @returns {{key: string, text: string, lower: string}} key 'ufh_hp' | 'ufh' | 'hp' | '' (text '' then)
+     */
+    function systemWords(facts) {
+        var f = facts || {};
+        var fc = f.fc || [];
+        var ufh = fc.some(function (t) { return contains(FC_FLOORS, t); }) ||
+            (fc.length === 1 && fc[0] === 'unknown' && !!f.service && f.service !== 'unknown');
+        var hp = contains(asList(f.heat), 'nuheat_hp');
+        // 1.4.0 (amendment 4): system — the email's "{system}", always ending " system" ("heating system" when unknown).
+        if (ufh && hp) {
+            return { key: 'ufh_hp', text: 'Underfloor heating and a heat pump', lower: 'underfloor heating and heat pump',
+                system: 'underfloor heating and heat pump system' };
+        }
+        if (ufh) {
+            return { key: 'ufh', text: 'Underfloor heating', lower: 'underfloor heating', system: 'underfloor heating system' };
+        }
+        if (hp) {
+            return { key: 'hp', text: 'A heat pump', lower: 'heat pump', system: 'heat pump system' };
+        }
+        return { key: '', text: '', lower: '', system: 'heating system' };
+    }
+
+    /**
+     * Pure (1.3.0): the steps a stored state saved, or its rq names, that the registry no longer has (the six-step registry
+     * folded `plans` into Your project). They are ignored; the caller logs them with the unknown qids.
+     * @returns {string[]}
+     */
+    function unknownStateSteps(state, questions) {
+        var known = {};
+        var out = [];
+        var k;
+        (questions || []).forEach(function (q) { known[q.section] = true; });
+        for (k in ((state && state.sections) || {})) {
+            if (state.sections.hasOwnProperty(k) && !known[k]) {
+                out.push(k);
+            }
+        }
+        ((state && state.rq) || []).forEach(function (id) {
+            if (!known[id] && out.indexOf(id) < 0) {
+                out.push(id);
+            }
+        });
+        return out;
     }
 
     // ---------------------------------------------------------------- uploads
@@ -1020,9 +2319,144 @@ define([], function () {
         return t.length > n ? t.slice(0, n - 1) + '…' : t;
     }
 
+    // ---------------------------------------------------------------- 1.4.0 (2.3c amendment 4)
+
+    /**
+     * Pure (1.4.0): the standard heights (setting DI_STANDARD_HEIGHTS, JSON {"ceiling", "window", "door"} in metres); each
+     * missing, invalid or out of range (0.5–10) value takes its default. { heights: { ceiling, window, door }, invalid }.
+     */
+    function standardHeights(raw, defaults) {
+        var d = defaults || {};
+        var out = { heights: { ceiling: String(d.ceiling || ''), window: String(d.window || ''), door: String(d.door || '') },
+            invalid: false };
+        var v;
+        if (trim(raw) === '') {
+            return out;
+        }
+        try {
+            v = JSON.parse(String(raw));
+        } catch (e) {
+            out.invalid = true;
+            return out;
+        }
+        if (!v || typeof v !== 'object' || Array.isArray(v)) {
+            out.invalid = true;
+            return out;
+        }
+        ['ceiling', 'window', 'door'].forEach(function (k) {
+            var t = trim(v[k] === undefined || v[k] === null ? '' : String(v[k]));
+            var n = parseFloat(t);
+            if (t === '') {
+                return;
+            }
+            if (!/^\d+(\.\d+)?$/.test(t) || n < 0.5 || n > 10) {
+                out.invalid = true;
+                return;
+            }
+            out.heights[k] = t;
+        });
+        return out;
+    }
+
+    /** Pure (1.4.0): "{ceiling}"-style placeholders filled. */
+    function fillText(text, vals) {
+        return String(text || '').replace(/\{([a-z]+)\}/g, function (m, k) {
+            return vals && vals.hasOwnProperty(k) ? String(vals[k]) : m;
+        });
+    }
+
+    /** Pure (1.4.0): a short, stable fingerprint of a text (djb2, base 36) — how the state finds what the form wrote. */
+    function textHash(text) {
+        var t = String(text || '');
+        var h = 5381;
+        var i;
+        for (i = 0; i < t.length; i++) {
+            h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+        }
+        return (h >>> 0).toString(36);
+    }
+
+    var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    /** Pure (1.4.0): "2026-10-12" -> "12 Oct" (year: "12 Oct 2026"); '' for anything else. */
+    function dayMonth(key, year) {
+        var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(key || ''));
+        return m ? parseInt(m[3], 10) + ' ' + MONTHS[parseInt(m[2], 10) - 1] + (year ? ' ' + m[1] : '') : '';
+    }
+
+    /** The prefix of a line the form appends after staff text: "Customer (12 Oct): ". */
+    var CUSTOMER_LINE = 'Customer (';
+
+    /**
+     * Pure (1.4.0, amendment 4 §9): a free-text field (a `long` or `text` question with a custbody field) split into the
+     * staff's text and the customer's own. `mark` is what the state keeps of the form's last write to it ({ h: hash, n:
+     * length, p: 1 when the field held only the customer's text }): the field equal to that write is the customer's only;
+     * a "Customer (…): …" block with that hash is the customer's, the rest the staff's. Without a mark (or when the field
+     * changed), every character is the staff's — never lost. Line endings normalised to \n.
+     * @returns {{staff: string, mine: string, ours: boolean}} ours: the field holds only what the form wrote.
+     */
+    function freeTextParts(fieldValue, mark) {
+        var v = String(fieldValue === null || fieldValue === undefined ? '' : fieldValue).replace(/\r\n?/g, '\n');
+        var m = mark && typeof mark === 'object' ? mark : null;
+        var i;
+        var cand;
+        var staff;
+        if (trim(v) === '') {
+            return { staff: '', mine: '', ours: false };
+        }
+        if (m && m.p === 1 && v.length === m.n && textHash(v) === m.h) {
+            return { staff: '', mine: v, ours: true };
+        }
+        if (m && m.p !== 1) {
+            i = v.indexOf(CUSTOMER_LINE);
+            while (i >= 0) {
+                cand = v.substr(i, m.n);
+                if (cand.length === m.n && textHash(cand) === m.h) {
+                    staff = (v.slice(0, i).replace(/\n$/, '') + (v.slice(i + m.n) ? '\n' + v.slice(i + m.n).replace(/^\n/, '') : ''))
+                        .replace(/^\n+|\n+$/g, '');
+                    return { staff: staff, mine: cand.replace(/^Customer \([^)]*\): /, ''), ours: trim(staff) === '' };
+                }
+                i = v.indexOf(CUSTOMER_LINE, i + 1);
+            }
+        }
+        return { staff: v, mine: '', ours: false };
+    }
+
+    /**
+     * Pure (1.4.0): what to write for a free-text answer. No staff text: the answer as it is (mark p: 1). Staff text: the
+     * staff's text, a new line, "Customer (<d MMM>): <answer>" (the answer clipped so the whole fits `limit`). { value,
+     * mark: { h, n, p }, clipped }; value '' when not even one character of the answer fits.
+     */
+    function freeTextWrite(parts, answer, dayText, limit) {
+        var a = String(answer || '').replace(/\r\n?/g, '\n');
+        var prefix = CUSTOMER_LINE + dayText + '): ';
+        var room;
+        var block;
+        var clipped = false;
+        if (!parts || trim(parts.staff) === '') {
+            if (limit && a.length > limit) {
+                a = a.slice(0, limit);
+                clipped = true;
+            }
+            return { value: a, mark: { h: textHash(a), n: a.length, p: 1 }, clipped: clipped };
+        }
+        room = limit ? limit - parts.staff.length - 1 - prefix.length : a.length;
+        if (room < 1) {
+            return { value: '', mark: null, clipped: true };
+        }
+        if (a.length > room) {
+            a = a.slice(0, room);
+            clipped = true;
+        }
+        block = prefix + a;
+        return { value: parts.staff + '\n' + block, mark: { h: textHash(block), n: block.length, p: 0 }, clipped: clipped };
+    }
+
     return {
         VERSION: VERSION,
         COLUMNS: COLUMNS,
+        COLUMNS_V2: COLUMNS_V2,
+        unknownStateQids: unknownStateQids,
         TYPES: TYPES,
         STORE: STORE,
         FROM_FIELD: FROM_FIELD,
@@ -1074,6 +2508,77 @@ define([], function () {
         parseFcMapOnly: parseFcMapOnly,
         stateTextGuarded: stateTextGuarded,
         plainValue: plainValue,
-        sameText: sameText
+        sameText: sameText,
+        // 1.2.0
+        COLUMNS_V3: COLUMNS_V3,
+        ELEMENTS: ELEMENTS,
+        ELEMENT_SPECIALS: ELEMENT_SPECIALS,
+        ELEMENT_FIELDS: ELEMENT_FIELDS,
+        ELEMENT_NAMES: ELEMENT_NAMES,
+        ELEMENT_NOTES_MAX: ELEMENT_NOTES_MAX,
+        U_MIN: U_MIN,
+        U_MAX: U_MAX,
+        HEAT26_VALUES: HEAT26_VALUES,
+        HP_VALUES: HP_VALUES,
+        ALWAYS_STEPS: ALWAYS_STEPS,
+        NUMBER_QIDS: NUMBER_QIDS,
+        isNumberQuestion: isNumberQuestion,
+        FROM_SETTING: FROM_SETTING,
+        asList: asList,
+        idsOf: idsOf,
+        parseHeat26Map: parseHeat26Map,
+        parseOptionsSetting: parseOptionsSetting,
+        parseLiteralOptions: parseLiteralOptions,
+        answerKeys: answerKeys,
+        parseReveal: parseReveal,
+        keyOfValue: keyOfValue,
+        revealMap: revealMap,
+        revealHeading: revealHeading,
+        stepsFor: stepsFor,
+        stepQuestions: stepQuestions,
+        stepsMinutes: stepsMinutes,
+        uText: uText,
+        uInRange: uInRange,
+        parsePresets: parsePresets,
+        presetOf: presetOf,
+        parseAgeBands: parseAgeBands,
+        parseEpcMap: parseEpcMap,
+        uFromEpcText: uFromEpcText,
+        epcElement: epcElement,
+        // 1.4.0
+        epcNorm: epcNorm,
+        epcRating: epcRating,
+        epcEntries: epcEntries,
+        EPC_NOT_ON: EPC_NOT_ON,
+        standardHeights: standardHeights,
+        fillText: fillText,
+        textHash: textHash,
+        dayMonth: dayMonth,
+        freeTextParts: freeTextParts,
+        freeTextWrite: freeTextWrite,
+        ageBandKey: ageBandKey,
+        elementLine: elementLine,
+        parseElementLine: parseElementLine,
+        sameElement: sameElement,
+        splitExtensionLines: splitExtensionLines,
+        elementField: elementField,
+        elementTargets: elementTargets,
+        parseSrc: parseSrc,
+        cardSource: cardSource,
+        composeElement: composeElement,
+        cardOfLine: cardOfLine,
+        srcString: srcString,
+        elementLabels: elementLabels,
+        fillPrefill: fillPrefill,
+        bandFill: bandFill,
+        sourceTag: sourceTag,
+        bandText: bandText,
+        // 1.3.0
+        CALL_WHEN_MAX: CALL_WHEN_MAX,
+        systemWords: systemWords,
+        unknownStateSteps: unknownStateSteps,
+        // 1.2.1
+        uShow: uShow,
+        STATE_TEXT_MAX: STATE_TEXT_MAX
     };
 });
